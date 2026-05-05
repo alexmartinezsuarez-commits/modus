@@ -837,16 +837,20 @@ def render_value_bets():
     st.markdown("### 📊 Comparativa de Jugadores")
     st.markdown(f"#### {j1['nombre_original']} vs {j2['nombre_original']}")
     
+    # Generar HTML de pentágonos primero
+    html_j1 = render_pentagono_habilidades(pr1, lam1, j1["promedio_dardos"], j1["checkouts"], j1["pct_victorias"], color="#1f77b4")
+    html_j2 = render_pentagono_habilidades(pr2, lam2, j2["promedio_dardos"], j2["checkouts"], j2["pct_victorias"], color="#ff7f0e")
+    
     # Mostrar pentágonos centrados
     html_comparativa = f"""
-    <div style="display: flex; gap: 40px; justify-content: center; align-items: flex-start; width: 100%;">
-        <div style="flex: 1; max-width: 400px; text-align: center;">
-            <h3 style="color: #1f77b4; margin-bottom: 20px;">{j1['nombre_original']}</h3>
-            {render_pentagono_habilidades(pr1, lam1, j1["promedio_dardos"], j1["checkouts"], j1["pct_victorias"], color="#1f77b4")}
+    <div style="display: flex; gap: 60px; justify-content: center; align-items: flex-start; width: 100%;">
+        <div style="flex: 0 0 auto; text-align: center;">
+            <h3 style="color: #1f77b4; margin-bottom: 20px; font-size: 24px;">{j1['nombre_original']}</h3>
+            {html_j1}
         </div>
-        <div style="flex: 1; max-width: 400px; text-align: center;">
-            <h3 style="color: #ff7f0e; margin-bottom: 20px;">{j2['nombre_original']}</h3>
-            {render_pentagono_habilidades(pr2, lam2, j2["promedio_dardos"], j2["checkouts"], j2["pct_victorias"], color="#ff7f0e")}
+        <div style="flex: 0 0 auto; text-align: center;">
+            <h3 style="color: #ff7f0e; margin-bottom: 20px; font-size: 24px;">{j2['nombre_original']}</h3>
+            {html_j2}
         </div>
     </div>
     """
