@@ -40,9 +40,11 @@ PESTANAS_CON_STATS = [k for k in URLS if k not in ("Value Bets",)]
 BANDERAS = {
     "GB": "🇬🇧", "NL": "🇳🇱", "BE": "🇧🇪", "PT": "🇵🇹", "AU": "🇦🇺",
     "DE": "🇩🇪", "PL": "🇵🇱", "IE": "🇮🇪", "CA": "🇨🇦",
+    "SE": "🇸🇪", "DK": "🇩🇰", "FR": "🇫🇷", "ES": "🇪🇸",
 }
 
 JUGADORES_PAISES = {
+    # Reino Unido
     "luke littler": "GB", "gary anderson": "GB", "peter wright": "GB", "gerwyn price": "GB",
     "jonny clayton": "GB", "james wade": "GB", "dave chisnall": "GB", "rob cross": "GB",
     "nathan aspinall": "GB", "chris dobey": "GB", "josh rock": "GB", "luke humphries": "GB",
@@ -50,14 +52,48 @@ JUGADORES_PAISES = {
     "brendan dolan": "GB", "ritchie edhouse": "GB", "ryan searle": "GB", "callan rydz": "GB",
     "joe cullen": "GB", "cameron menzies": "GB", "connor scutt": "GB", "glenn de bois": "GB",
     "nick kenny": "GB", "nathan rafferty": "GB", "steve west": "GB", "neil duff": "GB",
-    "danny noppert": "NL", "michiel kiemeneij": "NL", "wessel nijman": "NL", "dirk van duijvenbode": "NL",
+    "boris krcmar": "GB", "lewis williams": "GB", "scott waites": "GB", "kristjan karer": "GB",
+    "kyle anderson": "GB", "martin adams": "GB", "john lowe": "GB", "barry hearn": "GB",
+    
+    # Países Bajos
+    "michael van gerwen": "NL", "danny noppert": "NL", "wessel nijman": "NL", "dirk van duijvenbode": "NL",
     "kevin doets": "NL", "jelle klaasen": "NL", "maik kuivenhoven": "NL", "benito van de pas": "NL",
+    "michiel kiemeneij": "NL", "mervyn king": "NL",
+    
+    # Bélgica
     "dimitri van den bergh": "BE", "kim huybrechts": "BE", "alexis toylo": "BE",
-    "jose de sousa": "PT", "noa lynn": "PT",
-    "damon heta": "AU", "martin schindler": "DE", "gabriel clemens": "DE",
-    "ricardo pietreczko": "DE", "florian hempel": "DE", "krzysztof ratajski": "PL",
+    
+    # Portugal
+    "jose de sousa": "PT", "noa lynn": "PT", "paulo costa": "PT",
+    
+    # Australia
+    "damon heta": "AU",
+    
+    # Alemania
+    "martin schindler": "DE", "gabriel clemens": "DE", "ricardo pietreczko": "DE", 
+    "florian hempel": "DE", "max hopp": "DE",
+    
+    # Polonia
+    "krzysztof ratajski": "PL", "przemyslaw cecot": "PL",
+    
+    # Irlanda
     "keane barry": "IE", "william o'connor": "IE", "ciaran teeters": "IE", "dylan slevin": "IE",
+    "paddy power": "IE",
+    
+    # Canadá
     "matt campbell": "CA",
+    
+    # Suecia
+    "rikard karlsson": "SE",
+    
+    # Dinamarca
+    "anders hertz": "DK",
+    
+    # Francia
+    "boris krcmar": "FR",
+    
+    # España
+    "carlos garcia": "ES",
 }
 
 if "vb_fuente" not in st.session_state:
@@ -623,7 +659,7 @@ def render_mas_180s_barras(j1_nombre, p_j1, j2_nombre, p_j2, p_emp, j1_color="#1
     st.markdown(html_str, unsafe_allow_html=True)
 
 def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vic, color="#1f77b4"):
-    """Renderiza un pentágono de habilidades (radar chart) con SVG."""
+    """Renderiza un pentágono de habilidades simétrico con datos coloreados debajo."""
     
     # Normalizar valores entre 0-100
     pr_norm = min(100, max(0, pr))
@@ -634,10 +670,11 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     
     values = [pr_norm, lam_180_norm, promedio_dardos_norm, checkouts_norm, pct_vic_norm]
     labels = ["Power\nRanking", "λ 180s", "Ø Dardos", "Checkouts", "% Victoria"]
+    valores_display = [f"{pr:.1f}", f"{lam_180:.2f}", f"{promedio_dardos:.1f}", f"{checkouts:.0f}%", f"{pct_vic:.0f}%"]
     
-    center_x, center_y = 150, 150
-    radius = 120
-    angle_offset = -90
+    center_x, center_y = 120, 120
+    radius = 100
+    angle_offset = -90  # Comienza arriba
     
     # Calcular puntos del pentágono base
     points = []
@@ -659,55 +696,78 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
         data_points.append((x, y))
     
     svg_parts = []
-    svg_parts.append('<svg width="320" height="340" xmlns="http://www.w3.org/2000/svg">')
-    svg_parts.append('<rect width="320" height="340" fill="white"/>')
+    svg_parts.append('<svg width="280" height="280" xmlns="http://www.w3.org/2000/svg">')
+    svg_parts.append('<rect width="280" height="280" fill="white"/>')
     
     # Círculos de referencia
-    for r_pct in [20, 40, 60, 80, 100]:
+    for r_pct in [25, 50, 75, 100]:
         r = (r_pct / 100) * radius
-        svg_parts.append(f'<circle cx="{center_x}" cy="{center_y}" r="{r}" fill="none" stroke="rgba(200,200,200,0.3)" stroke-width="1"/>')
+        svg_parts.append(f'<circle cx="{center_x}" cy="{center_y}" r="{r}" fill="none" stroke="rgba(200,200,200,0.25)" stroke-width="0.8"/>')
     
     # Líneas radiales
     for point in points:
-        svg_parts.append(f'<line x1="{center_x}" y1="{center_y}" x2="{point[0]}" y2="{point[1]}" stroke="rgba(200,200,200,0.2)" stroke-width="1"/>')
+        svg_parts.append(f'<line x1="{center_x}" y1="{center_y}" x2="{point[0]}" y2="{point[1]}" stroke="rgba(200,200,200,0.15)" stroke-width="0.8"/>')
     
     # Pentágono base
     pentagon_path = "M " + " L ".join([f"{p[0]},{p[1]}" for p in points]) + " Z"
-    svg_parts.append(f'<path d="{pentagon_path}" fill="none" stroke="rgba(100,100,100,0.2)" stroke-width="1"/>')
+    svg_parts.append(f'<path d="{pentagon_path}" fill="none" stroke="rgba(150,150,150,0.2)" stroke-width="1"/>')
     
     # Área de datos
     data_path = "M " + " L ".join([f"{p[0]},{p[1]}" for p in data_points]) + " Z"
     rgb_color = color.lstrip('#')
     rgb_tuple = tuple(int(rgb_color[i:i+2], 16) for i in (0, 2, 4))
-    svg_parts.append(f'<path d="{data_path}" fill="rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.2)" stroke="{color}" stroke-width="2.5"/>')
+    svg_parts.append(f'<path d="{data_path}" fill="rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.15)" stroke="{color}" stroke-width="2"/>')
     
     # Puntos de datos
     for point in data_points:
-        svg_parts.append(f'<circle cx="{point[0]}" cy="{point[1]}" r="4" fill="{color}" stroke="white" stroke-width="2"/>')
+        svg_parts.append(f'<circle cx="{point[0]}" cy="{point[1]}" r="3.5" fill="{color}" stroke="white" stroke-width="1.5"/>')
     
-    # Etiquetas
+    # Etiquetas simétricas
     label_positions = [
-        (center_x, center_y - radius - 25),
-        (center_x + radius * 0.9, center_y - radius * 0.3 - 15),
-        (center_x + radius * 0.55, center_y + radius * 0.75 - 10),
-        (center_x - radius * 0.55, center_y + radius * 0.75 - 10),
-        (center_x - radius * 0.9, center_y - radius * 0.3 - 15),
+        (center_x, center_y - radius - 20),           # Arriba
+        (center_x + radius * 0.95, center_y - radius * 0.31 - 15),  # Arriba derecha
+        (center_x + radius * 0.59, center_y + radius * 0.81 - 12),  # Abajo derecha
+        (center_x - radius * 0.59, center_y + radius * 0.81 - 12),  # Abajo izquierda
+        (center_x - radius * 0.95, center_y - radius * 0.31 - 15),  # Arriba izquierda
     ]
     
     for i, (x, y) in enumerate(label_positions):
-        svg_parts.append(f'<text x="{x}" y="{y}" text-anchor="middle" font-size="9" font-family="Arial" fill="#333" font-weight="500">{labels[i]}</text>')
-    
-    # Valores en los puntos
-    for i, (x, y) in enumerate(data_points):
-        offset_x = (x - center_x) * 0.25
-        offset_y = (y - center_y) * 0.25
-        val_x = x + offset_x
-        val_y = y + offset_y
-        svg_parts.append(f'<text x="{val_x}" y="{val_y}" text-anchor="middle" font-size="8" font-family="Arial" fill="{color}" font-weight="bold">{values[i]:.0f}</text>')
+        svg_parts.append(f'<text x="{x}" y="{y}" text-anchor="middle" font-size="9" font-family="Arial" fill="#666" font-weight="500">{labels[i]}</text>')
     
     svg_parts.append('</svg>')
     
-    return "\n".join(svg_parts)
+    svg_html = "\n".join(svg_parts)
+    
+    # HTML para los datos debajo del pentágono
+    html_datos = f"""
+    <div style="margin-top: -10px;">
+        {svg_html}
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 8px; margin-top: 15px; text-align: center;">
+            <div style="background: rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.1); padding: 8px; border-radius: 6px; border-left: 3px solid {color};">
+                <p style="margin: 0; font-size: 11px; color: #666;">Power</p>
+                <p style="margin: 3px 0 0 0; font-size: 14px; font-weight: bold; color: {color};">{valores_display[0]}</p>
+            </div>
+            <div style="background: rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.1); padding: 8px; border-radius: 6px; border-left: 3px solid {color};">
+                <p style="margin: 0; font-size: 11px; color: #666;">λ 180s</p>
+                <p style="margin: 3px 0 0 0; font-size: 14px; font-weight: bold; color: {color};">{valores_display[1]}</p>
+            </div>
+            <div style="background: rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.1); padding: 8px; border-radius: 6px; border-left: 3px solid {color};">
+                <p style="margin: 0; font-size: 11px; color: #666;">Ø Dardos</p>
+                <p style="margin: 3px 0 0 0; font-size: 14px; font-weight: bold; color: {color};">{valores_display[2]}</p>
+            </div>
+            <div style="background: rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.1); padding: 8px; border-radius: 6px; border-left: 3px solid {color};">
+                <p style="margin: 0; font-size: 11px; color: #666;">Checkout</p>
+                <p style="margin: 3px 0 0 0; font-size: 14px; font-weight: bold; color: {color};">{valores_display[3]}</p>
+            </div>
+            <div style="background: rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.1); padding: 8px; border-radius: 6px; border-left: 3px solid {color};">
+                <p style="margin: 0; font-size: 11px; color: #666;">% Vic</p>
+                <p style="margin: 3px 0 0 0; font-size: 14px; font-weight: bold; color: {color};">{valores_display[4]}</p>
+            </div>
+        </div>
+    </div>
+    """
+    
+    return html_datos
 
 def render_value_bets():
     st.title("💰 Value Bets — Motor de Probabilidades")
@@ -779,35 +839,19 @@ def render_value_bets():
     
     with col_p1:
         st.markdown(f"<h4 style='text-align: center; color: #1f77b4;'>🔵 {j1['nombre_original']}</h4>", unsafe_allow_html=True)
-        svg_j1 = render_pentagono_habilidades(
+        html_j1 = render_pentagono_habilidades(
             pr1, lam1, j1["promedio_dardos"], j1["checkouts"], j1["pct_victorias"],
             color="#1f77b4"
         )
-        st.markdown(svg_j1, unsafe_allow_html=True)
-        
-        # Datos tabulares
-        st.markdown("---")
-        st.metric("Power Ranking", f"{pr1:.1f}")
-        st.metric("λ 180s", f"{lam1:.2f}")
-        st.metric("Promedio Dardos", f"{j1['promedio_dardos']:.1f}")
-        st.metric("Checkouts", f"{j1['checkouts']:.0f}%")
-        st.metric("% Victorias", f"{j1['pct_victorias']:.0f}%")
+        st.markdown(html_j1, unsafe_allow_html=True)
     
     with col_p2:
         st.markdown(f"<h4 style='text-align: center; color: #ff7f0e;'>🟠 {j2['nombre_original']}</h4>", unsafe_allow_html=True)
-        svg_j2 = render_pentagono_habilidades(
+        html_j2 = render_pentagono_habilidades(
             pr2, lam2, j2["promedio_dardos"], j2["checkouts"], j2["pct_victorias"],
             color="#ff7f0e"
         )
-        st.markdown(svg_j2, unsafe_allow_html=True)
-        
-        # Datos tabulares
-        st.markdown("---")
-        st.metric("Power Ranking", f"{pr2:.1f}")
-        st.metric("λ 180s", f"{lam2:.2f}")
-        st.metric("Promedio Dardos", f"{j2['promedio_dardos']:.1f}")
-        st.metric("Checkouts", f"{j2['checkouts']:.0f}%")
-        st.metric("% Victorias", f"{j2['pct_victorias']:.0f}%")
+        st.markdown(html_j2, unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("### 🔥 Head to Head Semanal")
     with st.spinner("Analizando enfrentamientos directos..."):
@@ -996,7 +1040,7 @@ def render_value_bets():
                 if y > 0:
                     value_bets_list.append({"Mercado": f"Más 180s: {j2['nombre_original']}", "Probabilidad": p_j2_mas, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
     with tab4:
-        st.markdown("#### 📐 Hándicaps de Legs")
+        st.markdown("#### 🎯 Hándicaps 180 de Legs")
         col_h1, col_h2 = st.columns(2)
         with col_h1:
             st.markdown(f"##### {j1['nombre_original']}")
