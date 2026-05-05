@@ -669,21 +669,32 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     pct_vic_norm = min(100, max(0, pct_vic))
     
     values = [pr_norm, lam_180_norm, promedio_dardos_norm, checkouts_norm, pct_vic_norm]
-    labels = ["Power\nRanking", "λ 180s", "Ø Dardos", "Checkouts", "% Victoria"]
+    labels = ["Power", "λ 180s", "Ø Dardos", "Checkout", "% Vic"]
     valores_display = [f"{pr:.1f}", f"{lam_180:.2f}", f"{promedio_dardos:.1f}", f"{checkouts:.0f}%", f"{pct_vic:.0f}%"]
     
-    center_x, center_y = 120, 120
-    radius = 100
+    # SVG centrado perfecto
+    svg_size = 340
+    center_x, center_y = svg_size / 2, svg_size / 2  # 170, 170
+    radius = 90
     angle_offset = -90  # Comienza arriba
     
     # Calcular puntos del pentágono base
     points = []
+    label_pos = []
     for i in range(5):
         angle = angle_offset + (i * 72)
         rad = np.radians(angle)
+        
+        # Punto del pentágono
         x = center_x + radius * np.cos(rad)
         y = center_y + radius * np.sin(rad)
         points.append((x, y))
+        
+        # Posición de etiqueta más alejada
+        label_radius = radius + 30
+        lx = center_x + label_radius * np.cos(rad)
+        ly = center_y + label_radius * np.sin(rad)
+        label_pos.append((lx, ly))
     
     # Calcular puntos de datos
     data_points = []
@@ -696,8 +707,8 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
         data_points.append((x, y))
     
     svg_parts = []
-    svg_parts.append('<svg width="280" height="280" xmlns="http://www.w3.org/2000/svg">')
-    svg_parts.append('<rect width="280" height="280" fill="white"/>')
+    svg_parts.append(f'<svg width="{svg_size}" height="{svg_size}" xmlns="http://www.w3.org/2000/svg">')
+    svg_parts.append(f'<rect width="{svg_size}" height="{svg_size}" fill="white"/>')
     
     # Círculos de referencia
     for r_pct in [25, 50, 75, 100]:
@@ -716,52 +727,45 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     data_path = "M " + " L ".join([f"{p[0]},{p[1]}" for p in data_points]) + " Z"
     rgb_color = color.lstrip('#')
     rgb_tuple = tuple(int(rgb_color[i:i+2], 16) for i in (0, 2, 4))
-    svg_parts.append(f'<path d="{data_path}" fill="rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.15)" stroke="{color}" stroke-width="2"/>')
+    svg_parts.append(f'<path d="{data_path}" fill="rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.15)" stroke="{color}" stroke-width="2.5"/>')
     
     # Puntos de datos
     for point in data_points:
         svg_parts.append(f'<circle cx="{point[0]}" cy="{point[1]}" r="3.5" fill="{color}" stroke="white" stroke-width="1.5"/>')
     
     # Etiquetas simétricas
-    label_positions = [
-        (center_x, center_y - radius - 20),           # Arriba
-        (center_x + radius * 0.95, center_y - radius * 0.31 - 15),  # Arriba derecha
-        (center_x + radius * 0.59, center_y + radius * 0.81 - 12),  # Abajo derecha
-        (center_x - radius * 0.59, center_y + radius * 0.81 - 12),  # Abajo izquierda
-        (center_x - radius * 0.95, center_y - radius * 0.31 - 15),  # Arriba izquierda
-    ]
-    
-    for i, (x, y) in enumerate(label_positions):
-        svg_parts.append(f'<text x="{x}" y="{y}" text-anchor="middle" font-size="9" font-family="Arial" fill="#666" font-weight="500">{labels[i]}</text>')
+    for i, (x, y) in enumerate(label_pos):
+        svg_parts.append(f'<text x="{x}" y="{y}" text-anchor="middle" dominant-baseline="middle" font-size="9" font-family="Arial" fill="#666" font-weight="500">{labels[i]}</text>')
     
     svg_parts.append('</svg>')
     
-    svg_html = "\n".join(svg_parts)
+    svg_html = "
+".join(svg_parts)
     
     # HTML para los datos debajo del pentágono
     html_datos = f"""
-    <div style="margin-top: -10px;">
+    <div style="margin-top: 10px;">
         {svg_html}
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 8px; margin-top: 15px; text-align: center;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 8px; margin-top: 20px; text-align: center;">
             <div style="background: rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.1); padding: 8px; border-radius: 6px; border-left: 3px solid {color};">
                 <p style="margin: 0; font-size: 11px; color: #666;">Power</p>
-                <p style="margin: 3px 0 0 0; font-size: 14px; font-weight: bold; color: {color};">{valores_display[0]}</p>
+                <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold; color: {color};">{valores_display[0]}</p>
             </div>
             <div style="background: rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.1); padding: 8px; border-radius: 6px; border-left: 3px solid {color};">
                 <p style="margin: 0; font-size: 11px; color: #666;">λ 180s</p>
-                <p style="margin: 3px 0 0 0; font-size: 14px; font-weight: bold; color: {color};">{valores_display[1]}</p>
+                <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold; color: {color};">{valores_display[1]}</p>
             </div>
             <div style="background: rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.1); padding: 8px; border-radius: 6px; border-left: 3px solid {color};">
                 <p style="margin: 0; font-size: 11px; color: #666;">Ø Dardos</p>
-                <p style="margin: 3px 0 0 0; font-size: 14px; font-weight: bold; color: {color};">{valores_display[2]}</p>
+                <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold; color: {color};">{valores_display[2]}</p>
             </div>
             <div style="background: rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.1); padding: 8px; border-radius: 6px; border-left: 3px solid {color};">
                 <p style="margin: 0; font-size: 11px; color: #666;">Checkout</p>
-                <p style="margin: 3px 0 0 0; font-size: 14px; font-weight: bold; color: {color};">{valores_display[3]}</p>
+                <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold; color: {color};">{valores_display[3]}</p>
             </div>
             <div style="background: rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},0.1); padding: 8px; border-radius: 6px; border-left: 3px solid {color};">
                 <p style="margin: 0; font-size: 11px; color: #666;">% Vic</p>
-                <p style="margin: 3px 0 0 0; font-size: 14px; font-weight: bold; color: {color};">{valores_display[4]}</p>
+                <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold; color: {color};">{valores_display[4]}</p>
             </div>
         </div>
     </div>
