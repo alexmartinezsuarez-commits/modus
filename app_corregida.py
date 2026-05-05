@@ -46,58 +46,970 @@ JUGADORES_PAISES = {
     "luke littler": "GB", "gary anderson": "GB", "peter wright": "GB", "gerwyn price": "GB",
     "jonny clayton": "GB", "james wade": "GB", "dave chisnall": "GB", "rob cross": "GB",
     "nathan aspinall": "GB", "chris dobey": "GB", "josh rock": "GB", "luke humphries": "GB",
-    "michael smith": "GB", "ross smith": "GB", "stephen bunting": "GB", "joe cullen": "GB",
+    "michael smith": "GB", "ross smith": "GB", "stephen bunting": "GB", "andrew gilding": "GB",
+    "brendan dolan": "GB", "ritchie edhouse": "GB", "ryan searle": "GB", "callan rydz": "GB",
+    "joe cullen": "GB", "cameron menzies": "GB", "connor scutt": "GB", "glenn de bois": "GB",
+    "nick kenny": "GB", "nathan rafferty": "GB", "steve west": "GB", "neil duff": "GB",
     "danny noppert": "NL", "michiel kiemeneij": "NL", "wessel nijman": "NL", "dirk van duijvenbode": "NL",
-    "kevin doets": "NL", "jelle klaasen": "NL", "maik kuivenhoven": "NL",
-    "dimitri van den bergh": "BE", "mike de decker": "BE",
+    "kevin doets": "NL", "jelle klaasen": "NL", "maik kuivenhoven": "NL", "benito van de pas": "NL",
+    "dimitri van den bergh": "BE", "kim huybrechts": "BE", "alexis toylo": "BE",
     "jose de sousa": "PT", "noa lynn": "PT",
-    "kyle anderson": "GB", "dave clayton": "GB", "joe murnan": "GB",
-    "andrew gilding": "GB", "lewis williams": "GB", "brendan dolan": "GB",
+    "damon heta": "AU", "martin schindler": "DE", "gabriel clemens": "DE",
+    "ricardo pietreczko": "DE", "florian hempel": "DE", "krzysztof ratajski": "PL",
+    "keane barry": "IE", "william o'connor": "IE", "ciaran teeters": "IE", "dylan slevin": "IE",
+    "matt campbell": "CA",
 }
 
-@st.cache_data(ttl=30)
-def cargar_datos(url):
+if "vb_fuente" not in st.session_state:
+    st.session_state.vb_fuente = "Resumen Semanal"
+if "vb_j1" not in st.session_state:
+    st.session_state.vb_j1 = None
+if "vb_j2" not in st.session_state:
+    st.session_state.vb_j2 = None
+if "vb_calcular" not in st.session_state:
+    st.session_state.vb_calcular = False
+if "last_update" not in st.session_state:
+    st.session_state.last_update = {}
+
+def arreglar_columnas(df):
+    nuevas_cols = []
+    for i, col in enumerate(df.columns):
+        nombre = str(col)
+        if nombre == 'nan' or nombre.strip() == '':
+            nombre = f"Dato_{i}"
+        while nombre in nuevas_cols:
+            nombre = f"{nombre}_{i}"
+        nuevas_cols.append(nombre)
+    df.columns = nuevas_cols
+    return df
+
+def pintar_partidos(fila):
+    if (fila.name // 2) % 2 == 0:
+        return ['background-color: rgba(150, 150, 150, 0.15)'] * len(fila)
+    return ['background-color: transparent'] * len(fila)
+
+def extraer_stats_diarias(df, fila_n, col_rango):
     try:
-        df = pd.read_csv(url)
-        return df
+        nombres = df.iloc[fila_n, col_rango[0]:col_rango[1]].values
+        jugadores = [str(n).strip() for n in nombres if str(n).strip() not in ['nan', '']]
+        data_final = {}
+        for i, j in enumerate(jugadores):
+            stats = {}
+            curr_f = fila_n + 1
+            while curr_f + 1 < len(df) and curr_f < fila_n + 35:
+                tit = str(df.iloc[curr_f, col_rango[0]]).strip()
+                if tit != 'nan' and tit != '':
+                    val_fila1 = str(df.iloc[curr_f + 1, col_rango[0] + i]).strip() if curr_f + 1 < len(df) else 'nan'
+                    val_fila2 = str(df.iloc[curr_f + 2, col_rango[0] + i]).strip() if curr_f + 2 < len(df) else 'nan'
+                    val = val_fila1 if val_fila1 != 'nan' else val_fila2
+                    if val != 'nan' and val != '':
+                        stats[tit] = val
+                curr_f += 1
+            data_final[j] = stats
+        return data_final
     except:
-        return pd.DataFrame()
+        return {}
 
-def similar(a, b):
-    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+def extraer_stats_resumen_semanal(df):
+    try:
+        headers = [str(v).strip() for v in df.iloc[5].values if str(v).strip() not in ['', 'nan']]
+        data = df.iloc[6:].copy()
+        jugadores = {}
+        for idx, row in data.iterrows():
+            nombre = str(row.iloc[1]).strip() if len(row) > 1 else ""
+            if nombre in ['nan', '', '=']:
+                continue
+            stats = {}
+            col_idx = 2
+            header_idx = 1
+            while col_idx < len(row) and header_idx < len(headers):
+                valor = row.iloc[col_idx]
+                header = headers[header_idx]
+                if header.strip() == '=':
+                    col_idx += 1
+                    header_idx += 1
+                    continue
+                if str(valor).strip() not in ['nan', '', '=']:
+                    stats[header.lower().strip()] = valor
+                col_idx += 1
+                header_idx += 1
+            if stats:
+                jugadores[nombre.lower()] = stats
+        return jugadores
+    except Exception as e:
+        st.error(f"Error extrayendo Resumen Semanal: {e}")
+        return {}
 
-def obtener_bandera(nombre):
-    nombre_lower = nombre.lower()
-    pais = JUGADORES_PAISES.get(nombre_lower, "ES")
-    return BANDERAS.get(pais, "🇪🇸")
+@st.cache_data(ttl=5)
+def cargar_jugadores_desde(pestana: str):
+    try:
+        url = URLS.get(pestana, "")
+        if not url:
+            return {}
+        df = pd.read_csv(url, header=None)
+        st.session_state.last_update[pestana] = datetime.now()
+        fila_header = None
+        for i, row in df.iterrows():
+            if any(str(v).strip().lower() == "jugador" for v in row.values):
+                fila_header = i
+                break
+        if fila_header is None:
+            corte = CORTES.get(pestana, {})
+            if "der_nombres" in corte:
+                der_f  = corte["der_nombres"]
+                der_c  = corte["der_cols"]
+                stats  = extraer_stats_diarias(df, der_f, der_c)
+                jugadores = {}
+                for nombre, s in stats.items():
+                    pr       = safe_float(_buscar_stat(s, ["global", "puntuación", "puntuacion"]))
+                    lam_180  = safe_float(_buscar_stat(s, ["180", "ciento"]))
+                    lam_legs = safe_float(_buscar_stat(s, ["legs por partido", "promedio legs", "leg por partido"]))
+                    promedio_dardos = safe_float(_buscar_stat(s, ["promedio puntos", "average", "promedio dardos", "ppd", "media puntos"]))
+                    checkouts = safe_float(str(_buscar_stat(s, ["checkout"])).replace("%", ""))
+                    pct_vic = safe_float(str(_buscar_stat(s, ["porcentaje victoria", "% victoria"])).replace("%", ""))
+                    jugadores[nombre.lower()] = {
+                        "nombre_original": nombre,
+                        "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
+                        "promedio_dardos": promedio_dardos,
+                        "checkouts": checkouts, "pct_victorias": pct_vic
+                    }
+                return jugadores
+            return {}
+        headers = [str(v).strip() for v in df.iloc[fila_header].values]
+        data    = df.iloc[fila_header + 1:].copy()
+        data.columns = headers
+        data = data.reset_index(drop=True)
+        def buscar_col(keywords):
+            for h in headers:
+                if any(kw.lower() in h.lower() for kw in keywords):
+                    return h
+            return None
+        col_jugador = buscar_col(["jugador", "nombre"])
+        col_pr      = buscar_col(["puntuación global", "puntuacion global", "global", "power"])
+        col_180     = buscar_col(["180"])
+        col_legs    = buscar_col(["legs", "leg"])
+        col_promedio_dardos = buscar_col(["promedio puntos", "average", "promedio dardos", "ppd", "media puntos"])
+        col_checkouts = buscar_col(["checkout"])
+        col_pct_vic = buscar_col(["porcentaje victoria", "% victoria", "% victoria", "%victoria"])
+        jugadores = {}
+        for _, fila in data.iterrows():
+            nombre = str(fila.get(col_jugador, "")).strip() if col_jugador else ""
+            if not nombre or nombre.lower() in ["nan", "jugador", ""]:
+                continue
+            pr       = safe_float(fila.get(col_pr,    0)) if col_pr    else 0.0
+            lam_180  = safe_float(fila.get(col_180,   0)) if col_180   else 0.0
+            lam_legs = safe_float(fila.get(col_legs,  0)) if col_legs  else 0.0
+            promedio_dardos = safe_float(fila.get(col_promedio_dardos, 0)) if col_promedio_dardos else 0.0
+            checkouts = safe_float(str(fila.get(col_checkouts, 0)).replace("%", "")) if col_checkouts else 0.0
+            pct_vic = safe_float(str(fila.get(col_pct_vic, 0)).replace("%", "")) if col_pct_vic else 0.0
+            jugadores[nombre.lower()] = {
+                "nombre_original": nombre,
+                "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
+                "promedio_dardos": promedio_dardos,
+                "checkouts": checkouts, "pct_victorias": pct_vic
+            }
+        return jugadores
+    except Exception as e:
+        st.error(f"Error cargando {pestana}: {e}")
+        return {}
+
+@st.cache_data(ttl=5)
+def cargar_todo(url, opcion, cortes):
+    try:
+        df = pd.read_csv(url, header=None)
+        st.session_state.last_update[opcion] = datetime.now()
+        if opcion == "Resumen Semanal":
+            stats = extraer_stats_resumen_semanal(df)
+            df_list = []
+            for nombre_lower, stat_dict in stats.items():
+                fila = {"Jugador": nombre_lower}
+                orden_columnas = [
+                    "legs por partido", "media 180 por partida", "promedio puntos",
+                    "diferencia legs", "promedio checkouts", "número victorias",
+                    "número derrotas", "porcentaje victoria"
+                ]
+                for col in orden_columnas:
+                    for k, v in stat_dict.items():
+                        if col in k.lower():
+                            fila[k] = v
+                for k, v in stat_dict.items():
+                    if "puntuación" in k.lower() or "puntacion" in k.lower():
+                        fila[k] = v
+                df_list.append(fila)
+            df_display = pd.DataFrame(df_list) if df_list else pd.DataFrame()
+            return df_display, stats
+        elif opcion == "Value Bets":
+            f, c = cortes["unica_filas"], cortes["unica_cols"]
+            res = df.iloc[f[0]:f[1], c[0]:c[1]]
+            res.columns = res.iloc[0]; res = res[1:]
+            return arreglar_columnas(res.dropna(how='all')), None
+        else:
+            f, c = cortes["izq_filas"], cortes["izq_cols"]
+            izq = df.iloc[f[0]:f[1], c[0]:c[1]]
+            izq.columns = izq.iloc[0]; izq = izq[1:]
+            s = extraer_stats_diarias(df, cortes["der_nombres"], cortes["der_cols"])
+            return arreglar_columnas(izq.dropna(how='all')), s
+    except Exception as e:
+        st.error(f"Error cargando {opcion}: {e}")
+        return None, None
+
+@st.cache_data(ttl=10)
+def obtener_partidos_vivos_api():
+    try:
+        base_url = "https://api-igamedc.igamemedia.com/api/mss-web"
+        response = requests.get(f"{base_url}/results-fixtures", timeout=5)
+        if response.status_code != 200:
+            return None
+        data = response.json()
+        week_activa = data.get("selected", {}).get("week", "")
+        grupos = data.get("selected", {}).get("groups", [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 8}])
+        partidos_vivos = []
+        for grupo in grupos:
+            url = f"{base_url}/results-fixtures?group={grupo['id']}"
+            if week_activa:
+                url += f"&week={week_activa}"
+            try:
+                resp = requests.get(url, timeout=5)
+                if resp.status_code == 200:
+                    fixtures = resp.json().get("Fixtures", resp.json().get("fixtures", []))
+                    for fixture in fixtures:
+                        if fixture.get("status", "").lower() != "not started":
+                            fixture_id = fixture.get("gameId") or fixture.get("Id") or fixture.get("id")
+                            if fixture_id:
+                                try:
+                                    detail_resp = requests.get(f"{base_url}/fixtures/{fixture_id}", timeout=5)
+                                    if detail_resp.status_code == 200:
+                                        detail = detail_resp.json()
+                                        stats = detail.get("playersStatistics", {}).get("statistics", [])
+                                        if stats and len(stats) >= 2:
+                                            partidos_vivos.append({
+                                                "id": fixture_id,
+                                                "fecha": fixture.get("fixture", ""),
+                                                "j1": fixture.get("playerHome", ""),
+                                                "j2": fixture.get("playerAway", ""),
+                                                "score_j1": fixture.get("scorePlayerHome", ""),
+                                                "score_j2": fixture.get("scorePlayerAway", ""),
+                                                "j1_average": stats[0].get("average", ""),
+                                                "j2_average": stats[1].get("average", ""),
+                                                "j1_180s": stats[0].get("turns180", ""),
+                                                "j2_180s": stats[1].get("turns180", ""),
+                                                "j1_checkout": stats[0].get("checkoutPercentage", ""),
+                                                "j2_checkout": stats[1].get("checkoutPercentage", "")
+                                            })
+                                except:
+                                    pass
+            except:
+                continue
+        return partidos_vivos if partidos_vivos else None
+    except Exception as e:
+        st.warning(f"⚠️ Error obteniendo datos de MODUS: {e}")
+        return None
+
+def get_jornada_actual():
+    ahora = datetime.now()
+    hora_actual = ahora.hour + ahora.minute / 60
+    dia_semana = ahora.weekday()
+    if dia_semana in [0, 1, 2]:
+        if 10.0 <= hora_actual < 16.0:
+            jornadas_grupo_a = {
+                0: ("Grupo A Lunes", URLS["Grupo A Lunes"]),
+                1: ("Grupo A Martes", URLS["Grupo A Martes"]),
+                2: ("Grupo A Miércoles", URLS["Grupo A Miércoles"])
+            }
+            nombre, url = jornadas_grupo_a[dia_semana]
+            return nombre, url, True
+    if dia_semana in [3, 4]:
+        if 13.0 <= hora_actual < 19.0:
+            jornadas_grupo_c = {
+                3: ("Grupo C Jueves", URLS["Grupo C Jueves"]),
+                4: ("Grupo C Viernes", URLS["Grupo C Viernes"])
+            }
+            nombre, url = jornadas_grupo_c[dia_semana]
+            return nombre, url, True
+    if hora_actual >= 22.0:
+        if dia_semana == 3:
+            return "Grupo B Jueves", URLS["Grupo B Jueves"], True
+        elif dia_semana == 4:
+            return "Grupo B Viernes", URLS["Grupo B Viernes"], True
+    if dia_semana == 5 and hora_actual >= 20.0:
+        return "Final Sábado", URLS["Final Sábado"], True
+    elif hora_actual < 3.0:
+        ayer = ahora - timedelta(days=1)
+        dia_ayer = ayer.weekday()
+        if dia_ayer == 3:
+            return "Grupo B Jueves", URLS["Grupo B Jueves"], True
+        elif dia_ayer == 4:
+            return "Grupo B Viernes", URLS["Grupo B Viernes"], True
+        elif dia_ayer == 5:
+            return "Final Sábado", URLS["Final Sábado"], True
+    return None, None, False
+
+def get_proxima_jornada():
+    jornadas_orden = [
+        ("Grupo A Lunes", URLS["Grupo A Lunes"], 0, 10.0),
+        ("Grupo A Martes", URLS["Grupo A Martes"], 1, 10.0),
+        ("Grupo A Miércoles", URLS["Grupo A Miércoles"], 2, 10.0),
+        ("Grupo C Jueves", URLS["Grupo C Jueves"], 3, 13.0),
+        ("Grupo B Jueves", URLS["Grupo B Jueves"], 3, 22.0),
+        ("Grupo C Viernes", URLS["Grupo C Viernes"], 4, 13.0),
+        ("Grupo B Viernes", URLS["Grupo B Viernes"], 4, 22.0),
+        ("Final Sábado", URLS["Final Sábado"], 5, 20.0),
+    ]
+    ahora = datetime.now()
+    hora_actual = ahora.hour + ahora.minute / 60
+    dia_semana = ahora.weekday()
+    for nombre, url, dia, hora_inicio in jornadas_orden:
+        if dia > dia_semana or (dia == dia_semana and hora_inicio > hora_actual):
+            return nombre, url
+    return jornadas_orden[0][0], jornadas_orden[0][1]
+
+def obtener_bandera(nombre_jugador):
+    nombre_lower = nombre_jugador.lower().strip().replace("_", " ")
+    codigo_pais = JUGADORES_PAISES.get(nombre_lower, None)
+    if codigo_pais and codigo_pais in BANDERAS:
+        return BANDERAS[codigo_pais]
+    return None
+
+@st.cache_data(ttl=30, show_spinner=False)
+def extraer_h2h_semanal(j1_nombre, j2_nombre):
+    h2h_data = {
+        "victorias_j1": 0,
+        "victorias_j2": 0,
+        "partidos": []
+    }
+    dias_semana = [
+        "Grupo A Lunes", "Grupo A Martes", "Grupo A Miércoles",
+        "Grupo C Jueves", "Grupo B Jueves",
+        "Grupo C Viernes", "Grupo B Viernes",
+        "Final Sábado"
+    ]
+    j1_lower = j1_nombre.lower().strip().replace("_", " ")
+    j2_lower = j2_nombre.lower().strip().replace("_", " ")
+    for dia in dias_semana:
+        try:
+            df_partidos, _ = cargar_todo(URLS[dia], dia, CORTES[dia])
+            if df_partidos is None or len(df_partidos) < 2:
+                continue
+            for i in range(0, len(df_partidos) - 1, 2):
+                fila_j1 = df_partidos.iloc[i]
+                fila_j2 = df_partidos.iloc[i + 1]
+                nombre_j1 = str(fila_j1.iloc[0]).strip().lower().replace("_", " ")
+                nombre_j2 = str(fila_j2.iloc[0]).strip().lower().replace("_", " ")
+                es_enfrentamiento = (
+                    (j1_lower in nombre_j1 or nombre_j1 in j1_lower) and
+                    (j2_lower in nombre_j2 or nombre_j2 in j2_lower)
+                ) or (
+                    (j2_lower in nombre_j1 or nombre_j1 in j2_lower) and
+                    (j1_lower in nombre_j2 or nombre_j2 in j1_lower)
+                )
+                if es_enfrentamiento:
+                    resultado_j1 = str(fila_j1.iloc[1]).strip() if len(fila_j1) > 1 else ""
+                    resultado_j2 = str(fila_j2.iloc[1]).strip() if len(fila_j2) > 1 else ""
+                    ganador = None
+                    marcador = f"{resultado_j1}-{resultado_j2}"
+                    if "4" in resultado_j1:
+                        ganador = nombre_j1.title()
+                        if j1_lower in nombre_j1 or nombre_j1 in j1_lower:
+                            h2h_data["victorias_j1"] += 1
+                        else:
+                            h2h_data["victorias_j2"] += 1
+                    elif "4" in resultado_j2:
+                        ganador = nombre_j2.title()
+                        if j1_lower in nombre_j2 or nombre_j2 in j1_lower:
+                            h2h_data["victorias_j1"] += 1
+                        else:
+                            h2h_data["victorias_j2"] += 1
+                    if ganador:
+                        h2h_data["partidos"].append({
+                            "dia": dia,
+                            "jugador1": nombre_j1.title(),
+                            "jugador2": nombre_j2.title(),
+                            "marcador": marcador,
+                            "ganador": ganador
+                        })
+        except Exception as e:
+            continue
+    return h2h_data
+
+def safe_float(val, default=0.0):
+    try:
+        v = float(str(val).replace(',', '.').strip())
+        if not np.isfinite(v):
+            return default
+        return v
+    except:
+        return default
+
+def sanitize_prob(p):
+    if not np.isfinite(p) or p <= 0:
+        return 0.0001
+    if p >= 1:
+        return 0.9999
+    return max(0.0001, min(0.9999, p))
 
 def prob_victoria(pr1, pr2):
-    if pr1 == 0 or pr2 == 0:
-        return 0.5
-    ratio = pr1 / pr2
-    return ratio**4.5 / (1 + ratio**4.5)
+    if pr1 <= 0 and pr2 <= 0:
+        return 0.5, 0.5
+    num = (pr1 ** 4.5) * 1.12
+    den = num + (pr2 ** 4.5)
+    if den == 0:
+        return 0.5, 0.5
+    p1 = num / den
+    return sanitize_prob(p1), sanitize_prob(1 - p1)
 
 def prob_180s(lam1, lam2):
-    return poisson.pmf(1, lam1) + poisson.pmf(2, lam1) + poisson.pmf(3, lam1)
+    lam_total = lam1 + lam2
+    ambos_05 = sanitize_prob((1 - poisson.cdf(0, lam1)) * (1 - poisson.cdf(0, lam2)))
+    return {
+        "J1 +0.5": sanitize_prob(1 - poisson.cdf(0, lam1)),
+        "J1 +1.5": sanitize_prob(1 - poisson.cdf(1, lam1)),
+        "J2 +0.5": sanitize_prob(1 - poisson.cdf(0, lam2)),
+        "J2 +1.5": sanitize_prob(1 - poisson.cdf(1, lam2)),
+        "Ambos +0.5": ambos_05,
+        "Ambos +1.5": sanitize_prob(1 - poisson.cdf(1, lam_total)),
+        "Ambos +2.5": sanitize_prob(1 - poisson.cdf(2, lam_total)),
+    }
+
+def quien_hace_mas_180s(lam1, lam2):
+    p_empate = sum(poisson.pmf(k, lam1) * poisson.pmf(k, lam2) for k in range(3))
+    lam_sum = lam1 + lam2
+    if lam_sum == 0:
+        return 1/3, 1/3, 1/3
+    p_j1 = (1 - p_empate) * (lam1 / lam_sum)
+    p_j2 = (1 - p_empate) * (lam2 / lam_sum)
+    return sanitize_prob(p_j1), sanitize_prob(p_empate), sanitize_prob(p_j2)
 
 def handicaps_legs(v1, v2):
-    return {"+1.5": (v1 + 1.5) / 4, "-1.5": v1 / 4, "+2.5": (v1 + 2.5) / 4, "-2.5": v1 / 4}
+    denom = v1 * (1 - v2) + v2 * (1 - v1)
+    if denom == 0:
+        return {k: 0.5 for k in ["J1 -1.5 Legs", "J1 -2.5 Legs", "J1 +1.5 Legs", 
+                                  "J1 +2.5 Legs", "J2 -1.5 Legs", "J2 -2.5 Legs",
+                                  "J2 +1.5 Legs", "J2 +2.5 Legs"]}
+    R = (v1 * (1 - v2)) / denom
+    R2 = 1 - R
+    return {
+        "J1 -1.5 Legs": sanitize_prob(R * 0.75),
+        "J1 -2.5 Legs": sanitize_prob(R * 0.50),
+        "J1 +1.5 Legs": sanitize_prob(R + (1 - R) * 0.40),
+        "J1 +2.5 Legs": sanitize_prob(R + (1 - R) * 0.70),
+        "J2 -1.5 Legs": sanitize_prob(R2 * 0.75),
+        "J2 -2.5 Legs": sanitize_prob(R2 * 0.50),
+        "J2 +1.5 Legs": sanitize_prob(R2 + (1 - R2) * 0.40),
+        "J2 +2.5 Legs": sanitize_prob(R2 + (1 - R2) * 0.70),
+    }
 
-def legs_totales(lam1, lam2):
-    total_dardos = (lam1 + lam2) / 2
-    expected_legs = min(int(total_dardos / 18) + 1, 7)
-    return max(3, expected_legs)
+def legs_totales(lam_legs1, lam_legs2):
+    if lam_legs1 + lam_legs2 == 0:
+        p = 0.5
+    else:
+        p = lam_legs1 / (lam_legs1 + lam_legs2)
+    q = 1 - p
+    prob_4_0_j1 = p ** 4
+    prob_4_1_j1 = 4 * (p ** 4) * q
+    prob_4_0_j2 = q ** 4
+    prob_4_1_j2 = 4 * (q ** 4) * p
+    prob_under_5_5 = prob_4_0_j1 + prob_4_1_j1 + prob_4_0_j2 + prob_4_1_j2
+    prob_over_5_5 = 1 - prob_under_5_5
+    return {
+        "Más de 5.5": sanitize_prob(prob_over_5_5),
+        "Menos de 5.5": sanitize_prob(prob_under_5_5)
+    }
 
-# ═══════════════════════════════════════════════════════════════
-# SIDEBAR - CONTROL
-# ═══════════════════════════════════════════════════════════════
+def prob_a_cuota(p):
+    p_safe = sanitize_prob(p)
+    cuota = 1.0 / p_safe
+    return max(1.01, min(999.0, cuota))
 
-st.sidebar.markdown("# 🎯 MODUS SUPER SERIES")
+def pct(p):
+    return f"{p * 100:.1f}%"
+
+def calcular_yield(prob, cuota_bookie):
+    return (prob * cuota_bookie) - 1
+
+def badge_yield(y):
+    if y > 0:
+        return f"✅ +{y*100:.1f}%"
+    elif y < -0.05:
+        return f"❌ {y*100:.1f}%"
+    else:
+        return f"➖ {y*100:.1f}%"
+
+def _buscar_stat(stats_dict, keywords):
+    for k, v in stats_dict.items():
+        if any(kw in k.lower() for kw in keywords):
+            return v
+    return 0.0
+
+def buscar_jugador(nombre, db):
+    nombre_lower = nombre.strip().lower()
+    if nombre_lower in db:
+        return db[nombre_lower]
+    for k, v in db.items():
+        if nombre_lower in k or k in nombre_lower:
+            return v
+    return None
+
+def render_barras_enfrentadas(j1_nombre, j1_prob, j2_nombre, j2_prob, j1_color="#1f77b4", j2_color="#ff7f0e"):
+    total = j1_prob + j2_prob
+    if total == 0:
+        j1_prob = j2_prob = 0.5
+    j1_pct = (j1_prob / total * 100) if total > 0 else 50
+    j2_pct = (j2_prob / total * 100) if total > 0 else 50
+    st.markdown(f"""
+    <div style="margin: 20px 0;">
+        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
+            <div style="flex: 0 0 25%; text-align: right;">
+                <p style="margin: 0; font-weight: bold; font-size: 1.1em; color: {j1_color};">{j1_nombre}</p>
+                <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: bold; color: {j1_color};">{j1_pct:.1f}%</p>
+            </div>
+            <div style="flex: 1;">
+                <div style="display: flex; height: 45px; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div style="width: {j1_pct}%; background: linear-gradient(90deg, {j1_color}, {j1_color}dd); display: flex; align-items: center; justify-content: flex-end; padding-right: 10px;">
+                        <span style="color: white; font-weight: bold; font-size: 0.9em;">{j1_prob*100:.1f}%</span>
+                    </div>
+                    <div style="width: {j2_pct}%; background: linear-gradient(90deg, {j2_color}dd, {j2_color}); display: flex; align-items: center; justify-content: flex-start; padding-left: 10px;">
+                        <span style="color: white; font-weight: bold; font-size: 0.9em;">{j2_prob*100:.1f}%</span>
+                    </div>
+                </div>
+            </div>
+            <div style="flex: 0 0 25%; text-align: left;">
+                <p style="margin: 0; font-weight: bold; font-size: 1.1em; color: {j2_color};">{j2_nombre}</p>
+                <p style="margin: 5px 0 0 0; font-size: 1.3em; font-weight: bold; color: {j2_color};">{j2_pct:.1f}%</p>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def mostrar_cuota_justa(cuota):
+    st.caption(f"💡 Cuota justa: **{cuota:.2f}**")
+
+def render_mas_180s_barras(j1_nombre, p_j1, j2_nombre, p_j2, p_emp, j1_color="#1f77b4", j2_color="#ff7f0e"):
+    p_j1 = sanitize_prob(p_j1)
+    p_j2 = sanitize_prob(p_j2)
+    p_emp = sanitize_prob(p_emp)
+    total = p_j1 + p_emp + p_j2
+    if total <= 0:
+        total = 1.0
+    pct_j1 = (p_j1 / total * 100)
+    pct_emp = (p_emp / total * 100)
+    pct_j2 = (p_j2 / total * 100)
+    html_str = f"""
+    <div style="margin: 20px 0;">
+        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
+            <div style="flex: 0 0 20%; text-align: right;">
+                <p style="margin: 0; font-weight: bold; font-size: 0.95em; color: {j1_color};">{j1_nombre}</p>
+                <p style="margin: 5px 0 0 0; font-size: 1.1em; font-weight: bold; color: {j1_color};">{pct_j1:.1f}%</p>
+            </div>
+            <div style="flex: 1;">
+                <div style="display: flex; height: 45px; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div style="width: {pct_j1}%; background: linear-gradient(90deg, {j1_color}, {j1_color}dd); display: flex; align-items: center; justify-content: flex-end; padding-right: 8px;">
+                        <span style="color: white; font-weight: bold; font-size: 0.8em;">{p_j1*100:.1f}%</span>
+                    </div>
+                    <div style="width: {pct_emp}%; background: linear-gradient(90deg, #999, #777); display: flex; align-items: center; justify-content: center;">
+                        <span style="color: white; font-weight: bold; font-size: 0.8em;">{p_emp*100:.1f}%</span>
+                    </div>
+                    <div style="width: {pct_j2}%; background: linear-gradient(90deg, {j2_color}dd, {j2_color}); display: flex; align-items: center; justify-content: flex-start; padding-left: 8px;">
+                        <span style="color: white; font-weight: bold; font-size: 0.8em;">{p_j2*100:.1f}%</span>
+                    </div>
+                </div>
+            </div>
+            <div style="flex: 0 0 20%; text-align: left;">
+                <p style="margin: 0; font-weight: bold; font-size: 0.95em; color: {j2_color};">{j2_nombre}</p>
+                <p style="margin: 5px 0 0 0; font-size: 1.1em; font-weight: bold; color: {j2_color};">{pct_j2:.1f}%</p>
+            </div>
+        </div>
+    </div>
+    """
+    st.markdown(html_str, unsafe_allow_html=True)
+
+def render_value_bets():
+    st.title("💰 Value Bets — Motor de Probabilidades")
+    value_bets_list = []
+    with st.expander("⚙️ Configuración", expanded=True):
+        fuente = st.selectbox(
+            "📂 Fuente de datos",
+            PESTANAS_CON_STATS,
+            index=PESTANAS_CON_STATS.index(st.session_state.vb_fuente),
+            key="selector_fuente"
+        )
+        st.session_state.vb_fuente = fuente
+    with st.spinner(f"Cargando datos de '{fuente}'..."):
+        db_jugadores = cargar_jugadores_desde(fuente)
+    if not db_jugadores:
+        st.warning(f"⚠️ No se encontraron jugadores en '{fuente}'.")
+        return
+    nombres_disponibles = sorted([v["nombre_original"] for v in db_jugadores.values()])
+    if fuente in st.session_state.last_update:
+        tiempo_transcurrido = (datetime.now() - st.session_state.last_update[fuente]).seconds
+        st.info(f"📊 {len(nombres_disponibles)} jugadores | ⏱️ Actualizado hace {tiempo_transcurrido}s")
+    st.markdown("### 🥊 Seleccionar Enfrentamiento")
+    if st.session_state.vb_j1 is None or st.session_state.vb_j1 not in nombres_disponibles:
+        st.session_state.vb_j1 = nombres_disponibles[0]
+    if st.session_state.vb_j2 is None or st.session_state.vb_j2 not in nombres_disponibles:
+        opciones_j2 = [n for n in nombres_disponibles if n != st.session_state.vb_j1]
+        st.session_state.vb_j2 = opciones_j2[0] if opciones_j2 else nombres_disponibles[0]
+    col1, col2, col3 = st.columns([2, 2, 1])
+    with col1:
+        j1_sel = st.selectbox(
+            "Jugador 1",
+            nombres_disponibles,
+            index=nombres_disponibles.index(st.session_state.vb_j1),
+            key="sel_j1"
+        )
+        st.session_state.vb_j1 = j1_sel
+    with col2:
+        opciones_j2 = [n for n in nombres_disponibles if n != j1_sel]
+        if st.session_state.vb_j2 not in opciones_j2:
+            st.session_state.vb_j2 = opciones_j2[0] if opciones_j2 else nombres_disponibles[0]
+        j2_sel = st.selectbox(
+            "Jugador 2",
+            opciones_j2,
+            index=opciones_j2.index(st.session_state.vb_j2) if st.session_state.vb_j2 in opciones_j2 else 0,
+            key="sel_j2"
+        )
+        st.session_state.vb_j2 = j2_sel
+    with col3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔢 Calcular", type="primary", use_container_width=True, help="Calcular probabilidades"):
+            st.session_state.vb_calcular = True
+    if not st.session_state.vb_calcular:
+        st.info("👆 Selecciona los jugadores y pulsa **Calcular**")
+        return
+    j1 = buscar_jugador(j1_sel, db_jugadores)
+    j2 = buscar_jugador(j2_sel, db_jugadores)
+    if not j1 or not j2:
+        st.error("No se encontraron datos para uno de los jugadores.")
+        return
+    pr1, pr2     = j1["PR"],       j2["PR"]
+    lam1, lam2   = j1["lam_180"],  j2["lam_180"]
+    legs1, legs2 = j1["lam_legs"], j2["lam_legs"]
+    st.markdown("---")
+    st.markdown("### 📊 Comparativa de Jugadores")
+    st.markdown(f"#### {j1['nombre_original']} vs {j2['nombre_original']}")
+    col_j1, col_j2 = st.columns(2)
+    with col_j1:
+        st.markdown(f"**{j1['nombre_original']}**")
+        st.metric("Power Ranking", f"{pr1:.1f}")
+        st.metric("λ 180s", f"{lam1:.2f}")
+        st.metric("λ Legs", f"{legs1:.2f}")
+    with col_j2:
+        st.markdown(f"**{j2['nombre_original']}**")
+        st.metric("Power Ranking", f"{pr2:.1f}")
+        st.metric("λ 180s", f"{lam2:.2f}")
+        st.metric("λ Legs", f"{legs2:.2f}")
+    st.markdown("---")
+    st.markdown("### 🔥 Head to Head Semanal")
+    with st.spinner("Analizando enfrentamientos directos..."):
+        h2h = extraer_h2h_semanal(j1['nombre_original'], j2['nombre_original'])
+    if h2h["partidos"]:
+        col_h1, col_h2, col_h3 = st.columns([1, 1, 1])
+        with col_h1:
+            st.metric(f"Victorias {j1['nombre_original']}", h2h["victorias_j1"])
+        with col_h2:
+            total_partidos = len(h2h["partidos"])
+            st.metric("Partidos Totales", total_partidos)
+        with col_h3:
+            st.metric(f"Victorias {j2['nombre_original']}", h2h["victorias_j2"])
+        with st.expander("📋 Ver historial de enfrentamientos"):
+            for partido in h2h["partidos"]:
+                st.markdown(f"**{partido['dia']}**: {partido['jugador1']} vs {partido['jugador2']} - **{partido['marcador']}** (Ganador: {partido['ganador']})")
+    else:
+        st.info("ℹ️ No se encontraron enfrentamientos directos esta semana")
+    v1, v2 = prob_victoria(pr1, pr2)
+    m180 = prob_180s(lam1, lam2)
+    p_j1_mas, p_emp, p_j2_mas = quien_hace_mas_180s(lam1, lam2)
+    hcaps = handicaps_legs(v1, v2)
+    legs_total_dict = legs_totales(legs1, legs2)
+    st.markdown("---")
+    st.markdown("### 🎲 Mercados Disponibles")
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Victoria", "🎯 180s", "🥇 ¿Quién hace más 180?", "📐 Hándicaps", "📊 Total Legs"])
+    with tab1:
+        st.markdown("#### 🏆 Mercado de Victoria")
+        render_barras_enfrentadas(j1['nombre_original'], v1, j2['nombre_original'], v2, j1_color="#1f77b4", j2_color="#ff7f0e")
+        st.markdown("---")
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            st.markdown(f"**🎯 Gana {j1['nombre_original']}**")
+            cuota_justa = prob_a_cuota(v1)
+            mostrar_cuota_justa(cuota_justa)
+            c1 = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="vic_j1", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{v1*100:.1f}% probabilidad")
+            if c1 and c1 > 0:
+                y = calcular_yield(v1, c1)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"Gana {j1['nombre_original']}", "Probabilidad": v1, "Cuota Justa": cuota_justa, "Cuota Bookie": c1, "Yield": y})
+        with col_v2:
+            st.markdown(f"**🎯 Gana {j2['nombre_original']}**")
+            cuota_justa = prob_a_cuota(v2)
+            mostrar_cuota_justa(cuota_justa)
+            c2 = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="vic_j2", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{v2*100:.1f}% probabilidad")
+            if c2 and c2 > 0:
+                y = calcular_yield(v2, c2)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"Gana {j2['nombre_original']}", "Probabilidad": v2, "Cuota Justa": prob_a_cuota(v2), "Cuota Bookie": c2, "Yield": y})
+    with tab2:
+        st.markdown("#### 🎯 Mercado de 180s (Distribución Poisson)")
+        st.markdown(f"##### 🔵 {j1['nombre_original']}")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**+0.5 180s** (Al menos 1 180)")
+            cuota_justa = prob_a_cuota(m180["J1 +0.5"])
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j1_05", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{m180['J1 +0.5']*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(m180["J1 +0.5"], c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j1['nombre_original']} +0.5 180s", "Probabilidad": m180["J1 +0.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        with col_b:
+            st.markdown("**+1.5 180s** (Al menos 2 180s)")
+            cuota_justa = prob_a_cuota(m180["J1 +1.5"])
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j1_15", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{m180['J1 +1.5']*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(m180["J1 +1.5"], c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j1['nombre_original']} +1.5 180s", "Probabilidad": m180["J1 +1.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        st.markdown("---")
+        st.markdown(f"##### 🟠 {j2['nombre_original']}")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**+0.5 180s** (Al menos 1 180)")
+            cuota_justa = prob_a_cuota(m180["J2 +0.5"])
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j2_05", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{m180['J2 +0.5']*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(m180["J2 +0.5"], c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j2['nombre_original']} +0.5 180s", "Probabilidad": m180["J2 +0.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        with col_b:
+            st.markdown("**+1.5 180s** (Al menos 2 180s)")
+            cuota_justa = prob_a_cuota(m180["J2 +1.5"])
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j2_15", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{m180['J2 +1.5']*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(m180["J2 +1.5"], c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j2['nombre_original']} +1.5 180s", "Probabilidad": m180["J2 +1.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        st.markdown("---")
+        st.markdown("##### 🤝 Ambos Jugadores")
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.markdown("**Ambos +0.5 180s**")
+            cuota_justa = prob_a_cuota(m180["Ambos +0.5"])
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_ambos_05", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{m180['Ambos +0.5']*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(m180["Ambos +0.5"], c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": "Ambos +0.5 180s", "Probabilidad": m180["Ambos +0.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        with col_b:
+            st.markdown("**Ambos +1.5 180s**")
+            cuota_justa = prob_a_cuota(m180["Ambos +1.5"])
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_ambos_15", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{m180['Ambos +1.5']*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(m180["Ambos +1.5"], c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": "Ambos +1.5 180s", "Probabilidad": m180["Ambos +1.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        with col_c:
+            st.markdown("**Ambos +2.5 180s**")
+            cuota_justa = prob_a_cuota(m180["Ambos +2.5"])
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_ambos_25", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{m180['Ambos +2.5']*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(m180["Ambos +2.5"], c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": "Ambos +2.5 180s", "Probabilidad": m180["Ambos +2.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+    with tab3:
+        st.markdown("#### 🥇 ¿Quién hace más 180s?")
+        render_mas_180s_barras(j1['nombre_original'], p_j1_mas, j2['nombre_original'], p_j2_mas, p_emp, j1_color="#1f77b4", j2_color="#ff7f0e")
+        st.markdown("---")
+        col_m1, col_m2, col_m3 = st.columns(3)
+        with col_m1:
+            st.markdown(f"**{j1['nombre_original']}**")
+            cuota_justa = prob_a_cuota(p_j1_mas)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota {j1['nombre_original']}", min_value=1.01, max_value=50.0, value=None, step=0.05, key="mas_j1", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{p_j1_mas*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(p_j1_mas, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"Más 180s: {j1['nombre_original']}", "Probabilidad": p_j1_mas, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        with col_m2:
+            st.markdown("**Empate**")
+            cuota_justa = prob_a_cuota(p_emp)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota empate", min_value=1.01, max_value=50.0, value=None, step=0.05, key="mas_emp", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{p_emp*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(p_emp, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": "Empate 180s", "Probabilidad": p_emp, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        with col_m3:
+            st.markdown(f"**{j2['nombre_original']}**")
+            cuota_justa = prob_a_cuota(p_j2_mas)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota {j2['nombre_original']}", min_value=1.01, max_value=50.0, value=None, step=0.05, key="mas_j2", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{p_j2_mas*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(p_j2_mas, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"Más 180s: {j2['nombre_original']}", "Probabilidad": p_j2_mas, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+    with tab4:
+        st.markdown("#### 📐 Hándicaps de Legs")
+        col_h1, col_h2 = st.columns(2)
+        with col_h1:
+            st.markdown(f"##### {j1['nombre_original']}")
+            for hcap_name in ["J1 -1.5 Legs", "J1 -2.5 Legs", "J1 +1.5 Legs", "J1 +2.5 Legs"]:
+                prob = hcaps[hcap_name]
+                label = hcap_name.replace("J1 ", "").replace("Legs", "").strip()
+                st.markdown(f"**{label}**")
+                cuota_justa = prob_a_cuota(prob)
+                mostrar_cuota_justa(cuota_justa)
+                c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"hcap_{hcap_name}", label_visibility="collapsed", placeholder="Introduce cuota")
+                st.caption(f"{prob*100:.1f}% probabilidad")
+                if c and c > 0:
+                    y = calcular_yield(prob, c)
+                    yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                    st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                    if y > 0:
+                        value_bets_list.append({"Mercado": f"{j1['nombre_original']} {label}", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+                st.divider()
+        with col_h2:
+            st.markdown(f"##### {j2['nombre_original']}")
+            for hcap_name in ["J2 -1.5 Legs", "J2 -2.5 Legs", "J2 +1.5 Legs", "J2 +2.5 Legs"]:
+                prob = hcaps[hcap_name]
+                label = hcap_name.replace("J2 ", "").replace("Legs", "").strip()
+                st.markdown(f"**{label}**")
+                cuota_justa = prob_a_cuota(prob)
+                mostrar_cuota_justa(cuota_justa)
+                c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"hcap_{hcap_name}_j2", label_visibility="collapsed", placeholder="Introduce cuota")
+                st.caption(f"{prob*100:.1f}% probabilidad")
+                if c and c > 0:
+                    y = calcular_yield(prob, c)
+                    yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                    st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                    if y > 0:
+                        value_bets_list.append({"Mercado": f"{j2['nombre_original']} {label}", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+                st.divider()
+    with tab5:
+        st.markdown("#### 📊 Total Legs (First to 4)")
+        render_barras_enfrentadas("Más de 5.5", legs_total_dict["Más de 5.5"], "Menos de 5.5", legs_total_dict["Menos de 5.5"], j1_color="#28a745", j2_color="#dc3545")
+        st.markdown("---")
+        col_l1, col_l2 = st.columns(2)
+        with col_l1:
+            st.markdown("**Más de 5.5 Legs**")
+            cuota_justa = prob_a_cuota(legs_total_dict["Más de 5.5"])
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="legs_mas", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{legs_total_dict['Más de 5.5']*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(legs_total_dict["Más de 5.5"], c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": "Más de 5.5 Legs", "Probabilidad": legs_total_dict["Más de 5.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        with col_l2:
+            st.markdown("**Menos de 5.5 Legs**")
+            cuota_justa = prob_a_cuota(legs_total_dict["Menos de 5.5"])
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="legs_menos", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{legs_total_dict['Menos de 5.5']*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(legs_total_dict["Menos de 5.5"], c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": "Menos de 5.5 Legs", "Probabilidad": legs_total_dict["Menos de 5.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+    if value_bets_list:
+        st.markdown("---")
+        st.markdown("### 💎 Resumen de Value Bets Encontradas")
+        value_bets_list.sort(key=lambda x: x["Yield"], reverse=True)
+        for vb in value_bets_list:
+            yield_pct = vb["Yield"] * 100
+            st.markdown(f"""
+            <div style="
+                border-left: 4px solid #28a745;
+                padding: 15px;
+                margin: 10px 0;
+                background: linear-gradient(90deg, rgba(40,167,69,0.1) 0%, rgba(40,167,69,0.02) 100%);
+                border-radius: 5px;
+            ">
+                <div style="display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 1fr; gap: 15px; align-items: center;">
+                    <div>
+                        <p style="margin: 0; font-size: 1.1em; font-weight: bold; color: #333;">{vb["Mercado"]}</p>
+                    </div>
+                    <div style="text-align: center;">
+                        <p style="margin: 0; font-size: 0.8em; color: #666;">Probabilidad</p>
+                        <p style="margin: 0; font-size: 1.1em; font-weight: bold; color: #1f77b4;">{vb["Probabilidad"]*100:.1f}%</p>
+                    </div>
+                    <div style="text-align: center;">
+                        <p style="margin: 0; font-size: 0.8em; color: #666;">Cuota Justa</p>
+                        <p style="margin: 0; font-size: 1.1em; font-weight: bold;">{vb["Cuota Justa"]:.2f}</p>
+                    </div>
+                    <div style="text-align: center;">
+                        <p style="margin: 0; font-size: 0.8em; color: #666;">Cuota Bookie</p>
+                        <p style="margin: 0; font-size: 1.1em; font-weight: bold; color: #ff7f0e;">{vb["Cuota Bookie"]:.2f}</p>
+                    </div>
+                    <div style="text-align: center;">
+                        <p style="margin: 0; font-size: 0.8em; color: #666;">Yield</p>
+                        <p style="margin: 0; font-size: 1.3em; font-weight: bold; color: #28a745;">+{yield_pct:.1f}%</p>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        st.success(f"✅ Se encontraron **{len(value_bets_list)}** mercados con value positivo")
+    else:
+        st.info("ℹ️ No se encontraron value bets con las cuotas introducidas")
+
+st.sidebar.title("🎯 MODUS SUPER SERIES")
+st.sidebar.markdown("---")
+
+opcion_principal = st.sidebar.radio(
+    "Selecciona sección:",
+    ["🔴 LIVE", "💰 VALUE BETS", "📊 RESULTADOS Y ESTADÍSTICAS"],
+    label_visibility="collapsed"
+)
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔄 Actualización")
+st.sidebar.caption("Caché: 30 segundos")
 
-if st.sidebar.button("♻️ Forzar Refresh", use_container_width=True):
+if st.sidebar.button("♻️ Forzar Refresh", help="Recarga inmediata"):
     st.cache_data.clear()
+    st.session_state.last_update = {}
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -105,197 +1017,144 @@ st.sidebar.markdown("### ⚙️ Ejecutar Script")
 
 SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwNQnY-jfmOGZSN0D1cNPFyijkNtrzWSBzUs0mByzQl0mCDRvhn6MOMInDZ9yXw0cf9/exec"
 
-if st.sidebar.button("▶️ Ejecutar Actualización", type="primary", use_container_width=True):
+if st.sidebar.button("▶️ Ejecutar Actualización", type="primary", use_container_width=True, help="Ejecuta el script de actualización de datos"):
     st.sidebar.info("🔄 Ejecutando script...")
     try:
         response = requests.post(SCRIPT_URL, timeout=120)
         if response.status_code == 200:
             st.sidebar.success("✅ Script ejecutado correctamente")
+            st.sidebar.info("📊 Los datos se actualizarán en breve...")
             st.balloons()
             time.sleep(2)
             st.cache_data.clear()
+            st.session_state.last_update = {}
             st.rerun()
         else:
             st.sidebar.warning(f"⚠️ Respuesta HTTP {response.status_code}")
+            st.sidebar.info("💡 El script podría estar ejecutándose. Intenta refrescar en 5 segundos.")
     except requests.exceptions.Timeout:
-        st.sidebar.warning("⏱️ Script ejecutándose en segundo plano")
+        st.sidebar.warning("⏱️ Tiempo de espera agotado (>120s)")
+        st.sidebar.info("💡 El script está ejecutándose en segundo plano. Los datos se actualizarán en breve.")
+    except requests.exceptions.ConnectionError:
+        st.sidebar.error("🔗 Error de conexión")
+        st.sidebar.error("Verifica tu conexión a internet")
     except Exception as e:
         st.sidebar.error(f"❌ Error: {str(e)}")
 
-# ═══════════════════════════════════════════════════════════════
-# PESTAÑAS PRINCIPALES
-# ═══════════════════════════════════════════════════════════════
-
-tab1, tab2, tab3 = st.tabs(["🔴 LIVE", "💰 VALUE BETS", "📊 RESULTADOS Y ESTADÍSTICAS"])
-
-with tab1:
-    st.markdown("## 🔴 LIVE - Partidos en Directo")
-    
-    ahora = datetime.now()
-    dia_semana = ahora.weekday()
-    hora = ahora.hour
-    
-    nombres_dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-    
-    if dia_semana < 3:
-        jornada_actual = f"Grupo A {nombres_dias[dia_semana]}"
-    elif dia_semana == 3 or dia_semana == 4:
-        if hora < 13:
-            jornada_actual = f"Grupo C {nombres_dias[dia_semana]}"
-        elif hora < 22:
-            jornada_actual = f"Grupo C {nombres_dias[dia_semana]}"
+if "🔴 LIVE" in opcion_principal:
+    st.title("🔴 LIVE")
+    jornada_actual, url_actual, es_activa = get_jornada_actual()
+    if es_activa and jornada_actual:
+        st.success(f"✅ Jornada activa: **{jornada_actual}** (datos en tiempo real)")
+        st.markdown("---")
+        partidos_vivos = obtener_partidos_vivos_api()
+        if partidos_vivos:
+            st.subheader("⚔️ Partidos en Vivo (Actualización cada 10 segundos)")
+            tabla_partidos = []
+            for p in partidos_vivos:
+                tabla_partidos.append({
+                    "🎮 Jugador 1": p.get("j1", ""),
+                    "Legs": p.get("score_j1", ""),
+                    "Ø Dardos": p.get("j1_average", ""),
+                    "180s": p.get("j1_180s", ""),
+                    "Checkout %": p.get("j1_checkout", ""),
+                    "VS": "⚔️",
+                    "🎮 Jugador 2": p.get("j2", ""),
+                    "Legs": p.get("score_j2", ""),
+                    "Ø Dardos": p.get("j2_average", ""),
+                    "180s": p.get("j2_180s", ""),
+                    "Checkout %": p.get("j2_checkout", "")
+                })
+            if tabla_partidos:
+                df_vivo = pd.DataFrame(tabla_partidos)
+                st.dataframe(df_vivo, use_container_width=True, hide_index=True)
+                st.caption("🔄 Datos actualizados cada 10 segundos")
+            else:
+                st.info("📺 No hay partidos en vivo en este momento")
         else:
-            jornada_actual = f"Grupo B {nombres_dias[dia_semana]}"
-    elif dia_semana == 5:
-        jornada_actual = "Final Sábado"
+            st.warning("⚠️ No se pudieron obtener datos de la API")
+            st.info("📊 Usando datos guardados en Google Sheets...")
+            d1, d2 = cargar_todo(url_actual, jornada_actual, CORTES.get(jornada_actual, 2))
+            if d1 is not None:
+                st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
     else:
-        jornada_actual = "Próxima jornada: Grupo A Lunes"
-    
-    st.info(f"📋 Próxima jornada: {jornada_actual}")
-    
-    ahora_timestamp = datetime.now().timestamp()
-    if 'last_update' not in st.session_state:
-        st.session_state.last_update = {}
-    
-    segundos_atras = int(ahora_timestamp - st.session_state.last_update.get('timestamp', ahora_timestamp))
-    st.caption(f"⏰ Datos actualizados hace {segundos_atras} segundos")
+        proxima, url_proxima = get_proxima_jornada()
+        st.info(f"📅 **Próxima jornada:** {proxima}")
+        st.markdown("---")
+        d1, d2 = cargar_todo(url_proxima, proxima, CORTES.get(proxima, 2))
+        if proxima in st.session_state.last_update:
+            tiempo = (datetime.now() - st.session_state.last_update[proxima]).seconds
+            st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
+        orden_diario = [
+            "Media 180 por partida", "Promedio puntos total",
+            "Legs por partido", "Promedio Checkouts", "Número victorias",
+            "Número derrotas", "Porcentaje victoria", "PUNTIACIÓN GLOBAL (0-100)"
+        ]
+        if d2 is not None:
+            st.subheader("📈 Estadísticas")
+            for player, stats in d2.items():
+                bandera = obtener_bandera(player)
+                player_display = f"{bandera} {player}" if bandera else f"👤 {player}"
+                with st.expander(player_display, expanded=False):
+                    for etiqueta in orden_diario:
+                        valor = "-"
+                        for k, v in stats.items():
+                            if etiqueta.lower() in k.lower():
+                                valor = v
+                                break
+                        st.write(f"**{etiqueta}:** {valor}")
+        if d1 is not None:
+            st.subheader("⚔️ Partidos")
+            st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
 
-with tab2:
-    st.markdown("## 💰 VALUE BETS - Análisis de Cuotas")
-    
-    if 'vb_j1' not in st.session_state:
-        st.session_state.vb_j1 = ""
-    if 'vb_j2' not in st.session_state:
-        st.session_state.vb_j2 = ""
-    if 'vb_calcular' not in st.session_state:
-        st.session_state.vb_calcular = False
-    
-    df_vb = cargar_datos(URLS["Value Bets"])
-    nombres_disponibles = list(set([n.strip() for n in df_vb.iloc[:, 0] if isinstance(n, str) and n.strip()]))[:20]
-    
-    if not nombres_disponibles:
-        st.warning("No hay datos disponibles")
-    else:
-        col1, col2, col3 = st.columns([2, 2, 1])
-        
-        with col1:
-            j1_sel = st.selectbox(
-                "Jugador 1",
-                nombres_disponibles,
-                index=nombres_disponibles.index(st.session_state.vb_j1) if st.session_state.vb_j1 in nombres_disponibles else 0,
-                key="sel_j1"
-            )
-            st.session_state.vb_j1 = j1_sel
-        
-        with col2:
-            opciones_j2 = [n for n in nombres_disponibles if n != j1_sel]
-            if st.session_state.vb_j2 not in opciones_j2:
-                st.session_state.vb_j2 = opciones_j2[0] if opciones_j2 else nombres_disponibles[0]
-            
-            j2_sel = st.selectbox(
-                "Jugador 2",
-                opciones_j2,
-                index=opciones_j2.index(st.session_state.vb_j2) if st.session_state.vb_j2 in opciones_j2 else 0,
-                key="sel_j2"
-            )
-            st.session_state.vb_j2 = j2_sel
-        
-        with col3:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🔢 Calcular", type="primary", use_container_width=True):
-                st.session_state.vb_calcular = True
-        
-        st.divider()
-        
-        col_cuota1, col_cuota2 = st.columns(2)
-        
-        with col_cuota1:
-            st.markdown(f"### {j1_sel}")
-            cuota_j1 = st.number_input(f"Cuota para {j1_sel}", min_value=1.0, max_value=100.0, value=1.5, step=0.01, key="cuota_j1")
-        
-        with col_cuota2:
-            st.markdown(f"### {j2_sel}")
-            cuota_j2 = st.number_input(f"Cuota para {j2_sel}", min_value=1.0, max_value=100.0, value=2.5, step=0.01, key="cuota_j2")
-        
-        st.divider()
-        
-        if st.session_state.vb_calcular and cuota_j1 > 0 and cuota_j2 > 0:
-            
-            pr1 = 100
-            pr2 = 85
-            
-            prob_1 = prob_victoria(pr1, pr2)
-            prob_2 = 1 - prob_1
-            
-            yield_1 = (prob_1 * cuota_j1) - 1
-            yield_2 = (prob_2 * cuota_j2) - 1
-            
-            col_left, col_right = st.columns(2)
-            
-            with col_left:
-                st.metric(
-                    f"Victoria {j1_sel}",
-                    f"{yield_1:.2%}",
-                    delta="Value" if yield_1 > 0 else "No Value",
-                    delta_color="normal" if yield_1 > 0 else "inverse"
-                )
-            
-            with col_right:
-                st.metric(
-                    f"Victoria {j2_sel}",
-                    f"{yield_2:.2%}",
-                    delta="Value" if yield_2 > 0 else "No Value",
-                    delta_color="normal" if yield_2 > 0 else "inverse"
-                )
-            
-            st.divider()
-            
-            st.markdown("### 📊 Probabilidades")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write(f"**{j1_sel}:** {prob_1:.1%}")
-            with col2:
-                st.write(f"**{j2_sel}:** {prob_2:.1%}")
+elif "💰 VALUE BETS" in opcion_principal:
+    render_value_bets()
 
-with tab3:
-    st.markdown("## 📊 RESULTADOS Y ESTADÍSTICAS")
-    
-    jornadas = [k for k in URLS.keys() if k not in ("Value Bets", "Resumen Semanal")]
-    jornada_selec = st.selectbox("Selecciona jornada:", jornadas, index=0)
-    
-    if jornada_selec:
-        df = cargar_datos(URLS[jornada_selec])
-        
-        if not df.empty:
-            st.markdown(f"### {jornada_selec}")
-            
-            config = CORTES.get(jornada_selec)
-            if config:
-                if "unica_filas" in config:
-                    inicio, fin = config["unica_filas"]
-                    cols_range = config["unica_cols"]
-                    datos = df.iloc[inicio:fin, cols_range[0]:cols_range[1]]
-                    st.dataframe(datos, use_container_width=True)
+elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
+    st.title("📊 RESULTADOS Y ESTADÍSTICAS")
+    jornadas_dict = {
+        "Grupo A Lunes": URLS["Grupo A Lunes"],
+        "Grupo A Martes": URLS["Grupo A Martes"],
+        "Grupo A Miércoles": URLS["Grupo A Miércoles"],
+        "Grupo C Jueves": URLS["Grupo C Jueves"],
+        "Grupo C Viernes": URLS["Grupo C Viernes"],
+        "Grupo B Jueves": URLS["Grupo B Jueves"],
+        "Grupo B Viernes": URLS["Grupo B Viernes"],
+        "Final Sábado": URLS["Final Sábado"],
+        "Resumen Semanal": URLS["Resumen Semanal"],
+    }
+    selected = st.selectbox("Selecciona una jornada:", list(jornadas_dict.keys()), key="jornada_select")
+    selected_url = jornadas_dict[selected]
+    st.markdown("---")
+    d1, d2 = cargar_todo(selected_url, selected, CORTES.get(selected, 2))
+    if selected in st.session_state.last_update:
+        tiempo = (datetime.now() - st.session_state.last_update[selected]).seconds
+        st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
+    orden_diario = [
+        "Media 180 por partida", "Promedio puntos total",
+        "Legs por partido", "Promedio Checkouts", "Número victorias",
+        "Número derrotas", "Porcentaje victoria", "PUNTIACIÓN GLOBAL (0-100)"
+    ]
+    if d2 is not None:
+        st.subheader("📈 Estadísticas por Jugador")
+        for player, stats in d2.items():
+            bandera = obtener_bandera(player)
+            player_display = f"{bandera} {player}" if bandera else f"👤 {player}"
+            with st.expander(player_display, expanded=False):
+                if selected == "Resumen Semanal":
+                    for k, v in stats.items():
+                        st.write(f"**{k}:** {v}")
                 else:
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown("#### Estadísticas Detalladas")
-                        if "izq_filas" in config:
-                            inicio, fin = config["izq_filas"]
-                            cols_range = config["izq_cols"]
-                            datos_izq = df.iloc[inicio:fin, cols_range[0]:cols_range[1]]
-                            st.dataframe(datos_izq, use_container_width=True)
-                    
-                    with col2:
-                        st.markdown("#### Resumen")
-                        if "der_nombres" in config:
-                            nombres_fila = config["der_nombres"]
-                            cols_range = config["der_cols"]
-                            datos_der = df.iloc[nombres_fila:nombres_fila+10, cols_range[0]:cols_range[1]]
-                            st.dataframe(datos_der, use_container_width=True)
+                    for etiqueta in orden_diario:
+                        valor = "-"
+                        for k, v in stats.items():
+                            if etiqueta.lower() in k.lower():
+                                valor = v
+                                break
+                        st.write(f"**{etiqueta}:** {valor}")
+    if d1 is not None:
+        st.subheader("⚔️ Detalles")
+        if selected not in ["Resumen Semanal", "Value Bets"]:
+            st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
         else:
-            st.warning(f"No hay datos disponibles para {jornada_selec}")
-
-st.markdown("---")
-st.caption("🎯 Modus Super Series Analytics | Última actualización: " + datetime.now().strftime("%d/%m/%Y %H:%M"))
+            st.dataframe(d1, use_container_width=True, hide_index=True)
