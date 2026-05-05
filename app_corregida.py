@@ -966,59 +966,31 @@ def render_value_bets():
                     value_bets_list.append({"Mercado": f"Gana {j2['nombre_original']}", "Probabilidad": v2, "Cuota Justa": prob_a_cuota(v2), "Cuota Bookie": c2, "Yield": y})
     with tab2:
         st.markdown("#### 🎯 Mercado de 180s (Distribución Poisson)")
-        st.markdown(f"<h5 style='color: #1f77b4;'>🎯 {j1['nombre_original']}</h5>", unsafe_allow_html=True)
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown("**+0.5 180s** (Al menos 1 180)")
-            cuota_justa = prob_a_cuota(m180["J1 +0.5"])
-            mostrar_cuota_justa(cuota_justa)
-            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j1_05", label_visibility="collapsed", placeholder="Introduce cuota")
-            st.caption(f"{m180['J1 +0.5']*100:.1f}% probabilidad")
-            if c and c > 0:
-                y = calcular_yield(m180["J1 +0.5"], c)
-                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
-                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
-                if y > 0:
-                    value_bets_list.append({"Mercado": f"{j1['nombre_original']} +0.5 180s", "Probabilidad": m180["J1 +0.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
-        with col_b:
-            st.markdown("**+1.5 180s** (Al menos 2 180s)")
-            cuota_justa = prob_a_cuota(m180["J1 +1.5"])
-            mostrar_cuota_justa(cuota_justa)
-            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j1_15", label_visibility="collapsed", placeholder="Introduce cuota")
-            st.caption(f"{m180['J1 +1.5']*100:.1f}% probabilidad")
-            if c and c > 0:
-                y = calcular_yield(m180["J1 +1.5"], c)
-                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
-                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
-                if y > 0:
-                    value_bets_list.append({"Mercado": f"{j1['nombre_original']} +1.5 180s", "Probabilidad": m180["J1 +1.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        st.markdown(f"<h5 style='color: #1f77b4;'>{j1['nombre_original']}</h5>", unsafe_allow_html=True)
+        st.markdown("**+1.5 180s** (Al menos 2 180s)")
+        cuota_justa = prob_a_cuota(m180["J1 +1.5"])
+        mostrar_cuota_justa(cuota_justa)
+        c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j1_15", label_visibility="collapsed", placeholder="Introduce cuota")
+        st.caption(f"{m180['J1 +1.5']*100:.1f}% probabilidad")
+        if c and c > 0:
+            y = calcular_yield(m180["J1 +1.5"], c)
+            yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+            st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+            if y > 0:
+                value_bets_list.append({"Mercado": f"{j1['nombre_original']} +1.5 180s", "Probabilidad": m180["J1 +1.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
         st.markdown("---")
-        st.markdown(f"<h5 style='color: #ff7f0e;'>🎯 {j2['nombre_original']}</h5>", unsafe_allow_html=True)
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown("**+0.5 180s** (Al menos 1 180)")
-            cuota_justa = prob_a_cuota(m180["J2 +0.5"])
-            mostrar_cuota_justa(cuota_justa)
-            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j2_05", label_visibility="collapsed", placeholder="Introduce cuota")
-            st.caption(f"{m180['J2 +0.5']*100:.1f}% probabilidad")
-            if c and c > 0:
-                y = calcular_yield(m180["J2 +0.5"], c)
-                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
-                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
-                if y > 0:
-                    value_bets_list.append({"Mercado": f"{j2['nombre_original']} +0.5 180s", "Probabilidad": m180["J2 +0.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
-        with col_b:
-            st.markdown("**+1.5 180s** (Al menos 2 180s)")
-            cuota_justa = prob_a_cuota(m180["J2 +1.5"])
-            mostrar_cuota_justa(cuota_justa)
-            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j2_15", label_visibility="collapsed", placeholder="Introduce cuota")
-            st.caption(f"{m180['J2 +1.5']*100:.1f}% probabilidad")
-            if c and c > 0:
-                y = calcular_yield(m180["J2 +1.5"], c)
-                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
-                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
-                if y > 0:
-                    value_bets_list.append({"Mercado": f"{j2['nombre_original']} +1.5 180s", "Probabilidad": m180["J2 +1.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        st.markdown(f"<h5 style='color: #ff7f0e;'>{j2['nombre_original']}</h5>", unsafe_allow_html=True)
+        st.markdown("**+1.5 180s** (Al menos 2 180s)")
+        cuota_justa = prob_a_cuota(m180["J2 +1.5"])
+        mostrar_cuota_justa(cuota_justa)
+        c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j2_15", label_visibility="collapsed", placeholder="Introduce cuota")
+        st.caption(f"{m180['J2 +1.5']*100:.1f}% probabilidad")
+        if c and c > 0:
+            y = calcular_yield(m180["J2 +1.5"], c)
+            yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+            st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+            if y > 0:
+                value_bets_list.append({"Mercado": f"{j2['nombre_original']} +1.5 180s", "Probabilidad": m180["J2 +1.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
         st.markdown("---")
         st.markdown("##### 🤝 Ambos Jugadores")
         col_a, col_b, col_c = st.columns(3)
