@@ -851,7 +851,7 @@ def render_value_bets():
         svg_j1 = render_pentagono_svg(pr1, lam1, j1["promedio_dardos"], j1["checkouts"], j1["pct_victorias"], color="#1f77b4")
         st.markdown(f"<div style='text-align: center;'>{svg_j1}</div>", unsafe_allow_html=True)
         
-        # Datos en 5 columnas
+        # Datos en 5 columnas coloreados en azul
         dcols = st.columns(5)
         datos_j1 = [
             ("Power", f"{pr1:.1f}"),
@@ -862,14 +862,19 @@ def render_value_bets():
         ]
         for idx, (label, valor) in enumerate(datos_j1):
             with dcols[idx]:
-                st.metric(label, valor)
+                st.markdown(f"""
+                <div style='text-align: center; padding: 10px; background: rgba(31, 119, 180, 0.1); border-radius: 6px; border-left: 3px solid #1f77b4;'>
+                    <p style='margin: 0; font-size: 11px; color: #666;'>{label}</p>
+                    <p style='margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #1f77b4;'>{valor}</p>
+                </div>
+                """, unsafe_allow_html=True)
     
     with col_p2:
         st.markdown(f"<h3 style='text-align: center; color: #ff7f0e;'>{j2['nombre_original']}</h3>", unsafe_allow_html=True)
         svg_j2 = render_pentagono_svg(pr2, lam2, j2["promedio_dardos"], j2["checkouts"], j2["pct_victorias"], color="#ff7f0e")
         st.markdown(f"<div style='text-align: center;'>{svg_j2}</div>", unsafe_allow_html=True)
         
-        # Datos en 5 columnas
+        # Datos en 5 columnas coloreados en naranja
         dcols = st.columns(5)
         datos_j2 = [
             ("Power", f"{pr2:.1f}"),
@@ -880,7 +885,12 @@ def render_value_bets():
         ]
         for idx, (label, valor) in enumerate(datos_j2):
             with dcols[idx]:
-                st.metric(label, valor)
+                st.markdown(f"""
+                <div style='text-align: center; padding: 10px; background: rgba(255, 127, 14, 0.1); border-radius: 6px; border-left: 3px solid #ff7f0e;'>
+                    <p style='margin: 0; font-size: 11px; color: #666;'>{label}</p>
+                    <p style='margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #ff7f0e;'>{valor}</p>
+                </div>
+                """, unsafe_allow_html=True)
     
     st.markdown("---")
     st.markdown("### 🔥 Head to Head Semanal")
