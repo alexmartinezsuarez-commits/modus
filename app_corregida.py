@@ -739,8 +739,7 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     
     svg_parts.append('</svg>')
     
-    svg_html = "
-".join(svg_parts)
+    svg_html = "\n".join(svg_parts)
     
     # HTML para los datos debajo del pentágono
     html_datos = f"""
