@@ -838,7 +838,7 @@ def render_value_bets():
     col_p1, col_p2 = st.columns(2)
     
     with col_p1:
-        st.markdown(f"<h4 style='text-align: center; color: #1f77b4;'>🔵 {j1['nombre_original']}</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='text-align: center; color: #1f77b4;'>{j1['nombre_original']}</h4>", unsafe_allow_html=True)
         html_j1 = render_pentagono_habilidades(
             pr1, lam1, j1["promedio_dardos"], j1["checkouts"], j1["pct_victorias"],
             color="#1f77b4"
@@ -846,7 +846,7 @@ def render_value_bets():
         st.markdown(html_j1, unsafe_allow_html=True)
     
     with col_p2:
-        st.markdown(f"<h4 style='text-align: center; color: #ff7f0e;'>🟠 {j2['nombre_original']}</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='text-align: center; color: #ff7f0e;'>{j2['nombre_original']}</h4>", unsafe_allow_html=True)
         html_j2 = render_pentagono_habilidades(
             pr2, lam2, j2["promedio_dardos"], j2["checkouts"], j2["pct_victorias"],
             color="#ff7f0e"
@@ -881,7 +881,7 @@ def render_value_bets():
         st.markdown("---")
         col_v1, col_v2 = st.columns(2)
         with col_v1:
-            st.markdown(f"**🎯 Gana {j1['nombre_original']}**")
+            st.markdown(f"<p style='color: #1f77b4; font-weight: bold;'>🎯 Gana {j1['nombre_original']}</p>", unsafe_allow_html=True)
             cuota_justa = prob_a_cuota(v1)
             mostrar_cuota_justa(cuota_justa)
             c1 = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="vic_j1", label_visibility="collapsed", placeholder="Introduce cuota")
@@ -893,7 +893,7 @@ def render_value_bets():
                 if y > 0:
                     value_bets_list.append({"Mercado": f"Gana {j1['nombre_original']}", "Probabilidad": v1, "Cuota Justa": cuota_justa, "Cuota Bookie": c1, "Yield": y})
         with col_v2:
-            st.markdown(f"**🎯 Gana {j2['nombre_original']}**")
+            st.markdown(f"<p style='color: #ff7f0e; font-weight: bold;'>🎯 Gana {j2['nombre_original']}</p>", unsafe_allow_html=True)
             cuota_justa = prob_a_cuota(v2)
             mostrar_cuota_justa(cuota_justa)
             c2 = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="vic_j2", label_visibility="collapsed", placeholder="Introduce cuota")
@@ -906,7 +906,7 @@ def render_value_bets():
                     value_bets_list.append({"Mercado": f"Gana {j2['nombre_original']}", "Probabilidad": v2, "Cuota Justa": prob_a_cuota(v2), "Cuota Bookie": c2, "Yield": y})
     with tab2:
         st.markdown("#### 🎯 Mercado de 180s (Distribución Poisson)")
-        st.markdown(f"##### 🔵 {j1['nombre_original']}")
+        st.markdown(f"<h5 style='color: #1f77b4;'>🎯 {j1['nombre_original']}</h5>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
         with col_a:
             st.markdown("**+0.5 180s** (Al menos 1 180)")
@@ -933,7 +933,7 @@ def render_value_bets():
                 if y > 0:
                     value_bets_list.append({"Mercado": f"{j1['nombre_original']} +1.5 180s", "Probabilidad": m180["J1 +1.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
         st.markdown("---")
-        st.markdown(f"##### 🟠 {j2['nombre_original']}")
+        st.markdown(f"<h5 style='color: #ff7f0e;'>🎯 {j2['nombre_original']}</h5>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
         with col_a:
             st.markdown("**+0.5 180s** (Al menos 1 180)")
@@ -1004,7 +1004,7 @@ def render_value_bets():
         st.markdown("---")
         col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
-            st.markdown(f"**{j1['nombre_original']}**")
+            st.markdown(f"<p style='color: #1f77b4; font-weight: bold;'>{j1['nombre_original']}</p>", unsafe_allow_html=True)
             cuota_justa = prob_a_cuota(p_j1_mas)
             mostrar_cuota_justa(cuota_justa)
             c = st.number_input(f"Tu cuota {j1['nombre_original']}", min_value=1.01, max_value=50.0, value=None, step=0.05, key="mas_j1", label_visibility="collapsed", placeholder="Introduce cuota")
@@ -1028,7 +1028,7 @@ def render_value_bets():
                 if y > 0:
                     value_bets_list.append({"Mercado": "Empate 180s", "Probabilidad": p_emp, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
         with col_m3:
-            st.markdown(f"**{j2['nombre_original']}**")
+            st.markdown(f"<p style='color: #ff7f0e; font-weight: bold;'>{j2['nombre_original']}</p>", unsafe_allow_html=True)
             cuota_justa = prob_a_cuota(p_j2_mas)
             mostrar_cuota_justa(cuota_justa)
             c = st.number_input(f"Tu cuota {j2['nombre_original']}", min_value=1.01, max_value=50.0, value=None, step=0.05, key="mas_j2", label_visibility="collapsed", placeholder="Introduce cuota")
@@ -1041,41 +1041,138 @@ def render_value_bets():
                     value_bets_list.append({"Mercado": f"Más 180s: {j2['nombre_original']}", "Probabilidad": p_j2_mas, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
     with tab4:
         st.markdown("#### 🎯 Hándicaps 180 de Legs")
-        col_h1, col_h2 = st.columns(2)
-        with col_h1:
-            st.markdown(f"##### {j1['nombre_original']}")
-            for hcap_name in ["J1 -1.5 Legs", "J1 -2.5 Legs", "J1 +1.5 Legs", "J1 +2.5 Legs"]:
-                prob = hcaps[hcap_name]
-                label = hcap_name.replace("J1 ", "").replace("Legs", "").strip()
-                st.markdown(f"**{label}**")
-                cuota_justa = prob_a_cuota(prob)
-                mostrar_cuota_justa(cuota_justa)
-                c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"hcap_{hcap_name}", label_visibility="collapsed", placeholder="Introduce cuota")
-                st.caption(f"{prob*100:.1f}% probabilidad")
-                if c and c > 0:
-                    y = calcular_yield(prob, c)
-                    yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
-                    st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
-                    if y > 0:
-                        value_bets_list.append({"Mercado": f"{j1['nombre_original']} {label}", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
-                st.divider()
-        with col_h2:
-            st.markdown(f"##### {j2['nombre_original']}")
-            for hcap_name in ["J2 -1.5 Legs", "J2 -2.5 Legs", "J2 +1.5 Legs", "J2 +2.5 Legs"]:
-                prob = hcaps[hcap_name]
-                label = hcap_name.replace("J2 ", "").replace("Legs", "").strip()
-                st.markdown(f"**{label}**")
-                cuota_justa = prob_a_cuota(prob)
-                mostrar_cuota_justa(cuota_justa)
-                c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"hcap_{hcap_name}_j2", label_visibility="collapsed", placeholder="Introduce cuota")
-                st.caption(f"{prob*100:.1f}% probabilidad")
-                if c and c > 0:
-                    y = calcular_yield(prob, c)
-                    yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
-                    st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
-                    if y > 0:
-                        value_bets_list.append({"Mercado": f"{j2['nombre_original']} {label}", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
-                st.divider()
+        
+        # JUGADOR 1
+        st.markdown(f"<h4 style='color: #1f77b4;'>{j1['nombre_original']}</h4>", unsafe_allow_html=True)
+        
+        # Hándicaps Positivos J1
+        st.markdown("**Hándicaps Positivos**")
+        col_pos_j1_1, col_pos_j1_2 = st.columns(2)
+        with col_pos_j1_1:
+            st.markdown("**+1.5 Legs**")
+            prob = hcaps["J1 +1.5 Legs"]
+            cuota_justa = prob_a_cuota(prob)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="hcap_j1_pos_15", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j1['nombre_original']} +1.5 Legs", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
+        with col_pos_j1_2:
+            st.markdown("**+2.5 Legs**")
+            prob = hcaps["J1 +2.5 Legs"]
+            cuota_justa = prob_a_cuota(prob)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="hcap_j1_pos_25", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j1['nombre_original']} +2.5 Legs", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
+        # Hándicaps Negativos J1
+        st.markdown("**Hándicaps Negativos**")
+        col_neg_j1_1, col_neg_j1_2 = st.columns(2)
+        with col_neg_j1_1:
+            st.markdown("**-1.5 Legs**")
+            prob = hcaps["J1 -1.5 Legs"]
+            cuota_justa = prob_a_cuota(prob)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="hcap_j1_neg_15", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j1['nombre_original']} -1.5 Legs", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
+        with col_neg_j1_2:
+            st.markdown("**-2.5 Legs**")
+            prob = hcaps["J1 -2.5 Legs"]
+            cuota_justa = prob_a_cuota(prob)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="hcap_j1_neg_25", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j1['nombre_original']} -2.5 Legs", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
+        st.divider()
+        
+        # JUGADOR 2
+        st.markdown(f"<h4 style='color: #ff7f0e;'>{j2['nombre_original']}</h4>", unsafe_allow_html=True)
+        
+        # Hándicaps Positivos J2
+        st.markdown("**Hándicaps Positivos**")
+        col_pos_j2_1, col_pos_j2_2 = st.columns(2)
+        with col_pos_j2_1:
+            st.markdown("**+1.5 Legs**")
+            prob = hcaps["J2 +1.5 Legs"]
+            cuota_justa = prob_a_cuota(prob)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="hcap_j2_pos_15", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j2['nombre_original']} +1.5 Legs", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
+        with col_pos_j2_2:
+            st.markdown("**+2.5 Legs**")
+            prob = hcaps["J2 +2.5 Legs"]
+            cuota_justa = prob_a_cuota(prob)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="hcap_j2_pos_25", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j2['nombre_original']} +2.5 Legs", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
+        # Hándicaps Negativos J2
+        st.markdown("**Hándicaps Negativos**")
+        col_neg_j2_1, col_neg_j2_2 = st.columns(2)
+        with col_neg_j2_1:
+            st.markdown("**-1.5 Legs**")
+            prob = hcaps["J2 -1.5 Legs"]
+            cuota_justa = prob_a_cuota(prob)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="hcap_j2_neg_15", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j2['nombre_original']} -1.5 Legs", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
+        with col_neg_j2_2:
+            st.markdown("**-2.5 Legs**")
+            prob = hcaps["J2 -2.5 Legs"]
+            cuota_justa = prob_a_cuota(prob)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key="hcap_j2_neg_25", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j2['nombre_original']} -2.5 Legs", "Probabilidad": prob, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
     with tab5:
         st.markdown("#### 📊 Total Legs (First to 4)")
         render_barras_enfrentadas("Más de 5.5", legs_total_dict["Más de 5.5"], "Menos de 5.5", legs_total_dict["Menos de 5.5"], j1_color="#28a745", j2_color="#dc3545")
