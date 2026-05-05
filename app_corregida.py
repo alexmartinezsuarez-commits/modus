@@ -841,10 +841,9 @@ def render_value_bets():
     legs1, legs2 = j1["lam_legs"], j2["lam_legs"]
     st.markdown("---")
     st.markdown("### 📊 Comparativa de Jugadores")
-    st.markdown(f"#### {j1['nombre_original']} vs {j2['nombre_original']}")
     
     # Mostrar pentágonos lado a lado con Streamlit columns
-    col_p1, col_p2 = st.columns(2)
+    col_p1, col_vs, col_p2 = st.columns([1, 0.15, 1])
     
     with col_p1:
         st.markdown(f"<h3 style='text-align: center; color: #1f77b4;'>{j1['nombre_original']}</h3>", unsafe_allow_html=True)
@@ -868,6 +867,13 @@ def render_value_bets():
                     <p style='margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #1f77b4;'>{valor}</p>
                 </div>
                 """, unsafe_allow_html=True)
+    
+    with col_vs:
+        st.markdown("""
+        <div style='display: flex; align-items: center; justify-content: center; height: 100%; padding: 150px 0;'>
+            <p style='font-size: 32px; font-weight: bold; color: #999; margin: 0;'>vs</p>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col_p2:
         st.markdown(f"<h3 style='text-align: center; color: #ff7f0e;'>{j2['nombre_original']}</h3>", unsafe_allow_html=True)
