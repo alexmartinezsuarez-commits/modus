@@ -658,8 +658,8 @@ def render_mas_180s_barras(j1_nombre, p_j1, j2_nombre, p_j2, p_emp, j1_color="#1
     """
     st.markdown(html_str, unsafe_allow_html=True)
 
-def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vic, color="#1f77b4"):
-    """Renderiza un pentágono de habilidades simétrico con datos coloreados debajo."""
+def render_pentagono_svg(pr, lam_180, promedio_dardos, checkouts, pct_vic, color="#1f77b4"):
+    """Renderiza solo el SVG del pentágono sin los datos."""
     
     # Normalizar valores entre 0-100
     pr_norm = min(100, max(0, pr))
@@ -670,13 +670,12 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     
     values = [pr_norm, lam_180_norm, promedio_dardos_norm, checkouts_norm, pct_vic_norm]
     labels = ["Power", "λ 180s", "Ø Dardos", "Checkout", "% Vic"]
-    valores_display = [f"{pr:.1f}", f"{lam_180:.2f}", f"{promedio_dardos:.1f}", f"{checkouts:.0f}%", f"{pct_vic:.0f}%"]
     
     # SVG centrado perfecto
     svg_size = 340
-    center_x, center_y = svg_size / 2, svg_size / 2  # 170, 170
+    center_x, center_y = svg_size / 2, svg_size / 2
     radius = 90
-    angle_offset = -90  # Comienza arriba
+    angle_offset = -90
     
     # Calcular puntos del pentágono base
     points = []
@@ -685,12 +684,10 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
         angle = angle_offset + (i * 72)
         rad = np.radians(angle)
         
-        # Punto del pentágono
         x = center_x + radius * np.cos(rad)
         y = center_y + radius * np.sin(rad)
         points.append((x, y))
         
-        # Posición de etiqueta más alejada
         label_radius = radius + 30
         lx = center_x + label_radius * np.cos(rad)
         ly = center_y + label_radius * np.sin(rad)
@@ -733,13 +730,22 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     for point in data_points:
         svg_parts.append(f'<circle cx="{point[0]}" cy="{point[1]}" r="3.5" fill="{color}" stroke="white" stroke-width="1.5"/>')
     
-    # Etiquetas simétricas
+    # Etiquetas
     for i, (x, y) in enumerate(label_pos):
         svg_parts.append(f'<text x="{x}" y="{y}" text-anchor="middle" dominant-baseline="middle" font-size="9" font-family="Arial" fill="#666" font-weight="500">{labels[i]}</text>')
     
     svg_parts.append('</svg>')
     
-    svg_html = "\n".join(svg_parts)
+    return "\n".join(svg_parts)
+
+def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vic, color="#1f77b4"):
+    """Renderiza pentágono con datos debajo."""
+    
+    valores_display = [f"{pr:.1f}", f"{lam_180:.2f}", f"{promedio_dardos:.1f}", f"{checkouts:.0f}%", f"{pct_vic:.0f}%"]
+    svg_html = render_pentagono_svg(pr, lam_180, promedio_dardos, checkouts, pct_vic, color)
+    
+    rgb_color = color.lstrip('#')
+    rgb_tuple = tuple(int(rgb_color[i:i+2], 16) for i in (0, 2, 4))
     
     # HTML para los datos debajo del pentágono
     html_datos = f"""
@@ -837,24 +843,44 @@ def render_value_bets():
     st.markdown("### 📊 Comparativa de Jugadores")
     st.markdown(f"#### {j1['nombre_original']} vs {j2['nombre_original']}")
     
-    # Generar HTML de pentágonos primero
-    html_j1 = render_pentagono_habilidades(pr1, lam1, j1["promedio_dardos"], j1["checkouts"], j1["pct_victorias"], color="#1f77b4")
-    html_j2 = render_pentagono_habilidades(pr2, lam2, j2["promedio_dardos"], j2["checkouts"], j2["pct_victorias"], color="#ff7f0e")
+    # Mostrar pentágonos lado a lado con Streamlit columns
+    col_p1, col_p2 = st.columns(2)
     
-    # Mostrar pentágonos centrados
-    html_comparativa = f"""
-    <div style="display: flex; gap: 60px; justify-content: center; align-items: flex-start; width: 100%;">
-        <div style="flex: 0 0 auto; text-align: center;">
-            <h3 style="color: #1f77b4; margin-bottom: 20px; font-size: 24px;">{j1['nombre_original']}</h3>
-            {html_j1}
-        </div>
-        <div style="flex: 0 0 auto; text-align: center;">
-            <h3 style="color: #ff7f0e; margin-bottom: 20px; font-size: 24px;">{j2['nombre_original']}</h3>
-            {html_j2}
-        </div>
-    </div>
-    """
-    st.markdown(html_comparativa, unsafe_allow_html=True)
+    with col_p1:
+        st.markdown(f"<h3 style='text-align: center; color: #1f77b4;'>{j1['nombre_original']}</h3>", unsafe_allow_html=True)
+        svg_j1 = render_pentagono_svg(pr1, lam1, j1["promedio_dardos"], j1["checkouts"], j1["pct_victorias"], color="#1f77b4")
+        st.markdown(f"<div style='text-align: center;'>{svg_j1}</div>", unsafe_allow_html=True)
+        
+        # Datos en 5 columnas
+        dcols = st.columns(5)
+        datos_j1 = [
+            ("Power", f"{pr1:.1f}"),
+            ("λ 180s", f"{lam1:.2f}"),
+            ("Ø Dardos", f"{j1['promedio_dardos']:.1f}"),
+            ("Checkout", f"{j1['checkouts']:.0f}%"),
+            ("% Vic", f"{j1['pct_victorias']:.0f}%")
+        ]
+        for idx, (label, valor) in enumerate(datos_j1):
+            with dcols[idx]:
+                st.metric(label, valor)
+    
+    with col_p2:
+        st.markdown(f"<h3 style='text-align: center; color: #ff7f0e;'>{j2['nombre_original']}</h3>", unsafe_allow_html=True)
+        svg_j2 = render_pentagono_svg(pr2, lam2, j2["promedio_dardos"], j2["checkouts"], j2["pct_victorias"], color="#ff7f0e")
+        st.markdown(f"<div style='text-align: center;'>{svg_j2}</div>", unsafe_allow_html=True)
+        
+        # Datos en 5 columnas
+        dcols = st.columns(5)
+        datos_j2 = [
+            ("Power", f"{pr2:.1f}"),
+            ("λ 180s", f"{lam2:.2f}"),
+            ("Ø Dardos", f"{j2['promedio_dardos']:.1f}"),
+            ("Checkout", f"{j2['checkouts']:.0f}%"),
+            ("% Vic", f"{j2['pct_victorias']:.0f}%")
+        ]
+        for idx, (label, valor) in enumerate(datos_j2):
+            with dcols[idx]:
+                st.metric(label, valor)
     
     st.markdown("---")
     st.markdown("### 🔥 Head to Head Semanal")
