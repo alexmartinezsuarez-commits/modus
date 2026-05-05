@@ -837,34 +837,45 @@ def render_value_bets():
     st.markdown("### 📊 Comparativa de Jugadores")
     st.markdown(f"#### {j1['nombre_original']} vs {j2['nombre_original']}")
     
-    # Mostrar pentágonos lado a lado
-    col_p1, col_p2 = st.columns(2)
+    # Mostrar pentágonos centrados
+    html_comparativa = f"""
+    <div style="display: flex; gap: 40px; justify-content: center; align-items: flex-start; width: 100%;">
+        <div style="flex: 1; max-width: 400px; text-align: center;">
+            <h3 style="color: #1f77b4; margin-bottom: 20px;">{j1['nombre_original']}</h3>
+            {render_pentagono_habilidades(pr1, lam1, j1["promedio_dardos"], j1["checkouts"], j1["pct_victorias"], color="#1f77b4")}
+        </div>
+        <div style="flex: 1; max-width: 400px; text-align: center;">
+            <h3 style="color: #ff7f0e; margin-bottom: 20px;">{j2['nombre_original']}</h3>
+            {render_pentagono_habilidades(pr2, lam2, j2["promedio_dardos"], j2["checkouts"], j2["pct_victorias"], color="#ff7f0e")}
+        </div>
+    </div>
+    """
+    st.markdown(html_comparativa, unsafe_allow_html=True)
     
-    with col_p1:
-        st.markdown(f"<h4 style='text-align: center; color: #1f77b4;'>{j1['nombre_original']}</h4>", unsafe_allow_html=True)
-        html_j1 = render_pentagono_habilidades(
-            pr1, lam1, j1["promedio_dardos"], j1["checkouts"], j1["pct_victorias"],
-            color="#1f77b4"
-        )
-        st.markdown(html_j1, unsafe_allow_html=True)
-    
-    with col_p2:
-        st.markdown(f"<h4 style='text-align: center; color: #ff7f0e;'>{j2['nombre_original']}</h4>", unsafe_allow_html=True)
-        html_j2 = render_pentagono_habilidades(
-            pr2, lam2, j2["promedio_dardos"], j2["checkouts"], j2["pct_victorias"],
-            color="#ff7f0e"
-        )
-        st.markdown(html_j2, unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("### 🔥 Head to Head Semanal")
     with st.spinner("Analizando enfrentamientos directos..."):
         h2h = extraer_h2h_semanal(j1['nombre_original'], j2['nombre_original'])
+    
     if h2h["partidos"]:
-        col_h1, col_h2 = st.columns([1, 1])
-        with col_h1:
-            st.metric(f"Victorias {j1['nombre_original']}", h2h["victorias_j1"])
-        with col_h2:
-            st.metric(f"Victorias {j2['nombre_original']}", h2h["victorias_j2"])
+        # Head to Head con nombres prominentes
+        html_h2h = f"""
+        <div style="display: flex; justify-content: space-around; align-items: center; gap: 30px; margin: 30px 0;">
+            <div style="text-align: center; flex: 1;">
+                <h2 style="color: #1f77b4; margin: 0; font-size: 32px;">{j1['nombre_original']}</h2>
+                <p style="color: #1f77b4; font-size: 48px; font-weight: bold; margin: 10px 0;">{h2h["victorias_j1"]}</p>
+                <p style="color: #666; font-size: 14px; margin: 0;">Victorias H2H</p>
+            </div>
+            <div style="text-align: center; font-size: 28px; color: #999;">vs</div>
+            <div style="text-align: center; flex: 1;">
+                <h2 style="color: #ff7f0e; margin: 0; font-size: 32px;">{j2['nombre_original']}</h2>
+                <p style="color: #ff7f0e; font-size: 48px; font-weight: bold; margin: 10px 0;">{h2h["victorias_j2"]}</p>
+                <p style="color: #666; font-size: 14px; margin: 0;">Victorias H2H</p>
+            </div>
+        </div>
+        """
+        st.markdown(html_h2h, unsafe_allow_html=True)
+        
         with st.expander("📋 Ver historial de enfrentamientos"):
             for partido in h2h["partidos"]:
                 st.markdown(f"**{partido['dia']}**: {partido['jugador1']} vs {partido['jugador2']} - **{partido['marcador']}** (Ganador: {partido['ganador']})")
