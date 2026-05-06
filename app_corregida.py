@@ -1576,82 +1576,93 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     if d2 is not None:
         st.subheader("📈 Estadísticas por Jugador")
         
-        # Cargar datos del resumen semanal para comparar
-        stats_resumen = None
-        if selected != "Resumen Semanal":
-            _, stats_resumen = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
-        
-        # Detectar alertas excepcionales
-        alertas_excepcionales = {}
-        if stats_resumen:
+        # SI ES RESUMEN SEMANAL: Mostrar como antes con expanders
+        if selected == "Resumen Semanal":
             for player, stats in d2.items():
-                alertas_excepcionales[player] = []
-                if player in stats_resumen:
-                    for etiqueta in orden_diario:
-                        for k_act, v_act in stats.items():
-                            if etiqueta.lower() in k_act.lower():
-                                for k_sem, v_sem in stats_resumen[player].items():
-                                    if etiqueta.lower() in k_sem.lower():
-                                        es_excepcional, porcentaje = verificar_alerta_excepcional(v_act, v_sem, etiqueta)
-                                        if es_excepcional:
-                                            alertas_excepcionales[player].append({
-                                                "metrica": etiqueta,
-                                                "valor": v_act,
-                                                "semanal": v_sem,
-                                                "porcentaje": porcentaje
-                                            })
+                with st.expander(f"👤 {player}", expanded=False):
+                    for k, v in stats.items():
+                        st.write(f"**{k}:** {v}")
         
-        # Mostrar alertas destacadas
-        for player, alertas in alertas_excepcionales.items():
-            if alertas:
-                alerta_text = f"👤 {player}: "
-                for alerta in alertas:
-                    simbolo = "🚀" if alerta['porcentaje'] > 0 else "⚠️"
-                    alerta_text += f"{simbolo} {alerta['metrica']} ({alerta['porcentaje']:.0f}%) | "
-                st.warning(alerta_text.rstrip(" | "))
-        
-        # Crear datos para tabla ordenable
-        tabla_datos = []
-        for player, stats in d2.items():
-            row = {"👤 Jugador": player}
-            if selected != "Resumen Semanal":
-                if player in stats_resumen:
-                    for etiqueta in orden_diario:
-                        valor_actual = "-"
-                        valor_semanal = "-"
-                        for k_act, v_act in stats.items():
-                            if etiqueta.lower() in k_act.lower():
-                                valor_actual = v_act
+        # SI NO ES RESUMEN SEMANAL: Mostrar tabla con tendencias y gráficos
+        else:
+            # Cargar datos del resumen semanal para comparar
+            _, stats_resumen = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
+            
+            # Detectar alertas excepcionales
+            alertas_excepcionales = {}
+            if stats_resumen:
+                for player, stats in d2.items():
+                    alertas_excepcionales[player] = []
+                    if player in stats_resumen:
+                        for etiqueta in orden_diario:
+                            for k_act, v_act in stats.items():
+                                if etiqueta.lower() in k_act.lower():
+                                    for k_sem, v_sem in stats_resumen[player].items():
+                                        if etiqueta.lower() in k_sem.lower():
+                                            es_excepcional, porcentaje = verificar_alerta_excepcional(v_act, v_sem, etiqueta)
+                                            if es_excepcional:
+                                                alertas_excepcionales[player].append({
+                                                    "metrica": etiqueta,
+                                                    "valor": v_act,
+                                                    "semanal": v_sem,
+                                                    "porcentaje": porcentaje
+                                                })
+            
+            # Mostrar alertas destacadas
+            for player, alertas in alertas_excepcionales.items():
+                if alertas:
+                    alerta_text = f"👤 {player}: "
+                    for alerta in alertas:
+                        simbolo = "🚀" if alerta['porcentaje'] > 0 else "⚠️"
+                        alerta_text += f"{simbolo} {alerta['metrica']} ({alerta['porcentaje']:.0f}%) | "
+                    st.warning(alerta_text.rstrip(" | "))
+            
+            # Crear datos para tabla ordenable
+            tabla_datos = []
+            for player, stats in d2.items():
+                row = {"👤 Jugador": player}
+                
+                for etiqueta in orden_diario:
+                    valor_actual = "-"
+                    valor_semanal = "-"
+                    
+                    # Buscar valor actual en jornada
+                    for k_act, v_act in stats.items():
+                        if etiqueta.lower() in k_act.lower():
+                            valor_actual = v_act
+                            break
+                    
+                    # Buscar valor semanal
+                    if stats_resumen and player in stats_resumen:
                         for k_sem, v_sem in stats_resumen[player].items():
                             if etiqueta.lower() in k_sem.lower():
                                 valor_semanal = v_sem
-                        
-                        if valor_actual != "-" and valor_semanal != "-":
-                            indicador, val_display, comparativa = calcular_tendencia(valor_actual, valor_semanal, etiqueta)
-                            display_text = f"{val_display} {indicador} {comparativa}".strip()
-                            row[etiqueta] = display_text
-                        else:
-                            row[etiqueta] = valor_actual
-            else:
-                for k, v in stats.items():
-                    row[k] = v
-            tabla_datos.append(row)
-        
-        # Mostrar tabla ordenable
-        if tabla_datos:
-            df_tabla = pd.DataFrame(tabla_datos)
-            st.dataframe(
-                df_tabla,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    col: st.column_config.TextColumn(col, width="medium")
-                    for col in df_tabla.columns
-                }
-            )
+                                break
+                    
+                    # Calcular tendencia
+                    if valor_actual != "-" and valor_semanal != "-":
+                        indicador, val_display, comparativa = calcular_tendencia(valor_actual, valor_semanal, etiqueta)
+                        display_text = f"{val_display} {indicador} {comparativa}".strip()
+                        row[etiqueta] = display_text
+                    else:
+                        row[etiqueta] = valor_actual
+                
+                tabla_datos.append(row)
             
-            # Agregar gráficos mini si no es resumen
-            if selected != "Resumen Semanal" and stats_resumen:
+            # Mostrar tabla ordenable
+            if tabla_datos:
+                df_tabla = pd.DataFrame(tabla_datos)
+                st.dataframe(
+                    df_tabla,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        col: st.column_config.TextColumn(col, width="medium")
+                        for col in df_tabla.columns
+                    }
+                )
+                
+                # Agregar gráficos mini
                 st.markdown("---")
                 st.subheader("📊 Comparativas Visuales")
                 
@@ -1671,7 +1682,7 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
                     with cols[idx]:
                         datos_grafico = []
                         for player in d2.keys():
-                            if player in stats_resumen:
+                            if stats_resumen and player in stats_resumen:
                                 val_jornada = None
                                 val_semanal = None
                                 
@@ -1691,7 +1702,7 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
                                 
                                 if val_jornada and val_semanal:
                                     datos_grafico.append({
-                                        "Jugador": player[:15],  # Acortar nombres largos
+                                        "Jugador": player[:15],
                                         "Hoy": val_jornada,
                                         "Semanal": val_semanal
                                     })
