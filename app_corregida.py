@@ -1401,31 +1401,35 @@ if st.sidebar.button("♻️ Forzar Refresh", help="Recarga inmediata"):
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ⚙️ Ejecutar Script")
 
-SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwNQnY-jfmOGZSN0D1cNPFyijkNtrzWSBzUs0mByzQl0mCDRvhn6MOMInDZ9yXw0cf9/exec"
+SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyF0-GxHiaX4NW55-2UJt39a9V_aJhGXahq5NL5z2szpbFd7RdtKtr5ww7r852RAm2f/exec"
 
 if st.sidebar.button("▶️ Ejecutar Actualización", type="primary", use_container_width=True, help="Ejecuta el script de actualización de datos"):
-    st.sidebar.info("🔄 Ejecutando script...")
-    try:
-        response = requests.post(SCRIPT_URL, timeout=120)
-        if response.status_code == 200:
-            st.sidebar.success("✅ Script ejecutado correctamente")
-            st.sidebar.info("📊 Los datos se actualizarán en breve...")
-            st.balloons()
-            time.sleep(2)
-            st.cache_data.clear()
-            st.session_state.last_update = {}
-            st.rerun()
-        else:
-            st.sidebar.warning(f"⚠️ Respuesta HTTP {response.status_code}")
-            st.sidebar.info("💡 El script podría estar ejecutándose. Intenta refrescar en 5 segundos.")
-    except requests.exceptions.Timeout:
-        st.sidebar.warning("⏱️ Tiempo de espera agotado (>120s)")
-        st.sidebar.info("💡 El script está ejecutándose en segundo plano. Los datos se actualizarán en breve.")
-    except requests.exceptions.ConnectionError:
-        st.sidebar.error("🔗 Error de conexión")
-        st.sidebar.error("Verifica tu conexión a internet")
-    except Exception as e:
-        st.sidebar.error(f"❌ Error: {str(e)}")
+    with st.sidebar.spinner("🔄 Ejecutando script..."):
+        try:
+            # Intentar con GET primero (más compatible con Apps Script)
+            response = requests.get(SCRIPT_URL, timeout=120)
+            if response.status_code == 200:
+                st.sidebar.success("✅ Script ejecutado correctamente")
+                st.sidebar.info("📊 Los datos se actualizarán en breve...")
+                st.balloons()
+                time.sleep(2)
+                st.cache_data.clear()
+                st.session_state.last_update = {}
+                st.rerun()
+            else:
+                st.sidebar.warning(f"⚠️ Respuesta HTTP {response.status_code}")
+                st.sidebar.info("💡 El script podría estar ejecutándose. Intenta refrescar en 5 segundos.")
+        except requests.exceptions.Timeout:
+            st.sidebar.warning("⏱️ Tiempo de espera agotado (>120s)")
+            st.sidebar.info("💡 El script está ejecutándose en segundo plano. Los datos se actualizarán en breve.")
+        except requests.exceptions.ConnectionError:
+            st.sidebar.error("🔗 Error de conexión")
+            st.sidebar.error("Verifica tu conexión a internet y que el script sea público")
+        except Exception as e:
+            st.sidebar.error(f"❌ Error: {str(e)}")
+            st.sidebar.info("📝 Verifica que el script esté publicado como web app")
+
+st.sidebar.divider()
 
 if "🔴 LIVE" in opcion_principal:
     st.title("🔴 LIVE")
