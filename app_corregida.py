@@ -992,6 +992,36 @@ def render_value_bets():
                 st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
                 if y > 0:
                     value_bets_list.append({"Mercado": f"{j1['nombre_original']} +1.5 180s", "Probabilidad": m180["J1 +1.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
+        # Mercados negativos para J1
+        col_c, col_d = st.columns(2)
+        with col_c:
+            st.markdown("**-0.5 180s** (Menos de 1 180)")
+            prob_neg = 1 - m180["J1 +0.5"]
+            cuota_justa = prob_a_cuota(prob_neg)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j1_neg05", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob_neg*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob_neg, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j1['nombre_original']} -0.5 180s", "Probabilidad": prob_neg, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        with col_d:
+            st.markdown("**-1.5 180s** (Menos de 2 180s)")
+            prob_neg = 1 - m180["J1 +1.5"]
+            cuota_justa = prob_a_cuota(prob_neg)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j1_neg15", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob_neg*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob_neg, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j1['nombre_original']} -1.5 180s", "Probabilidad": prob_neg, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
         st.markdown("---")
         st.markdown(f"<h5 style='color: #ff7f0e;'>{j2['nombre_original']}</h5>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
@@ -1019,6 +1049,36 @@ def render_value_bets():
                 st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
                 if y > 0:
                     value_bets_list.append({"Mercado": f"{j2['nombre_original']} +1.5 180s", "Probabilidad": m180["J2 +1.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
+        # Mercados negativos para J2
+        col_c, col_d = st.columns(2)
+        with col_c:
+            st.markdown("**-0.5 180s** (Menos de 1 180)")
+            prob_neg = 1 - m180["J2 +0.5"]
+            cuota_justa = prob_a_cuota(prob_neg)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j2_neg05", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob_neg*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob_neg, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j2['nombre_original']} -0.5 180s", "Probabilidad": prob_neg, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        with col_d:
+            st.markdown("**-1.5 180s** (Menos de 2 180s)")
+            prob_neg = 1 - m180["J2 +1.5"]
+            cuota_justa = prob_a_cuota(prob_neg)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_j2_neg15", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob_neg*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob_neg, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": f"{j2['nombre_original']} -1.5 180s", "Probabilidad": prob_neg, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
         st.markdown("---")
         st.markdown("##### 🤝 Ambos Jugadores")
         col_a, col_b = st.columns(2)
@@ -1046,6 +1106,35 @@ def render_value_bets():
                 st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
                 if y > 0:
                     value_bets_list.append({"Mercado": "Ambos +2.5 180s", "Probabilidad": m180["Ambos +2.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        
+        # Mercados negativos para Ambos
+        col_c, col_d = st.columns(2)
+        with col_c:
+            st.markdown("**Ambos -1.5 180s** (Menos de 2 180s cada uno)")
+            prob_neg = 1 - m180["Ambos +1.5"]
+            cuota_justa = prob_a_cuota(prob_neg)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_ambos_neg15", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob_neg*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob_neg, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": "Ambos -1.5 180s", "Probabilidad": prob_neg, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+        with col_d:
+            st.markdown("**Ambos -2.5 180s** (Menos de 3 180s cada uno)")
+            prob_neg = 1 - m180["Ambos +2.5"]
+            cuota_justa = prob_a_cuota(prob_neg)
+            mostrar_cuota_justa(cuota_justa)
+            c = st.number_input(f"Tu cuota", min_value=1.01, max_value=50.0, value=None, step=0.05, key=f"180_ambos_neg25", label_visibility="collapsed", placeholder="Introduce cuota")
+            st.caption(f"{prob_neg*100:.1f}% probabilidad")
+            if c and c > 0:
+                y = calcular_yield(prob_neg, c)
+                yield_color = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
+                if y > 0:
+                    value_bets_list.append({"Mercado": "Ambos -2.5 180s", "Probabilidad": prob_neg, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
     with tab3:
         st.markdown("#### 🥇 ¿Quién hace más 180s?")
         render_mas_180s_barras(j1['nombre_original'], p_j1_mas, j2['nombre_original'], p_j2_mas, p_emp, j1_color="#1f77b4", j2_color="#ff7f0e")
@@ -1344,36 +1433,33 @@ if "🔴 LIVE" in opcion_principal:
     if es_activa and jornada_actual:
         st.success(f"✅ Jornada activa: **{jornada_actual}** (datos en tiempo real)")
         st.markdown("---")
-        partidos_vivos = obtener_partidos_vivos_api()
-        if partidos_vivos:
-            st.subheader("⚔️ Partidos en Vivo (Actualización cada 10 segundos)")
-            tabla_partidos = []
-            for p in partidos_vivos:
-                tabla_partidos.append({
-                    "🎮 Jugador 1": p.get("j1", ""),
-                    "Legs": p.get("score_j1", ""),
-                    "Ø Dardos": p.get("j1_average", ""),
-                    "180s": p.get("j1_180s", ""),
-                    "Checkout %": p.get("j1_checkout", ""),
-                    "VS": "⚔️",
-                    "🎮 Jugador 2": p.get("j2", ""),
-                    "Legs": p.get("score_j2", ""),
-                    "Ø Dardos": p.get("j2_average", ""),
-                    "180s": p.get("j2_180s", ""),
-                    "Checkout %": p.get("j2_checkout", "")
-                })
-            if tabla_partidos:
-                df_vivo = pd.DataFrame(tabla_partidos)
-                st.dataframe(df_vivo, use_container_width=True, hide_index=True)
-                st.caption("🔄 Datos actualizados cada 10 segundos")
-            else:
-                st.info("📺 No hay partidos en vivo en este momento")
-        else:
-            st.warning("⚠️ No se pudieron obtener datos de la API")
-            st.info("📊 Usando datos guardados en Google Sheets...")
-            d1, d2 = cargar_todo(url_actual, jornada_actual, CORTES.get(jornada_actual, 2))
-            if d1 is not None:
-                st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
+        
+        # Mostrar con el mismo formato que RESULTADOS Y ESTADÍSTICAS
+        d1, d2 = cargar_todo(url_actual, jornada_actual, CORTES.get(jornada_actual, 2))
+        if jornada_actual in st.session_state.last_update:
+            tiempo = (datetime.now() - st.session_state.last_update[jornada_actual]).seconds
+            st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
+        orden_diario = [
+            "Media 180 por partida", "Promedio puntos total",
+            "Legs por partido", "Promedio Checkouts", "Número victorias",
+            "Número derrotas", "Porcentaje victoria", "PUNTIACIÓN GLOBAL (0-100)"
+        ]
+        if d2 is not None:
+            st.subheader("📈 Estadísticas por Jugador")
+            for player, stats in d2.items():
+                bandera = obtener_bandera(player)
+                player_display = f"{bandera} {player}" if bandera else f"👤 {player}"
+                with st.expander(player_display, expanded=False):
+                    for etiqueta in orden_diario:
+                        valor = "-"
+                        for k, v in stats.items():
+                            if etiqueta.lower() in k.lower():
+                                valor = v
+                                break
+                        st.write(f"**{etiqueta}:** {valor}")
+        if d1 is not None:
+            st.subheader("⚔️ Partidos")
+            st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
     else:
         proxima, url_proxima = get_proxima_jornada()
         st.info(f"📅 **Próxima jornada:** {proxima}")
