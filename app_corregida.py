@@ -827,7 +827,11 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     return html_datos
 
 def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=True):
-    """Renderiza un jugador con tarjetas visuales y Puntuación Global destacada al final."""
+    """Renderiza un jugador con tarjetas visuales y Puntuación Global destacada al final.
+    
+    IMPORTANTE: Todo el HTML se construye en una sola línea (sin \\n ni indentación)
+    para evitar que Streamlit lo interprete como bloque de código markdown.
+    """
     
     # Iconos por estadística
     iconos_stats = {
@@ -846,8 +850,8 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
         "Número derrotas", "Porcentaje victoria"
     ]
     
-    # Grid de tarjetas para estadísticas básicas
-    cards_html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 10px 0 20px 0;">'
+    # Grid de tarjetas para estadísticas básicas (HTML en una sola línea)
+    cards_html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:10px 0 20px 0;">'
     
     for etiqueta in orden_stats:
         valor = "-"
@@ -863,7 +867,7 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
         
         icono = iconos_stats.get(etiqueta, "📌")
         
-        # Tendencia (solo si no es Resumen Semanal y hay datos disponibles)
+        # Tendencia (solo si hay datos disponibles)
         indicador = ""
         comparativa = ""
         if mostrar_tendencias and stats_resumen and player in stats_resumen:
@@ -889,27 +893,24 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
             bg_grad = "rgba(31, 119, 180, 0.08)"
         
         tend_html = (
-            f'<span style="font-size: 11px; color: #888;">{indicador} {comparativa}</span>'
+            f'<span style="font-size:11px;color:#888;">{indicador} {comparativa}</span>'
             if (indicador or comparativa) else ''
         )
         
-        cards_html += f'''
-        <div style="
-            background: linear-gradient(135deg, {bg_grad} 0%, rgba(255,255,255,0.01) 100%);
-            border-left: 3px solid {color_borde};
-            border-radius: 8px;
-            padding: 12px 15px;
-        ">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                <span style="font-size: 18px;">{icono}</span>
-                <span style="font-size: 12px; color: #888; font-weight: 600;">{etiqueta}</span>
-            </div>
-            <div style="display: flex; align-items: baseline; justify-content: space-between;">
-                <span style="font-size: 22px; font-weight: bold; color: {color_valor};">{valor}</span>
-                {tend_html}
-            </div>
-        </div>
-        '''
+        # Tarjeta en una sola línea (sin saltos)
+        cards_html += (
+            f'<div style="background:linear-gradient(135deg,{bg_grad} 0%,rgba(255,255,255,0.01) 100%);'
+            f'border-left:3px solid {color_borde};border-radius:8px;padding:12px 15px;">'
+            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
+            f'<span style="font-size:18px;">{icono}</span>'
+            f'<span style="font-size:12px;color:#888;font-weight:600;">{etiqueta}</span>'
+            f'</div>'
+            f'<div style="display:flex;align-items:baseline;justify-content:space-between;">'
+            f'<span style="font-size:22px;font-weight:bold;color:{color_valor};">{valor}</span>'
+            f'{tend_html}'
+            f'</div>'
+            f'</div>'
+        )
     
     cards_html += '</div>'
     st.markdown(cards_html, unsafe_allow_html=True)
@@ -925,9 +926,9 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
         otros.append((k, v))
     
     if otros:
-        otros_html = '<div style="margin: 0 0 15px 0; padding: 10px 15px; background: rgba(120,120,120,0.05); border-radius: 6px; font-size: 13px;">'
+        otros_html = '<div style="margin:0 0 15px 0;padding:10px 15px;background:rgba(120,120,120,0.05);border-radius:6px;font-size:13px;">'
         for k, v in otros:
-            otros_html += f'<div style="margin: 3px 0;"><span style="color: #888;">{k}:</span> <strong>{v}</strong></div>'
+            otros_html += f'<div style="margin:3px 0;"><span style="color:#888;">{k}:</span> <strong>{v}</strong></div>'
         otros_html += '</div>'
         st.markdown(otros_html, unsafe_allow_html=True)
     
@@ -968,36 +969,33 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
             color_pg, bg_color, nivel = "#6c757d", "rgba(108, 117, 125, 0.15)", ""
         
         tend_pg_html = (
-            f'<p style="margin: 4px 0 0 0; font-size: 13px; color: #888;">{indicador_pg} {comparativa_pg}</p>'
+            f'<p style="margin:4px 0 0 0;font-size:13px;color:#888;">{indicador_pg} {comparativa_pg}</p>'
             if (indicador_pg or comparativa_pg) else ''
         )
         
         nivel_html = f"· {nivel}" if nivel else ""
         
-        st.markdown(f'''
-        <div style="
-            background: linear-gradient(135deg, {bg_color} 0%, rgba(255,255,255,0.02) 100%);
-            border: 2px solid {color_pg};
-            border-radius: 12px;
-            padding: 20px 24px;
-            margin-top: 10px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-        ">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
-                <div style="display: flex; align-items: center; gap: 14px;">
-                    <span style="font-size: 38px;">⭐</span>
-                    <div>
-                        <p style="margin: 0; font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600;">Puntuación Global</p>
-                        <p style="margin: 3px 0 0 0; font-size: 11px; color: #aaa;">Rendimiento general (0-100) {nivel_html}</p>
-                    </div>
-                </div>
-                <div style="text-align: right;">
-                    <span style="font-size: 40px; font-weight: bold; color: {color_pg};">{v_pg}</span>
-                    {tend_pg_html}
-                </div>
-            </div>
-        </div>
-        ''', unsafe_allow_html=True)
+        # Tarjeta de puntuación global en una sola línea
+        pg_html = (
+            f'<div style="background:linear-gradient(135deg,{bg_color} 0%,rgba(255,255,255,0.02) 100%);'
+            f'border:2px solid {color_pg};border-radius:12px;padding:20px 24px;margin-top:10px;'
+            f'box-shadow:0 2px 12px rgba(0,0,0,0.06);">'
+            f'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:15px;">'
+            f'<div style="display:flex;align-items:center;gap:14px;">'
+            f'<span style="font-size:38px;">⭐</span>'
+            f'<div>'
+            f'<p style="margin:0;font-size:13px;color:#888;text-transform:uppercase;letter-spacing:1.2px;font-weight:600;">Puntuación Global</p>'
+            f'<p style="margin:3px 0 0 0;font-size:11px;color:#aaa;">Rendimiento general (0-100) {nivel_html}</p>'
+            f'</div>'
+            f'</div>'
+            f'<div style="text-align:right;">'
+            f'<span style="font-size:40px;font-weight:bold;color:{color_pg};">{v_pg}</span>'
+            f'{tend_pg_html}'
+            f'</div>'
+            f'</div>'
+            f'</div>'
+        )
+        st.markdown(pg_html, unsafe_allow_html=True)
 
 def render_value_bets():
     st.title("💰 Value Bets — Motor de Probabilidades")
@@ -1673,8 +1671,7 @@ if "🔴 LIVE" in opcion_principal:
         if d2 is not None:
             st.subheader("📈 Estadísticas por Jugador")
             for player, stats in d2.items():
-                bandera = obtener_bandera(player)
-                player_display = f"{bandera} {player.title()}" if bandera else f"👤 {player.title()}"
+                player_display = f"👤 {player.title()}"
                 with st.expander(player_display, expanded=False):
                     render_jugador_visual(player, stats, stats_resumen_live, jornada_actual, mostrar_tendencias=True)
         
@@ -1693,8 +1690,7 @@ if "🔴 LIVE" in opcion_principal:
         if d2 is not None:
             st.subheader("📈 Estadísticas")
             for player, stats in d2.items():
-                bandera = obtener_bandera(player)
-                player_display = f"{bandera} {player.title()}" if bandera else f"👤 {player.title()}"
+                player_display = f"👤 {player.title()}"
                 with st.expander(player_display, expanded=False):
                     render_jugador_visual(player, stats, None, proxima, mostrar_tendencias=False)
         
@@ -1737,8 +1733,7 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
             _, stats_resumen = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
         
         for player, stats in d2.items():
-            bandera = obtener_bandera(player)
-            player_display = f"{bandera} {player.title()}" if bandera else f"👤 {player.title()}"
+            player_display = f"👤 {player.title()}"
             with st.expander(player_display, expanded=False):
                 render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=mostrar_tendencias)
     
