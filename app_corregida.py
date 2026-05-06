@@ -1576,23 +1576,42 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     if d2 is not None:
         st.subheader("📈 Estadísticas por Jugador")
         
-        # Cargar datos del resumen semanal para comparar tendencias
-        _, stats_resumen = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
-        
         orden_diario = [
             "Media 180 por partida", "Promedio puntos total",
             "Legs por partido", "Promedio Checkouts", "Número victorias",
             "Número derrotas", "Porcentaje victoria"
         ]
         
+        # Cargar datos del resumen semanal SOLO si no estamos viendo el resumen
+        stats_resumen = None
+        if selected != "Resumen Semanal":
+            _, stats_resumen = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
+        
         for player, stats in d2.items():
             with st.expander(f"👤 {player}", expanded=False):
                 if selected == "Resumen Semanal":
-                    # Mostrar sin tendencias
+                    # RESUMEN SEMANAL: Formato bonito sin comparativas
+                    
+                    # Mostrar métricas en orden
+                    for etiqueta in orden_diario:
+                        valor = "-"
+                        for k, v in stats.items():
+                            if etiqueta.lower() in k.lower():
+                                valor = v
+                                break
+                        st.write(f"**{etiqueta}:** {valor}")
+                    
+                    # PUNTUACIÓN GLOBAL al final con énfasis
+                    st.markdown("---")
+                    puntuacion = "-"
                     for k, v in stats.items():
-                        st.write(f"**{k}:** {v}")
+                        if "puntiación" in k.lower():
+                            puntuacion = v
+                            break
+                    st.write(f"⭐ **PUNTUACIÓN GLOBAL:** {puntuacion}")
+                
                 else:
-                    # Mostrar con tendencias
+                    # OTROS DÍAS: Con indicadores de tendencia
                     for etiqueta in orden_diario:
                         valor = "-"
                         for k, v in stats.items():
@@ -1614,6 +1633,7 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
                         st.write(display_text)
                     
                     # PUNTUACIÓN GLOBAL al final con énfasis
+                    st.markdown("---")
                     puntuacion = "-"
                     for k, v in stats.items():
                         if "puntiación" in k.lower():
@@ -1627,7 +1647,6 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
                                 puntuacion_semanal = v_sem
                                 break
                     
-                    st.markdown("---")
                     indicador, val_display, comparativa = calcular_tendencia(puntuacion, puntuacion_semanal, "PUNTIACIÓN GLOBAL (0-100)")
                     display_text = f"⭐ **PUNTUACIÓN GLOBAL:** {val_display} {indicador} {comparativa}".strip()
                     st.write(display_text)
