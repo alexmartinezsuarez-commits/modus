@@ -406,6 +406,54 @@ def obtener_bandera(nombre_jugador):
         return BANDERAS[codigo_pais]
     return None
 
+def calcular_tendencia(valor_actual, valor_semanal, etiqueta):
+    """Calcula tendencia con reglas específicas: 5% general, 3% para Puntuación Global"""
+    try:
+        val_act = float(str(valor_actual).replace('%', '').strip())
+        val_sem = float(str(valor_semanal).replace('%', '').strip())
+    except:
+        return "", valor_actual, ""
+    
+    # No mostrar indicador para Victorias o Derrotas
+    if "victoria" in etiqueta.lower() or "derrota" in etiqueta.lower():
+        return "", valor_actual, ""
+    
+    # Calcular porcentaje de cambio
+    if val_sem == 0:
+        porcentaje_cambio = 0
+    else:
+        porcentaje_cambio = ((val_act - val_sem) / abs(val_sem)) * 100
+    
+    # Umbral diferente para Puntuación Global
+    umbral = 3 if "puntiación" in etiqueta.lower() else 5
+    
+    # Mostrar indicador solo si supera el umbral
+    if abs(porcentaje_cambio) >= umbral:
+        if porcentaje_cambio > 0:
+            indicador = f"🟢 ↑"
+        else:
+            indicador = f"🔴 ↓"
+        comparativa = f"({val_sem:.1f})"
+        return indicador, valor_actual, comparativa
+    else:
+        comparativa = f"({val_sem:.1f})"
+        return "", valor_actual, comparativa
+
+def verificar_alerta_excepcional(valor_actual, valor_semanal, etiqueta):
+    """Detecta mejoras excepcionales (>15%) para alertas"""
+    try:
+        val_act = float(str(valor_actual).replace('%', '').strip())
+        val_sem = float(str(valor_semanal).replace('%', '').strip())
+    except:
+        return False, 0
+    
+    if val_sem == 0:
+        return False, 0
+    
+    porcentaje_cambio = ((val_act - val_sem) / abs(val_sem)) * 100
+    es_excepcional = abs(porcentaje_cambio) > 15
+    return es_excepcional, porcentaje_cambio
+
 @st.cache_data(ttl=30, show_spinner=False)
 def extraer_h2h_semanal(j1_nombre, j2_nombre):
     h2h_data = {
@@ -1514,31 +1562,144 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     selected_url = jornadas_dict[selected]
     st.markdown("---")
     d1, d2 = cargar_todo(selected_url, selected, CORTES.get(selected, 2))
+    
     if selected in st.session_state.last_update:
         tiempo = (datetime.now() - st.session_state.last_update[selected]).seconds
         st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
+    
     orden_diario = [
         "Media 180 por partida", "Promedio puntos total",
         "Legs por partido", "Promedio Checkouts", "Número victorias",
         "Número derrotas", "Porcentaje victoria", "PUNTIACIÓN GLOBAL (0-100)"
     ]
+    
     if d2 is not None:
         st.subheader("📈 Estadísticas por Jugador")
-        for player, stats in d2.items():
-            bandera = obtener_bandera(player)
-            player_display = f"{bandera} {player}" if bandera else f"👤 {player}"
-            with st.expander(player_display, expanded=False):
-                if selected == "Resumen Semanal":
-                    for k, v in stats.items():
-                        st.write(f"**{k}:** {v}")
-                else:
+        
+        # Cargar datos del resumen semanal para comparar
+        stats_resumen = None
+        if selected != "Resumen Semanal":
+            _, stats_resumen = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
+        
+        # Detectar alertas excepcionales
+        alertas_excepcionales = {}
+        if stats_resumen:
+            for player, stats in d2.items():
+                alertas_excepcionales[player] = []
+                if player in stats_resumen:
                     for etiqueta in orden_diario:
-                        valor = "-"
-                        for k, v in stats.items():
-                            if etiqueta.lower() in k.lower():
-                                valor = v
-                                break
-                        st.write(f"**{etiqueta}:** {valor}")
+                        for k_act, v_act in stats.items():
+                            if etiqueta.lower() in k_act.lower():
+                                for k_sem, v_sem in stats_resumen[player].items():
+                                    if etiqueta.lower() in k_sem.lower():
+                                        es_excepcional, porcentaje = verificar_alerta_excepcional(v_act, v_sem, etiqueta)
+                                        if es_excepcional:
+                                            alertas_excepcionales[player].append({
+                                                "metrica": etiqueta,
+                                                "valor": v_act,
+                                                "semanal": v_sem,
+                                                "porcentaje": porcentaje
+                                            })
+        
+        # Mostrar alertas destacadas
+        for player, alertas in alertas_excepcionales.items():
+            if alertas:
+                alerta_text = f"👤 {player}: "
+                for alerta in alertas:
+                    simbolo = "🚀" if alerta['porcentaje'] > 0 else "⚠️"
+                    alerta_text += f"{simbolo} {alerta['metrica']} ({alerta['porcentaje']:.0f}%) | "
+                st.warning(alerta_text.rstrip(" | "))
+        
+        # Crear datos para tabla ordenable
+        tabla_datos = []
+        for player, stats in d2.items():
+            row = {"👤 Jugador": player}
+            if selected != "Resumen Semanal":
+                if player in stats_resumen:
+                    for etiqueta in orden_diario:
+                        valor_actual = "-"
+                        valor_semanal = "-"
+                        for k_act, v_act in stats.items():
+                            if etiqueta.lower() in k_act.lower():
+                                valor_actual = v_act
+                        for k_sem, v_sem in stats_resumen[player].items():
+                            if etiqueta.lower() in k_sem.lower():
+                                valor_semanal = v_sem
+                        
+                        if valor_actual != "-" and valor_semanal != "-":
+                            indicador, val_display, comparativa = calcular_tendencia(valor_actual, valor_semanal, etiqueta)
+                            display_text = f"{val_display} {indicador} {comparativa}".strip()
+                            row[etiqueta] = display_text
+                        else:
+                            row[etiqueta] = valor_actual
+            else:
+                for k, v in stats.items():
+                    row[k] = v
+            tabla_datos.append(row)
+        
+        # Mostrar tabla ordenable
+        if tabla_datos:
+            df_tabla = pd.DataFrame(tabla_datos)
+            st.dataframe(
+                df_tabla,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    col: st.column_config.TextColumn(col, width="medium")
+                    for col in df_tabla.columns
+                }
+            )
+            
+            # Agregar gráficos mini si no es resumen
+            if selected != "Resumen Semanal" and stats_resumen:
+                st.markdown("---")
+                st.subheader("📊 Comparativas Visuales")
+                
+                num_cols = min(3, len(d2))
+                cols = st.columns(num_cols)
+                
+                metricas_grafico = [
+                    "Media 180 por partida",
+                    "Porcentaje victoria",
+                    "Promedio puntos total"
+                ]
+                
+                for idx, metrica in enumerate(metricas_grafico):
+                    if idx >= len(cols):
+                        break
+                    
+                    with cols[idx]:
+                        datos_grafico = []
+                        for player in d2.keys():
+                            if player in stats_resumen:
+                                val_jornada = None
+                                val_semanal = None
+                                
+                                for k_act, v_act in d2[player].items():
+                                    if metrica.lower() in k_act.lower():
+                                        try:
+                                            val_jornada = float(str(v_act).replace('%', '').strip())
+                                        except:
+                                            val_jornada = 0
+                                
+                                for k_sem, v_sem in stats_resumen[player].items():
+                                    if metrica.lower() in k_sem.lower():
+                                        try:
+                                            val_semanal = float(str(v_sem).replace('%', '').strip())
+                                        except:
+                                            val_semanal = 0
+                                
+                                if val_jornada and val_semanal:
+                                    datos_grafico.append({
+                                        "Jugador": player[:15],  # Acortar nombres largos
+                                        "Hoy": val_jornada,
+                                        "Semanal": val_semanal
+                                    })
+                        
+                        if datos_grafico:
+                            df_grafico = pd.DataFrame(datos_grafico)
+                            st.bar_chart(df_grafico.set_index("Jugador"), height=300)
+    
     if d1 is not None:
         st.subheader("⚔️ Detalles")
         if selected not in ["Resumen Semanal", "Value Bets"]:
