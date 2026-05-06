@@ -826,6 +826,179 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     
     return html_datos
 
+def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=True):
+    """Renderiza un jugador con tarjetas visuales y Puntuación Global destacada al final."""
+    
+    # Iconos por estadística
+    iconos_stats = {
+        "Media 180 por partida": "🎯",
+        "Promedio puntos total": "📊",
+        "Legs por partido": "🎮",
+        "Promedio Checkouts": "✅",
+        "Número victorias": "🏆",
+        "Número derrotas": "❌",
+        "Porcentaje victoria": "📈",
+    }
+    
+    orden_stats = [
+        "Media 180 por partida", "Promedio puntos total",
+        "Legs por partido", "Promedio Checkouts", "Número victorias",
+        "Número derrotas", "Porcentaje victoria"
+    ]
+    
+    # Grid de tarjetas para estadísticas básicas
+    cards_html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 10px 0 20px 0;">'
+    
+    for etiqueta in orden_stats:
+        valor = "-"
+        clave_encontrada = None
+        for k, v in stats.items():
+            if etiqueta.lower() in str(k).lower():
+                valor = v
+                clave_encontrada = k
+                break
+        
+        if not clave_encontrada:
+            continue
+        
+        icono = iconos_stats.get(etiqueta, "📌")
+        
+        # Tendencia (solo si no es Resumen Semanal y hay datos disponibles)
+        indicador = ""
+        comparativa = ""
+        if mostrar_tendencias and stats_resumen and player in stats_resumen:
+            valor_semanal = "-"
+            for k_sem, v_sem in stats_resumen[player].items():
+                if etiqueta.lower() in str(k_sem).lower():
+                    valor_semanal = v_sem
+                    break
+            indicador, _, comparativa = calcular_tendencia(valor, valor_semanal, etiqueta)
+        
+        # Color según tipo de estadística
+        if "derrota" in etiqueta.lower():
+            color_borde = "#dc3545"
+            color_valor = "#dc3545"
+            bg_grad = "rgba(220, 53, 69, 0.08)"
+        elif "victoria" in etiqueta.lower() or "checkout" in etiqueta.lower() or "180" in etiqueta:
+            color_borde = "#28a745"
+            color_valor = "#28a745"
+            bg_grad = "rgba(40, 167, 69, 0.08)"
+        else:
+            color_borde = "#1f77b4"
+            color_valor = "#1f77b4"
+            bg_grad = "rgba(31, 119, 180, 0.08)"
+        
+        tend_html = (
+            f'<span style="font-size: 11px; color: #888;">{indicador} {comparativa}</span>'
+            if (indicador or comparativa) else ''
+        )
+        
+        cards_html += f'''
+        <div style="
+            background: linear-gradient(135deg, {bg_grad} 0%, rgba(255,255,255,0.01) 100%);
+            border-left: 3px solid {color_borde};
+            border-radius: 8px;
+            padding: 12px 15px;
+        ">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                <span style="font-size: 18px;">{icono}</span>
+                <span style="font-size: 12px; color: #888; font-weight: 600;">{etiqueta}</span>
+            </div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between;">
+                <span style="font-size: 22px; font-weight: bold; color: {color_valor};">{valor}</span>
+                {tend_html}
+            </div>
+        </div>
+        '''
+    
+    cards_html += '</div>'
+    st.markdown(cards_html, unsafe_allow_html=True)
+    
+    # Otros datos no contemplados (excluyendo Puntuación Global)
+    otros = []
+    for k, v in stats.items():
+        k_lower = str(k).lower()
+        if any(etiqueta.lower() in k_lower for etiqueta in orden_stats):
+            continue
+        if "puntiación" in k_lower or "puntuación" in k_lower or "puntacion" in k_lower:
+            continue
+        otros.append((k, v))
+    
+    if otros:
+        otros_html = '<div style="margin: 0 0 15px 0; padding: 10px 15px; background: rgba(120,120,120,0.05); border-radius: 6px; font-size: 13px;">'
+        for k, v in otros:
+            otros_html += f'<div style="margin: 3px 0;"><span style="color: #888;">{k}:</span> <strong>{v}</strong></div>'
+        otros_html += '</div>'
+        st.markdown(otros_html, unsafe_allow_html=True)
+    
+    # ⭐ Tarjeta destacada de Puntuación Global al final
+    puntuacion_global_data = None
+    for k, v in stats.items():
+        k_lower = str(k).lower()
+        if "puntiación" in k_lower or "puntuación" in k_lower or "puntacion" in k_lower:
+            puntuacion_global_data = (k, v)
+            break
+    
+    if puntuacion_global_data:
+        k_pg, v_pg = puntuacion_global_data
+        
+        indicador_pg = ""
+        comparativa_pg = ""
+        if mostrar_tendencias and stats_resumen and player in stats_resumen:
+            valor_semanal_pg = "-"
+            for k_sem, v_sem in stats_resumen[player].items():
+                k_sem_lower = str(k_sem).lower()
+                if "puntiación" in k_sem_lower or "puntuación" in k_sem_lower or "puntacion" in k_sem_lower:
+                    valor_semanal_pg = v_sem
+                    break
+            indicador_pg, _, comparativa_pg = calcular_tendencia(v_pg, valor_semanal_pg, k_pg)
+        
+        # Color y nivel según puntuación
+        try:
+            pg_num = float(str(v_pg).replace(',', '.').strip())
+            if pg_num >= 75:
+                color_pg, bg_color, nivel = "#28a745", "rgba(40, 167, 69, 0.15)", "Excelente"
+            elif pg_num >= 50:
+                color_pg, bg_color, nivel = "#ffc107", "rgba(255, 193, 7, 0.15)", "Bueno"
+            elif pg_num >= 25:
+                color_pg, bg_color, nivel = "#fd7e14", "rgba(253, 126, 20, 0.15)", "Regular"
+            else:
+                color_pg, bg_color, nivel = "#dc3545", "rgba(220, 53, 69, 0.15)", "Bajo"
+        except:
+            color_pg, bg_color, nivel = "#6c757d", "rgba(108, 117, 125, 0.15)", ""
+        
+        tend_pg_html = (
+            f'<p style="margin: 4px 0 0 0; font-size: 13px; color: #888;">{indicador_pg} {comparativa_pg}</p>'
+            if (indicador_pg or comparativa_pg) else ''
+        )
+        
+        nivel_html = f"· {nivel}" if nivel else ""
+        
+        st.markdown(f'''
+        <div style="
+            background: linear-gradient(135deg, {bg_color} 0%, rgba(255,255,255,0.02) 100%);
+            border: 2px solid {color_pg};
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-top: 10px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+        ">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                    <span style="font-size: 38px;">⭐</span>
+                    <div>
+                        <p style="margin: 0; font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600;">Puntuación Global</p>
+                        <p style="margin: 3px 0 0 0; font-size: 11px; color: #aaa;">Rendimiento general (0-100) {nivel_html}</p>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <span style="font-size: 40px; font-weight: bold; color: {color_pg};">{v_pg}</span>
+                    {tend_pg_html}
+                </div>
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
+
 def render_value_bets():
     st.title("💰 Value Bets — Motor de Probabilidades")
     value_bets_list = []
@@ -1482,33 +1655,29 @@ st.sidebar.divider()
 if "🔴 LIVE" in opcion_principal:
     st.title("🔴 LIVE")
     jornada_actual, url_actual, es_activa = get_jornada_actual()
+    
+    # Cargar resumen semanal para comparativas (solo si hay jornada activa)
+    stats_resumen_live = None
+    if es_activa and jornada_actual and jornada_actual != "Resumen Semanal":
+        _, stats_resumen_live = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
+    
     if es_activa and jornada_actual:
         st.success(f"✅ Jornada activa: **{jornada_actual}** (datos en tiempo real)")
         st.markdown("---")
         
-        # Mostrar con el mismo formato que RESULTADOS Y ESTADÍSTICAS
         d1, d2 = cargar_todo(url_actual, jornada_actual, CORTES.get(jornada_actual, 2))
         if jornada_actual in st.session_state.last_update:
             tiempo = (datetime.now() - st.session_state.last_update[jornada_actual]).seconds
             st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
-        orden_diario = [
-            "Media 180 por partida", "Promedio puntos total",
-            "Legs por partido", "Promedio Checkouts", "Número victorias",
-            "Número derrotas", "Porcentaje victoria", "PUNTIACIÓN GLOBAL (0-100)"
-        ]
+        
         if d2 is not None:
             st.subheader("📈 Estadísticas por Jugador")
             for player, stats in d2.items():
                 bandera = obtener_bandera(player)
-                player_display = f"{bandera} {player}" if bandera else f"👤 {player}"
+                player_display = f"{bandera} {player.title()}" if bandera else f"👤 {player.title()}"
                 with st.expander(player_display, expanded=False):
-                    for etiqueta in orden_diario:
-                        valor = "-"
-                        for k, v in stats.items():
-                            if etiqueta.lower() in k.lower():
-                                valor = v
-                                break
-                        st.write(f"**{etiqueta}:** {valor}")
+                    render_jugador_visual(player, stats, stats_resumen_live, jornada_actual, mostrar_tendencias=True)
+        
         if d1 is not None:
             st.subheader("⚔️ Partidos")
             st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
@@ -1520,24 +1689,15 @@ if "🔴 LIVE" in opcion_principal:
         if proxima in st.session_state.last_update:
             tiempo = (datetime.now() - st.session_state.last_update[proxima]).seconds
             st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
-        orden_diario = [
-            "Media 180 por partida", "Promedio puntos total",
-            "Legs por partido", "Promedio Checkouts", "Número victorias",
-            "Número derrotas", "Porcentaje victoria", "PUNTIACIÓN GLOBAL (0-100)"
-        ]
+        
         if d2 is not None:
             st.subheader("📈 Estadísticas")
             for player, stats in d2.items():
                 bandera = obtener_bandera(player)
-                player_display = f"{bandera} {player}" if bandera else f"👤 {player}"
+                player_display = f"{bandera} {player.title()}" if bandera else f"👤 {player.title()}"
                 with st.expander(player_display, expanded=False):
-                    for etiqueta in orden_diario:
-                        valor = "-"
-                        for k, v in stats.items():
-                            if etiqueta.lower() in k.lower():
-                                valor = v
-                                break
-                        st.write(f"**{etiqueta}:** {valor}")
+                    render_jugador_visual(player, stats, None, proxima, mostrar_tendencias=False)
+        
         if d1 is not None:
             st.subheader("⚔️ Partidos")
             st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
@@ -1567,97 +1727,20 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
         tiempo = (datetime.now() - st.session_state.last_update[selected]).seconds
         st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
     
-    orden_diario = [
-        "Media 180 por partida", "Promedio puntos total",
-        "Legs por partido", "Promedio Checkouts", "Número victorias",
-        "Número derrotas", "Porcentaje victoria", "PUNTIACIÓN GLOBAL (0-100)"
-    ]
-    
     if d2 is not None:
         st.subheader("📈 Estadísticas por Jugador")
         
-        # Cargar resumen semanal para comparaciones
-        _, stats_resumen = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
-        
-        orden_diario = [
-            "Media 180 por partida", "Promedio puntos total",
-            "Legs por partido", "Promedio Checkouts", "Número victorias",
-            "Número derrotas", "Porcentaje victoria", "PUNTIACIÓN GLOBAL (0-100)"
-        ]
+        # Cargar resumen semanal solo si estamos viendo otra jornada
+        stats_resumen = None
+        mostrar_tendencias = selected != "Resumen Semanal"
+        if mostrar_tendencias:
+            _, stats_resumen = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
         
         for player, stats in d2.items():
-            with st.expander(f"👤 {player}", expanded=False):
-                if selected == "Resumen Semanal":
-                    # RESUMEN SEMANAL: Mostrar datos ordenados sin tendencias
-                    for etiqueta in orden_diario:
-                        valor = "-"
-                        clave_encontrada = None
-                        for k, v in stats.items():
-                            if etiqueta.lower() in str(k).lower():
-                                valor = v
-                                clave_encontrada = k
-                                break
-                        if clave_encontrada:
-                            st.write(f"**{clave_encontrada}:** {valor}")
-                    
-                    # Mostrar datos adicionales que no estén en orden_diario
-                    for k, v in stats.items():
-                        if not any(etiqueta.lower() in str(k).lower() for etiqueta in orden_diario):
-                            st.write(f"**{k}:** {v}")
-                    
-                    # PUNTUACIÓN GLOBAL al final con énfasis
-                    st.markdown("---")
-                    for k, v in stats.items():
-                        if "puntiación" in str(k).lower() or "puntacion" in str(k).lower():
-                            st.write(f"⭐ **{k}:** {v}")
-                
-                else:
-                    # OTROS DÍAS: Con indicadores de tendencia
-                    for etiqueta in orden_diario:
-                        if "PUNTIACIÓN" in etiqueta:
-                            continue  # Mostrar Puntuación Global al final
-                        
-                        valor = "-"
-                        clave_encontrada = None
-                        for k, v in stats.items():
-                            if etiqueta.lower() in str(k).lower():
-                                valor = v
-                                clave_encontrada = k
-                                break
-                        
-                        if clave_encontrada:
-                            # Obtener valor semanal para comparar
-                            valor_semanal = "-"
-                            if stats_resumen and player in stats_resumen:
-                                for k_sem, v_sem in stats_resumen[player].items():
-                                    if etiqueta.lower() in str(k_sem).lower():
-                                        valor_semanal = v_sem
-                                        break
-                            
-                            # Calcular tendencia
-                            indicador, val_display, comparativa = calcular_tendencia(valor, valor_semanal, etiqueta)
-                            display_text = f"**{clave_encontrada}:** {val_display} {indicador} {comparativa}".strip()
-                            st.write(display_text)
-                    
-                    # Mostrar datos adicionales
-                    for k, v in stats.items():
-                        if not any(etiqueta.lower() in str(k).lower() for etiqueta in orden_diario):
-                            st.write(f"**{k}:** {v}")
-                    
-                    # PUNTUACIÓN GLOBAL al final con énfasis
-                    st.markdown("---")
-                    for k, v in stats.items():
-                        if "puntiación" in str(k).lower() or "puntacion" in str(k).lower():
-                            valor_semanal = "-"
-                            if stats_resumen and player in stats_resumen:
-                                for k_sem, v_sem in stats_resumen[player].items():
-                                    if "puntiación" in str(k_sem).lower() or "puntacion" in str(k_sem).lower():
-                                        valor_semanal = v_sem
-                                        break
-                            
-                            indicador, val_display, comparativa = calcular_tendencia(v, valor_semanal, k)
-                            display_text = f"⭐ **{k}:** {val_display} {indicador} {comparativa}".strip()
-                            st.write(display_text)
+            bandera = obtener_bandera(player)
+            player_display = f"{bandera} {player.title()}" if bandera else f"👤 {player.title()}"
+            with st.expander(player_display, expanded=False):
+                render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=mostrar_tendencias)
     
     if d1 is not None:
         st.subheader("⚔️ Detalles")
