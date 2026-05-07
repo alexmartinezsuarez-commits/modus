@@ -827,10 +827,13 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     return html_datos
 
 def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=True):
-    """Renderiza un jugador con tarjetas visuales y Puntuación Global destacada al final.
+    """Renderiza un jugador con 8 tarjetas en rejilla de 2 filas x 4 columnas.
     
-    IMPORTANTE: Todo el HTML se construye en una sola línea (sin \\n ni indentación)
-    para evitar que Streamlit lo interprete como bloque de código markdown.
+    Orden fijo: Media 180, Promedio puntos, Legs/partido, Checkouts (fila 1)
+                Victorias, Derrotas, % Victoria, Puntuación Global (fila 2)
+    Colores: azul por defecto, verde victorias, rojo derrotas, amarillo puntuación global.
+    
+    HTML construido en una sola línea para evitar parsing como bloque de código.
     """
     
     # Iconos por estadística
@@ -842,52 +845,78 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
         "Número victorias": "🏆",
         "Número derrotas": "❌",
         "Porcentaje victoria": "📈",
+        "Puntuación Global": "⭐",
     }
     
+    # Orden fijo: 2 filas x 4 columnas
     orden_stats = [
-        "Media 180 por partida", "Promedio puntos total",
-        "Legs por partido", "Promedio Checkouts", "Número victorias",
-        "Número derrotas", "Porcentaje victoria"
+        "Media 180 por partida", "Promedio puntos total", "Legs por partido", "Promedio Checkouts",
+        "Número victorias", "Número derrotas", "Porcentaje victoria", "Puntuación Global"
     ]
     
-    # Grid de tarjetas para estadísticas básicas (HTML en una sola línea)
-    cards_html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:10px 0 20px 0;">'
+    def es_puntuacion_global(k_lower):
+        return "puntiación" in k_lower or "puntuación" in k_lower or "puntacion" in k_lower
+    
+    # Grid forzado a 4 columnas
+    cards_html = '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:10px 0 20px 0;">'
     
     for etiqueta in orden_stats:
         valor = "-"
         clave_encontrada = None
+        
+        # Búsqueda de la clave correcta
         for k, v in stats.items():
-            if etiqueta.lower() in str(k).lower():
-                valor = v
-                clave_encontrada = k
-                break
+            k_lower = str(k).lower()
+            if etiqueta == "Puntuación Global":
+                if es_puntuacion_global(k_lower):
+                    valor = v
+                    clave_encontrada = k
+                    break
+            else:
+                if etiqueta.lower() in k_lower:
+                    valor = v
+                    clave_encontrada = k
+                    break
         
         if not clave_encontrada:
             continue
         
         icono = iconos_stats.get(etiqueta, "📌")
         
-        # Tendencia (solo si hay datos disponibles)
+        # Tendencia (comparación con resumen semanal)
         indicador = ""
         comparativa = ""
         if mostrar_tendencias and stats_resumen and player in stats_resumen:
             valor_semanal = "-"
             for k_sem, v_sem in stats_resumen[player].items():
-                if etiqueta.lower() in str(k_sem).lower():
-                    valor_semanal = v_sem
-                    break
-            indicador, _, comparativa = calcular_tendencia(valor, valor_semanal, etiqueta)
+                k_sem_lower = str(k_sem).lower()
+                if etiqueta == "Puntuación Global":
+                    if es_puntuacion_global(k_sem_lower):
+                        valor_semanal = v_sem
+                        break
+                else:
+                    if etiqueta.lower() in k_sem_lower:
+                        valor_semanal = v_sem
+                        break
+            # Para Puntuación Global pasamos la clave original (contiene "puntiación") para activar el umbral del 3%
+            etiqueta_para_tendencia = clave_encontrada if etiqueta == "Puntuación Global" else etiqueta
+            indicador, _, comparativa = calcular_tendencia(valor, valor_semanal, etiqueta_para_tendencia)
         
-        # Color según tipo de estadística
-        if "derrota" in etiqueta.lower():
-            color_borde = "#dc3545"
-            color_valor = "#dc3545"
-            bg_grad = "rgba(220, 53, 69, 0.08)"
-        elif "victoria" in etiqueta.lower() or "checkout" in etiqueta.lower() or "180" in etiqueta:
+        # Colores según tipo de estadística
+        if etiqueta == "Número victorias":
             color_borde = "#28a745"
             color_valor = "#28a745"
             bg_grad = "rgba(40, 167, 69, 0.08)"
+        elif etiqueta == "Número derrotas":
+            color_borde = "#dc3545"
+            color_valor = "#dc3545"
+            bg_grad = "rgba(220, 53, 69, 0.08)"
+        elif etiqueta == "Puntuación Global":
+            color_borde = "#f59e0b"
+            color_valor = "#f59e0b"
+            bg_grad = "rgba(245, 158, 11, 0.12)"
         else:
+            # Azul por defecto para todas las demás
             color_borde = "#1f77b4"
             color_valor = "#1f77b4"
             bg_grad = "rgba(31, 119, 180, 0.08)"
@@ -897,7 +926,7 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
             if (indicador or comparativa) else ''
         )
         
-        # Tarjeta en una sola línea (sin saltos)
+        # Construcción de la tarjeta en una sola línea
         cards_html += (
             f'<div style="background:linear-gradient(135deg,{bg_grad} 0%,rgba(255,255,255,0.01) 100%);'
             f'border-left:3px solid {color_borde};border-radius:8px;padding:12px 15px;">'
@@ -914,88 +943,6 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
     
     cards_html += '</div>'
     st.markdown(cards_html, unsafe_allow_html=True)
-    
-    # Otros datos no contemplados (excluyendo Puntuación Global)
-    otros = []
-    for k, v in stats.items():
-        k_lower = str(k).lower()
-        if any(etiqueta.lower() in k_lower for etiqueta in orden_stats):
-            continue
-        if "puntiación" in k_lower or "puntuación" in k_lower or "puntacion" in k_lower:
-            continue
-        otros.append((k, v))
-    
-    if otros:
-        otros_html = '<div style="margin:0 0 15px 0;padding:10px 15px;background:rgba(120,120,120,0.05);border-radius:6px;font-size:13px;">'
-        for k, v in otros:
-            otros_html += f'<div style="margin:3px 0;"><span style="color:#888;">{k}:</span> <strong>{v}</strong></div>'
-        otros_html += '</div>'
-        st.markdown(otros_html, unsafe_allow_html=True)
-    
-    # ⭐ Tarjeta destacada de Puntuación Global al final
-    puntuacion_global_data = None
-    for k, v in stats.items():
-        k_lower = str(k).lower()
-        if "puntiación" in k_lower or "puntuación" in k_lower or "puntacion" in k_lower:
-            puntuacion_global_data = (k, v)
-            break
-    
-    if puntuacion_global_data:
-        k_pg, v_pg = puntuacion_global_data
-        
-        indicador_pg = ""
-        comparativa_pg = ""
-        if mostrar_tendencias and stats_resumen and player in stats_resumen:
-            valor_semanal_pg = "-"
-            for k_sem, v_sem in stats_resumen[player].items():
-                k_sem_lower = str(k_sem).lower()
-                if "puntiación" in k_sem_lower or "puntuación" in k_sem_lower or "puntacion" in k_sem_lower:
-                    valor_semanal_pg = v_sem
-                    break
-            indicador_pg, _, comparativa_pg = calcular_tendencia(v_pg, valor_semanal_pg, k_pg)
-        
-        # Color y nivel según puntuación
-        try:
-            pg_num = float(str(v_pg).replace(',', '.').strip())
-            if pg_num >= 75:
-                color_pg, bg_color, nivel = "#28a745", "rgba(40, 167, 69, 0.15)", "Excelente"
-            elif pg_num >= 50:
-                color_pg, bg_color, nivel = "#ffc107", "rgba(255, 193, 7, 0.15)", "Bueno"
-            elif pg_num >= 25:
-                color_pg, bg_color, nivel = "#fd7e14", "rgba(253, 126, 20, 0.15)", "Regular"
-            else:
-                color_pg, bg_color, nivel = "#dc3545", "rgba(220, 53, 69, 0.15)", "Bajo"
-        except:
-            color_pg, bg_color, nivel = "#6c757d", "rgba(108, 117, 125, 0.15)", ""
-        
-        tend_pg_html = (
-            f'<p style="margin:4px 0 0 0;font-size:13px;color:#888;">{indicador_pg} {comparativa_pg}</p>'
-            if (indicador_pg or comparativa_pg) else ''
-        )
-        
-        nivel_html = f"· {nivel}" if nivel else ""
-        
-        # Tarjeta de puntuación global en una sola línea
-        pg_html = (
-            f'<div style="background:linear-gradient(135deg,{bg_color} 0%,rgba(255,255,255,0.02) 100%);'
-            f'border:2px solid {color_pg};border-radius:12px;padding:20px 24px;margin-top:10px;'
-            f'box-shadow:0 2px 12px rgba(0,0,0,0.06);">'
-            f'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:15px;">'
-            f'<div style="display:flex;align-items:center;gap:14px;">'
-            f'<span style="font-size:38px;">⭐</span>'
-            f'<div>'
-            f'<p style="margin:0;font-size:13px;color:#888;text-transform:uppercase;letter-spacing:1.2px;font-weight:600;">Puntuación Global</p>'
-            f'<p style="margin:3px 0 0 0;font-size:11px;color:#aaa;">Rendimiento general (0-100) {nivel_html}</p>'
-            f'</div>'
-            f'</div>'
-            f'<div style="text-align:right;">'
-            f'<span style="font-size:40px;font-weight:bold;color:{color_pg};">{v_pg}</span>'
-            f'{tend_pg_html}'
-            f'</div>'
-            f'</div>'
-            f'</div>'
-        )
-        st.markdown(pg_html, unsafe_allow_html=True)
 
 def render_value_bets():
     st.title("💰 Value Bets — Motor de Probabilidades")
