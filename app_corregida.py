@@ -222,34 +222,20 @@ def extraer_stats_diarias(df, fila_n, col_rango):
         # Rango ampliado para cubrir pestañas con más separadores
         limite = min(len(df), fila_n + 60)
         
-        # Helper: buscar un título visible en CUALQUIER columna del bloque
-        # (no solo en col_rango[0]). En el sheet, los títulos de stats con celdas
-        # combinadas (barras azules/amarillas) pueden quedar en columnas F, E, D...
-        # del CSV exportado, y necesitamos detectarlos aunque no estén en G.
-        def buscar_titulo_en_fila(f):
-            """Devuelve el primer string que parezca título en cualquier columna
-            de la fila f (preferentemente desde col_rango[0] hacia atrás)."""
-            cols_a_revisar = list(range(col_rango[0], -1, -1))  # de col_rango[0] hacia 0
-            for col in cols_a_revisar:
-                if col < df.shape[1]:
-                    v = str(df.iloc[f, col]).strip()
-                    if v and v.lower() != 'nan' and parece_titulo(v):
-                        return v
-            return None
-        
-        # Pre-recolectar SOLO strings que parezcan títulos reales
-        # (busca en cualquier columna del bloque para detectar títulos en celdas combinadas)
+        # Pre-recolectar SOLO strings que parezcan títulos reales en col_rango[0]
+        # (la columna donde van los títulos de stats en el sheet).
         titulos_set = set()
         for f in range(fila_n + 1, limite):
-            t = buscar_titulo_en_fila(f)
-            if t:
+            t = str(df.iloc[f, col_rango[0]]).strip()
+            if t and t.lower() != 'nan' and parece_titulo(t):
                 titulos_set.add(t.lower())
         
         # PRIMER PASE: identificar la estructura real del bloque
         # Recorremos filas y clasificamos cada una como TÍTULO, VALORES o VACÍA.
         estructura = []  # lista de (fila_idx, tipo, dato)
         for f in range(fila_n + 1, limite):
-            titulo_en_fila = buscar_titulo_en_fila(f)
+            t = str(df.iloc[f, col_rango[0]]).strip()
+            es_titulo_explicito = t and t.lower() != 'nan' and parece_titulo(t)
             
             # ¿Hay valores en las columnas de los jugadores 2..N?
             hay_valores_otros_jugadores = False
@@ -262,11 +248,10 @@ def extraer_stats_diarias(df, fila_n, col_rango):
                         break
             
             # ¿La col_rango[0] tiene un valor numérico (valor del primer jugador)?
-            primera_celda = str(df.iloc[f, col_rango[0]]).strip() if col_rango[0] < df.shape[1] else ''
-            col0_es_valor = parece_valor(primera_celda)
+            col0_es_valor = parece_valor(t)
             
-            if titulo_en_fila:
-                estructura.append((f, 'titulo', titulo_en_fila))
+            if es_titulo_explicito:
+                estructura.append((f, 'titulo', t))
             elif hay_valores_otros_jugadores or col0_es_valor:
                 estructura.append((f, 'valores', None))
             # filas completamente vacías se ignoran
@@ -306,12 +291,10 @@ def extraer_stats_diarias(df, fila_n, col_rango):
         
         # TERCER PASE: extraer los valores de cada par para cada jugador.
         # Para el PRIMER jugador (i=0), si su celda principal en la fila de valores
-        # está vacía, esto puede deberse a que el sheet tiene celdas combinadas.
-        # Aplicamos dos fallbacks en orden:
-        #   1) Buscar un valor numérico en columnas anteriores de la misma fila
-        #      (caso de celdas combinadas que desplazan el valor a la izquierda).
-        #   2) Si los demás jugadores sí tienen valor en esa fila, asumir "0"
-        #      (la stat existe pero este jugador no la ha logrado).
+        # está vacía pero los demás jugadores SÍ tienen valor en esa fila, asumimos
+        # que el primer jugador tiene 0 (la stat existe pero no la ha logrado).
+        # Esto cubre el caso de Grupo B Jueves donde celdas combinadas dejan vacía
+        # la columna del primer jugador en algunas filas (Número victorias, etc.).
         data_final = {}
         for i, j in enumerate(jugadores):
             stats = {}
@@ -323,30 +306,21 @@ def extraer_stats_diarias(df, fila_n, col_rango):
                     if v.lower() in titulos_set:
                         v = ''
                 
-                # Fallbacks solo para el primer jugador
+                # Fallback solo para el primer jugador: si su celda está vacía pero
+                # los demás jugadores tienen valor, asumir 0.
                 if i == 0 and (not v or v.lower() == 'nan'):
-                    # Fallback 1: columnas anteriores (celdas combinadas)
-                    for col_alt in range(col_rango[0] - 1, -1, -1):
-                        if col_alt < df.shape[1]:
-                            v_alt = str(df.iloc[fila_valores, col_alt]).strip()
-                            if v_alt and v_alt.lower() != 'nan' and parece_valor(v_alt):
-                                v = v_alt
+                    otros_tienen_valor = False
+                    for k in range(1, len(jugadores)):
+                        col_otro = col_rango[0] + k
+                        if col_otro < df.shape[1]:
+                            v_otro = str(df.iloc[fila_valores, col_otro]).strip()
+                            if v_otro and v_otro.lower() != 'nan' and parece_valor(v_otro):
+                                otros_tienen_valor = True
                                 break
-                    
-                    # Fallback 2: si los demás jugadores SÍ tienen valor, asumir 0
-                    if not v or v.lower() == 'nan':
-                        otros_tienen_valor = False
-                        for k in range(1, len(jugadores)):
-                            col_otro = col_rango[0] + k
-                            if col_otro < df.shape[1]:
-                                v_otro = str(df.iloc[fila_valores, col_otro]).strip()
-                                if v_otro and v_otro.lower() != 'nan' and parece_valor(v_otro):
-                                    otros_tienen_valor = True
-                                    break
-                        if otros_tienen_valor:
-                            # Detectar si la stat es porcentaje para mantener formato
-                            ejemplo_val = str(df.iloc[fila_valores, col_rango[0] + 1]).strip()
-                            v = '0%' if '%' in ejemplo_val else '0'
+                    if otros_tienen_valor:
+                        # Detectar si la stat es porcentaje para mantener formato
+                        ejemplo_val = str(df.iloc[fila_valores, col_rango[0] + 1]).strip()
+                        v = '0%' if '%' in ejemplo_val else '0'
                 
                 if v and v.lower() != 'nan':
                     stats[titulo] = v
