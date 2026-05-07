@@ -388,8 +388,20 @@ def cargar_jugadores_desde(pestana: str):
                 lam_180  = safe_float(_buscar_stat(s, ["media 180", "180 por partida", "180 por partido"]))
                 lam_legs = safe_float(_buscar_stat(s, ["legs totales", "total legs", "legs por partido", "promedio legs", "leg por partido"]))
                 promedio_dardos = safe_float(_buscar_stat(s, ["promedio puntos", "average", "promedio dardos", "ppd", "media puntos"]))
-                checkouts = safe_float(str(_buscar_stat(s, ["checkout"])).replace("%", ""))
-                pct_vic = safe_float(str(_buscar_stat(s, ["porcentaje victoria", "% victoria"])).replace("%", ""))
+                
+                # Checkout: en Resumen Semanal puede venir como decimal (0,3077) o como porcentaje (30,77%).
+                # Si está entre 0 y 1, asumimos que es ratio decimal y convertimos a porcentaje.
+                raw_checkout = str(_buscar_stat(s, ["checkout"])).replace("%", "").replace(",", ".").strip()
+                checkouts = safe_float(raw_checkout)
+                if 0 < checkouts <= 1:
+                    checkouts *= 100
+                
+                # Porcentaje victoria: misma lógica defensiva
+                raw_pct = str(_buscar_stat(s, ["porcentaje victoria", "% victoria"])).replace("%", "").replace(",", ".").strip()
+                pct_vic = safe_float(raw_pct)
+                if 0 < pct_vic <= 1:
+                    pct_vic *= 100
+                
                 jugadores[nombre_lower] = {
                     "nombre_original": nombre_lower.title(),
                     "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
