@@ -391,8 +391,8 @@ def cargar_jugadores_desde(pestana: str):
                 jugadores = {}
                 for nombre, s in stats.items():
                     pr       = safe_float(_buscar_stat(s, ["global", "puntuación", "puntuacion"]))
-                    lam_180  = safe_float(_buscar_stat(s, ["180", "ciento"]))
-                    lam_legs = safe_float(_buscar_stat(s, ["legs por partido", "promedio legs", "leg por partido"]))
+                    lam_180  = safe_float(_buscar_stat(s, ["media 180", "180 por partida", "180 por partido"]))
+                    lam_legs = safe_float(_buscar_stat(s, ["legs totales", "total legs", "legs por partido", "promedio legs", "leg por partido"]))
                     promedio_dardos = safe_float(_buscar_stat(s, ["promedio puntos", "average", "promedio dardos", "ppd", "media puntos"]))
                     checkouts = safe_float(str(_buscar_stat(s, ["checkout"])).replace("%", ""))
                     pct_vic = safe_float(str(_buscar_stat(s, ["porcentaje victoria", "% victoria"])).replace("%", ""))
@@ -415,8 +415,8 @@ def cargar_jugadores_desde(pestana: str):
             return None
         col_jugador = buscar_col(["jugador", "nombre"])
         col_pr      = buscar_col(["puntuación global", "puntuacion global", "global", "power"])
-        col_180     = buscar_col(["180"])
-        col_legs    = buscar_col(["legs", "leg"])
+        col_180     = buscar_col(["media 180", "180 por partida", "180 por partido"])
+        col_legs    = buscar_col(["legs totales", "total legs", "legs por partido", "leg por partido"])
         col_promedio_dardos = buscar_col(["promedio puntos", "average", "promedio dardos", "ppd", "media puntos"])
         col_checkouts = buscar_col(["checkout"])
         col_pct_vic = buscar_col(["porcentaje victoria", "% victoria", "% victoria", "%victoria"])
