@@ -9,6 +9,25 @@ import time
 
 st.set_page_config(page_title="Modus Super Series App", layout="wide", page_icon="🎯")
 
+# CSS global: rejilla de estadísticas responsive
+# Desktop/tablet: 4 columnas | Móvil (<=768px): 2 columnas
+st.markdown("""
+<style>
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin: 10px 0 20px 0;
+}
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 URLS = {
     "Grupo A Lunes": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpzkL3TKUdIptc202-w-A0ifJtiFIIP9rI0q0zQzn_I4VKX8qUi_-r1XXfPkwefN03rIQzYUNyg9xP/pub?gid=770660826&single=true&output=csv",
     "Grupo A Martes": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpzkL3TKUdIptc202-w-A0ifJtiFIIP9rI0q0zQzn_I4VKX8qUi_-r1XXfPkwefN03rIQzYUNyg9xP/pub?gid=1188400317&single=true&output=csv",
@@ -833,71 +852,65 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
                 Victorias, Derrotas, % Victoria, Puntuación Global (fila 2)
     Colores: azul por defecto, verde victorias, rojo derrotas, amarillo puntuación global.
     
+    Sistema de sinónimos: cada etiqueta tiene varias formas posibles para que
+    funcione tanto con las jornadas diarias (etiquetas largas) como con el
+    Resumen Semanal (etiquetas más cortas).
+    
     HTML construido en una sola línea para evitar parsing como bloque de código.
     """
     
-    # Iconos por estadística
-    iconos_stats = {
-        "Media 180 por partida": "🎯",
-        "Promedio puntos total": "📊",
-        "Legs por partido": "🎮",
-        "Promedio Checkouts": "✅",
-        "Número victorias": "🏆",
-        "Número derrotas": "❌",
-        "Porcentaje victoria": "📈",
-        "Puntuación Global": "⭐",
-    }
-    
-    # Orden fijo: 2 filas x 4 columnas
-    orden_stats = [
-        "Media 180 por partida", "Promedio puntos total", "Legs por partido", "Promedio Checkouts",
-        "Número victorias", "Número derrotas", "Porcentaje victoria", "Puntuación Global"
+    # Configuración: (etiqueta_display, icono, sinónimos_de_más_específico_a_más_genérico)
+    config_stats = [
+        ("Media 180 por partida", "🎯",
+         ["media 180 por partida", "180 por partida", "180 por partido", "media 180", "media de 180"]),
+        ("Promedio puntos total", "📊",
+         ["promedio puntos total", "promedio puntos", "media puntos", "puntos total", "promedio dardos", "average"]),
+        ("Legs por partido", "🎮",
+         ["legs por partido", "leg por partido", "legs partido"]),
+        ("Promedio Checkouts", "✅",
+         ["promedio checkouts", "promedio checkout", "checkouts", "checkout"]),
+        ("Número victorias", "🏆",
+         ["número victorias", "numero victorias", "n. victorias", "n victorias", "victorias"]),
+        ("Número derrotas", "❌",
+         ["número derrotas", "numero derrotas", "n. derrotas", "n derrotas", "derrotas"]),
+        ("Porcentaje victoria", "📈",
+         ["porcentaje victoria", "porcentaje de victoria", "% victoria", "%victoria", "porc. victoria"]),
+        ("Puntuación Global", "⭐",
+         ["puntiación global", "puntuación global", "puntacion global", "puntiación", "puntuación", "puntacion"]),
     ]
     
-    def es_puntuacion_global(k_lower):
-        return "puntiación" in k_lower or "puntuación" in k_lower or "puntacion" in k_lower
+    def buscar_valor(stats_dict, sinonimos, claves_excluidas):
+        """Busca el primer match (forward only) en stats_dict para alguno de los sinónimos.
+        Los sinónimos se prueban en orden, de más específicos a más genéricos.
+        """
+        for syn in sinonimos:
+            syn_lower = syn.lower()
+            for k, v in stats_dict.items():
+                if k in claves_excluidas:
+                    continue
+                k_lower = str(k).lower().strip()
+                if not k_lower:
+                    continue
+                if syn_lower in k_lower:
+                    return k, v
+        return None, "-"
     
-    # Grid forzado a 4 columnas
-    cards_html = '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:10px 0 20px 0;">'
+    claves_usadas = set()
+    cards_html = '<div class="stats-grid">'
     
-    for etiqueta in orden_stats:
-        valor = "-"
-        clave_encontrada = None
-        
-        # Búsqueda de la clave correcta
-        for k, v in stats.items():
-            k_lower = str(k).lower()
-            if etiqueta == "Puntuación Global":
-                if es_puntuacion_global(k_lower):
-                    valor = v
-                    clave_encontrada = k
-                    break
-            else:
-                if etiqueta.lower() in k_lower:
-                    valor = v
-                    clave_encontrada = k
-                    break
+    for etiqueta, icono, sinonimos in config_stats:
+        clave_encontrada, valor = buscar_valor(stats, sinonimos, claves_usadas)
         
         if not clave_encontrada:
             continue
         
-        icono = iconos_stats.get(etiqueta, "📌")
+        claves_usadas.add(clave_encontrada)
         
         # Tendencia (comparación con resumen semanal)
         indicador = ""
         comparativa = ""
         if mostrar_tendencias and stats_resumen and player in stats_resumen:
-            valor_semanal = "-"
-            for k_sem, v_sem in stats_resumen[player].items():
-                k_sem_lower = str(k_sem).lower()
-                if etiqueta == "Puntuación Global":
-                    if es_puntuacion_global(k_sem_lower):
-                        valor_semanal = v_sem
-                        break
-                else:
-                    if etiqueta.lower() in k_sem_lower:
-                        valor_semanal = v_sem
-                        break
+            _, valor_semanal = buscar_valor(stats_resumen[player], sinonimos, set())
             # Para Puntuación Global pasamos la clave original (contiene "puntiación") para activar el umbral del 3%
             etiqueta_para_tendencia = clave_encontrada if etiqueta == "Puntuación Global" else etiqueta
             indicador, _, comparativa = calcular_tendencia(valor, valor_semanal, etiqueta_para_tendencia)
@@ -1569,7 +1582,7 @@ st.sidebar.markdown("### ⚙️ Ejecutar Script")
 
 SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyF0-GxHiaX4NW55-2UJt39a9V_aJhGXahq5NL5z2szpbFd7RdtKtr5ww7r852RAm2f/exec"
 
-if st.sidebar.button("▶️ Ejecutar Actualización", type="primary", use_container_width=True, help="Ejecuta el script de actualización de datos"):
+if st.sidebar.button("▶️ Ejecutar Actualización", help="Ejecuta el script de actualización de datos"):
     with st.sidebar.spinner("🔄 Ejecutando script..."):
         try:
             # Intentar con GET primero (más compatible con Apps Script)
