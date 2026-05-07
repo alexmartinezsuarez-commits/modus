@@ -975,6 +975,24 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
                     stats_jugador_resumen = v_resumen
                     break
     
+    # Detectar si la jornada del jugador ha comenzado.
+    # Si TODOS los valores numéricos son 0 (o no hay ninguno parseable), el jugador
+    # aún no ha jugado en esta jornada, así que no tiene sentido mostrar indicadores
+    # de tendencia (saldrían 🔴↓ comparando 0 contra el promedio semanal).
+    jornada_iniciada = False
+    for _, v in stats.items():
+        try:
+            num = float(str(v).replace('%', '').replace(',', '.').strip())
+            if num > 0:
+                jornada_iniciada = True
+                break
+        except:
+            continue
+    
+    # Si la jornada no ha empezado, suprimir los indicadores de tendencia
+    if not jornada_iniciada:
+        stats_jugador_resumen = None
+    
     claves_usadas = set()
     cards_html = '<div class="stats-grid">'
     
