@@ -895,6 +895,19 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
                     return k, v
         return None, "-"
     
+    # Match case-insensitive del jugador en stats_resumen
+    # (las jornadas diarias guardan nombres con mayúsculas, el resumen en minúsculas)
+    stats_jugador_resumen = None
+    if mostrar_tendencias and stats_resumen:
+        if player in stats_resumen:
+            stats_jugador_resumen = stats_resumen[player]
+        else:
+            player_lower = str(player).lower().strip()
+            for k_resumen, v_resumen in stats_resumen.items():
+                if str(k_resumen).lower().strip() == player_lower:
+                    stats_jugador_resumen = v_resumen
+                    break
+    
     claves_usadas = set()
     cards_html = '<div class="stats-grid">'
     
@@ -909,8 +922,8 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
         # Tendencia (comparación con resumen semanal)
         indicador = ""
         comparativa = ""
-        if mostrar_tendencias and stats_resumen and player in stats_resumen:
-            _, valor_semanal = buscar_valor(stats_resumen[player], sinonimos, set())
+        if stats_jugador_resumen:
+            _, valor_semanal = buscar_valor(stats_jugador_resumen, sinonimos, set())
             # Para Puntuación Global pasamos la clave original (contiene "puntiación") para activar el umbral del 3%
             etiqueta_para_tendencia = clave_encontrada if etiqueta == "Puntuación Global" else etiqueta
             indicador, _, comparativa = calcular_tendencia(valor, valor_semanal, etiqueta_para_tendencia)
@@ -934,10 +947,24 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
             color_valor = "#1f77b4"
             bg_grad = "rgba(31, 119, 180, 0.08)"
         
-        tend_html = (
-            f'<span style="font-size:11px;color:#888;">{indicador} {comparativa}</span>'
-            if (indicador or comparativa) else ''
-        )
+        # Indicador de tendencia: color verde si sube, rojo si baja, gris si neutro
+        if "🟢" in indicador:
+            tend_color = "#28a745"
+            tend_weight = "700"
+        elif "🔴" in indicador:
+            tend_color = "#dc3545"
+            tend_weight = "700"
+        else:
+            tend_color = "#999"
+            tend_weight = "500"
+        
+        if indicador or comparativa:
+            tend_html = (
+                f'<span style="font-size:12px;color:{tend_color};font-weight:{tend_weight};white-space:nowrap;">'
+                f'{indicador} {comparativa}</span>'
+            )
+        else:
+            tend_html = ''
         
         # Construcción de la tarjeta en una sola línea
         cards_html += (
@@ -947,7 +974,7 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
             f'<span style="font-size:18px;">{icono}</span>'
             f'<span style="font-size:12px;color:#888;font-weight:600;">{etiqueta}</span>'
             f'</div>'
-            f'<div style="display:flex;align-items:baseline;justify-content:space-between;">'
+            f'<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;flex-wrap:wrap;">'
             f'<span style="font-size:22px;font-weight:bold;color:{color_valor};">{valor}</span>'
             f'{tend_html}'
             f'</div>'
