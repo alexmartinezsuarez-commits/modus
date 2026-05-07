@@ -146,21 +146,38 @@ def pintar_partidos(fila):
 def extraer_stats_diarias(df, fila_n, col_rango):
     """Extrae estadísticas por jugador desde la sección derecha de cada pestaña diaria.
     
-    Estructura esperada (en columna izquierda del bloque):
-        fila N   : nombres de jugadores
-        fila N+1 : título stat 1
-        fila N+2 : valor stat 1 (en columna del jugador i)
-        fila N+3 : título stat 2
-        fila N+4 : valor stat 2
-        ...
+    Estructura del spreadsheet:
+        col_rango[0] (ej. col G): contiene TANTO los títulos de stats (filas pares)
+                                  COMO los valores del PRIMER jugador (filas impares).
+        col_rango[0]+1, +2, ... : valores de los jugadores 2, 3, ...
     
-    Robustez añadida (vs. versión original):
+    Por esa razón, al construir el set de títulos para evitar capturar un título
+    como falso valor, hay que filtrar usando una heurística que distinga:
+        - Títulos:  texto con varias letras (ej. "Media 180 por partida")
+        - Valores:  números o porcentajes (ej. "2,0", "89,88", "42%", "#DIV/0!")
+    
+    Robustez añadida vs. versión original:
     - Rango ampliado de 35 → 60 filas (Grupo C Jueves tiene más separadores).
-    - Pre-recolección de títulos para evitar capturar un título como falso valor
-      cuando la celda del jugador está vacía (bug que hacía que "Puntuación Global"
-      mostrara "Legs por partido" como valor).
-    - Fallback a curr_f+2 solo si esa fila NO contiene otro título conocido.
+    - Set de títulos para anular el fallback `val_fila2` cuando captura erróneamente
+      otro título (bug que mostraba "Legs por partido" como valor de Puntuación Global).
     """
+    
+    def parece_titulo(s):
+        """Heurística para distinguir títulos de stats vs valores numéricos.
+        
+        Un título debe:
+        - Tener al menos 5 caracteres
+        - Contener al menos 3 letras alfabéticas
+        - No empezar con '#' (descarta errores tipo #DIV/0!)
+        """
+        s = s.strip()
+        if len(s) < 5:
+            return False
+        if s.startswith('#'):
+            return False
+        letras = sum(1 for c in s if c.isalpha())
+        return letras >= 3
+    
     try:
         nombres = df.iloc[fila_n, col_rango[0]:col_rango[1]].values
         jugadores = [str(n).strip() for n in nombres if str(n).strip() not in ['nan', '']]
@@ -168,12 +185,12 @@ def extraer_stats_diarias(df, fila_n, col_rango):
         # Rango ampliado para cubrir pestañas con más separadores
         limite = min(len(df), fila_n + 60)
         
-        # Pre-recolectar todos los títulos de la columna izquierda del bloque,
-        # para poder excluirlos cuando aparezcan como "valor" de otra fila
+        # Pre-recolectar SOLO strings que parezcan títulos reales
+        # (ignora valores numéricos del primer jugador que están en la misma columna)
         titulos_set = set()
         for f in range(fila_n + 1, limite):
             t = str(df.iloc[f, col_rango[0]]).strip()
-            if t and t.lower() != 'nan':
+            if t and t.lower() != 'nan' and parece_titulo(t):
                 titulos_set.add(t.lower())
         
         data_final = {}
@@ -186,9 +203,9 @@ def extraer_stats_diarias(df, fila_n, col_rango):
                     val_fila1 = str(df.iloc[curr_f + 1, col_rango[0] + i]).strip() if curr_f + 1 < len(df) else 'nan'
                     val_fila2 = str(df.iloc[curr_f + 2, col_rango[0] + i]).strip() if curr_f + 2 < len(df) else 'nan'
                     
-                    # Anular cualquier "valor" que en realidad sea otro título conocido
-                    if val_fila1.lower() in titulos_set:
-                        val_fila1 = 'nan'
+                    # Anular val_fila2 (el fallback) si es un título conocido.
+                    # NO filtramos val_fila1 porque para el primer jugador (i=0)
+                    # el valor legítimo está en la misma columna que los títulos.
                     if val_fila2.lower() in titulos_set:
                         val_fila2 = 'nan'
                     
