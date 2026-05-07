@@ -166,7 +166,9 @@ def extraer_stats_diarias(df, fila_n, col_rango):
       basándose en filas de valores numéricos huérfanas.
     """
     
-    # Secuencia canónica de títulos (orden fijo del spreadsheet)
+    # Secuencia canónica de títulos (orden fijo del spreadsheet).
+    # Nota: "Legs totales" aparece tras "PUNTIACIÓN GLOBAL" en el sheet de Grupo B Jueves
+    # (sin título visible en CSV, valores 4/4/7/7/0 etc.)
     SECUENCIA_TITULOS = [
         "Media 180 por partida",
         "Promedio puntos total",
@@ -176,6 +178,7 @@ def extraer_stats_diarias(df, fila_n, col_rango):
         "Número derrotas",
         "Porcentaje victoria",
         "PUNTIACIÓN GLOBAL (0-100)",
+        "Legs totales",
     ]
     
     def parece_titulo(s):
@@ -285,19 +288,52 @@ def extraer_stats_diarias(df, fila_n, col_rango):
             else:
                 i += 1
         
-        # TERCER PASE: extraer los valores de cada par para cada jugador
+        # TERCER PASE: extraer los valores de cada par para cada jugador.
+        # Para el PRIMER jugador (i=0), si su celda principal en la fila de valores
+        # está vacía, esto puede deberse a que el sheet tiene celdas combinadas.
+        # Aplicamos dos fallbacks en orden:
+        #   1) Buscar un valor numérico en columnas anteriores de la misma fila
+        #      (caso de celdas combinadas que desplazan el valor a la izquierda).
+        #   2) Si los demás jugadores sí tienen valor en esa fila, asumir "0"
+        #      (la stat existe pero este jugador no la ha logrado).
         data_final = {}
         for i, j in enumerate(jugadores):
             stats = {}
             for titulo, fila_valores in pares:
                 col = col_rango[0] + i
+                v = ''
                 if col < df.shape[1]:
                     v = str(df.iloc[fila_valores, col]).strip()
-                    # Anular si por accidente capturamos un título
                     if v.lower() in titulos_set:
-                        continue
-                    if v and v.lower() != 'nan':
-                        stats[titulo] = v
+                        v = ''
+                
+                # Fallbacks solo para el primer jugador
+                if i == 0 and (not v or v.lower() == 'nan'):
+                    # Fallback 1: columnas anteriores (celdas combinadas)
+                    for col_alt in range(col_rango[0] - 1, -1, -1):
+                        if col_alt < df.shape[1]:
+                            v_alt = str(df.iloc[fila_valores, col_alt]).strip()
+                            if v_alt and v_alt.lower() != 'nan' and parece_valor(v_alt):
+                                v = v_alt
+                                break
+                    
+                    # Fallback 2: si los demás jugadores SÍ tienen valor, asumir 0
+                    if not v or v.lower() == 'nan':
+                        otros_tienen_valor = False
+                        for k in range(1, len(jugadores)):
+                            col_otro = col_rango[0] + k
+                            if col_otro < df.shape[1]:
+                                v_otro = str(df.iloc[fila_valores, col_otro]).strip()
+                                if v_otro and v_otro.lower() != 'nan' and parece_valor(v_otro):
+                                    otros_tienen_valor = True
+                                    break
+                        if otros_tienen_valor:
+                            # Detectar si la stat es porcentaje para mantener formato
+                            ejemplo_val = str(df.iloc[fila_valores, col_rango[0] + 1]).strip()
+                            v = '0%' if '%' in ejemplo_val else '0'
+                
+                if v and v.lower() != 'nan':
+                    stats[titulo] = v
             data_final[j] = stats
         return data_final
     except:
@@ -1017,8 +1053,8 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
          ["media 180 por partida", "180 por partida", "180 por partido", "media 180", "media de 180"]),
         ("Promedio puntos total", "📊",
          ["promedio puntos total", "promedio puntos", "media puntos", "puntos total", "promedio dardos", "average"]),
-        ("Diferencia de legs", "🎮",
-         ["diferencia de legs", "diferencia legs", "legs por partido", "leg por partido", "legs partido"]),
+        ("Legs totales", "🎮",
+         ["legs totales", "total legs", "legs por partido", "leg por partido"]),
         ("Promedio Checkouts", "✅",
          ["promedio checkouts", "promedio checkout", "checkouts", "checkout"]),
         ("Número victorias", "🏆",
