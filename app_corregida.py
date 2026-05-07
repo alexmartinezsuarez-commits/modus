@@ -144,20 +144,56 @@ def pintar_partidos(fila):
     return ['background-color: transparent'] * len(fila)
 
 def extraer_stats_diarias(df, fila_n, col_rango):
+    """Extrae estadísticas por jugador desde la sección derecha de cada pestaña diaria.
+    
+    Estructura esperada (en columna izquierda del bloque):
+        fila N   : nombres de jugadores
+        fila N+1 : título stat 1
+        fila N+2 : valor stat 1 (en columna del jugador i)
+        fila N+3 : título stat 2
+        fila N+4 : valor stat 2
+        ...
+    
+    Robustez añadida (vs. versión original):
+    - Rango ampliado de 35 → 60 filas (Grupo C Jueves tiene más separadores).
+    - Pre-recolección de títulos para evitar capturar un título como falso valor
+      cuando la celda del jugador está vacía (bug que hacía que "Puntuación Global"
+      mostrara "Legs por partido" como valor).
+    - Fallback a curr_f+2 solo si esa fila NO contiene otro título conocido.
+    """
     try:
         nombres = df.iloc[fila_n, col_rango[0]:col_rango[1]].values
         jugadores = [str(n).strip() for n in nombres if str(n).strip() not in ['nan', '']]
+        
+        # Rango ampliado para cubrir pestañas con más separadores
+        limite = min(len(df), fila_n + 60)
+        
+        # Pre-recolectar todos los títulos de la columna izquierda del bloque,
+        # para poder excluirlos cuando aparezcan como "valor" de otra fila
+        titulos_set = set()
+        for f in range(fila_n + 1, limite):
+            t = str(df.iloc[f, col_rango[0]]).strip()
+            if t and t.lower() != 'nan':
+                titulos_set.add(t.lower())
+        
         data_final = {}
         for i, j in enumerate(jugadores):
             stats = {}
             curr_f = fila_n + 1
-            while curr_f + 1 < len(df) and curr_f < fila_n + 35:
+            while curr_f + 1 < len(df) and curr_f < limite:
                 tit = str(df.iloc[curr_f, col_rango[0]]).strip()
-                if tit != 'nan' and tit != '':
+                if tit and tit.lower() != 'nan':
                     val_fila1 = str(df.iloc[curr_f + 1, col_rango[0] + i]).strip() if curr_f + 1 < len(df) else 'nan'
                     val_fila2 = str(df.iloc[curr_f + 2, col_rango[0] + i]).strip() if curr_f + 2 < len(df) else 'nan'
+                    
+                    # Anular cualquier "valor" que en realidad sea otro título conocido
+                    if val_fila1.lower() in titulos_set:
+                        val_fila1 = 'nan'
+                    if val_fila2.lower() in titulos_set:
+                        val_fila2 = 'nan'
+                    
                     val = val_fila1 if val_fila1 != 'nan' else val_fila2
-                    if val != 'nan' and val != '':
+                    if val and val.lower() != 'nan':
                         stats[tit] = val
                 curr_f += 1
             data_final[j] = stats
