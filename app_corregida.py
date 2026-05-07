@@ -160,10 +160,26 @@ def extraer_stats_diarias(df, fila_n, col_rango):
     - Rango ampliado de 35 → 60 filas (Grupo C Jueves tiene más separadores).
     - Set de títulos para anular el fallback `val_fila2` cuando captura erróneamente
       otro título (bug que mostraba "Legs por partido" como valor de Puntuación Global).
+    - Fallback con secuencia canónica de títulos: si una pestaña tiene celdas
+      combinadas/vacías que ocultan los títulos en CSV (caso Grupo B Jueves donde
+      sólo se leen los 3-4 primeros), se completa con los títulos esperados en orden
+      basándose en filas de valores numéricos huérfanas.
     """
     
+    # Secuencia canónica de títulos (orden fijo del spreadsheet)
+    SECUENCIA_TITULOS = [
+        "Media 180 por partida",
+        "Promedio puntos total",
+        "Diferencia de legs",
+        "Promedio Checkouts",
+        "Número victorias",
+        "Número derrotas",
+        "Porcentaje victoria",
+        "PUNTIACIÓN GLOBAL (0-100)",
+    ]
+    
     def parece_titulo(s):
-        """Heurística para distinguir títulos de stats vs valores numéricos.
+        """Distingue títulos vs valores numéricos.
         
         Un título debe:
         - Tener al menos 5 caracteres
@@ -178,6 +194,22 @@ def extraer_stats_diarias(df, fila_n, col_rango):
         letras = sum(1 for c in s if c.isalpha())
         return letras >= 3
     
+    def parece_valor(s):
+        """Detecta si la cadena parece un valor numérico (no un título).
+        Acepta números con coma/punto decimal, porcentajes, enteros y errores #DIV/0!.
+        """
+        s = s.strip()
+        if not s or s.lower() == 'nan':
+            return False
+        if s.startswith('#'):  # #DIV/0!, #N/A, etc.
+            return True
+        # Limpiar % y convertir coma a punto para intentar parsear como float
+        try:
+            float(s.replace('%', '').replace(',', '.').strip())
+            return True
+        except:
+            return False
+    
     try:
         nombres = df.iloc[fila_n, col_rango[0]:col_rango[1]].values
         jugadores = [str(n).strip() for n in nombres if str(n).strip() not in ['nan', '']]
@@ -186,33 +218,86 @@ def extraer_stats_diarias(df, fila_n, col_rango):
         limite = min(len(df), fila_n + 60)
         
         # Pre-recolectar SOLO strings que parezcan títulos reales
-        # (ignora valores numéricos del primer jugador que están en la misma columna)
         titulos_set = set()
         for f in range(fila_n + 1, limite):
             t = str(df.iloc[f, col_rango[0]]).strip()
             if t and t.lower() != 'nan' and parece_titulo(t):
                 titulos_set.add(t.lower())
         
+        # PRIMER PASE: identificar la estructura real del bloque
+        # Recorremos filas y clasificamos cada una como TÍTULO, VALORES o VACÍA.
+        # Una fila es VALORES si al menos una de las celdas de los jugadores 2..N
+        # contiene algo que parece un valor numérico.
+        estructura = []  # lista de (fila_idx, tipo, dato)
+        for f in range(fila_n + 1, limite):
+            t = str(df.iloc[f, col_rango[0]]).strip()
+            es_titulo_explicito = t and t.lower() != 'nan' and parece_titulo(t)
+            
+            # ¿Hay valores en las columnas de los jugadores 2..N?
+            hay_valores_otros_jugadores = False
+            for i in range(1, len(jugadores)):
+                col = col_rango[0] + i
+                if col < df.shape[1]:
+                    v = str(df.iloc[f, col]).strip()
+                    if parece_valor(v):
+                        hay_valores_otros_jugadores = True
+                        break
+            
+            # ¿La col 0 tiene un valor numérico (valor del primer jugador)?
+            col0_es_valor = parece_valor(t)
+            
+            if es_titulo_explicito:
+                estructura.append((f, 'titulo', t))
+            elif hay_valores_otros_jugadores or col0_es_valor:
+                estructura.append((f, 'valores', None))
+            # filas completamente vacías se ignoran
+        
+        # SEGUNDO PASE: emparejar títulos con sus valores.
+        # Buscamos patrones (titulo) + (valores) y, cuando falte un título antes
+        # de unos valores huérfanos, deducimos el título por la posición canónica.
+        idx_secuencia = 0  # qué título canónico nos toca esperar
+        pares = []  # lista de (titulo_resuelto, fila_de_valores)
+        i = 0
+        while i < len(estructura):
+            f, tipo, dato = estructura[i]
+            if tipo == 'titulo':
+                # Sincronizar la secuencia canónica con este título explícito
+                titulo_lower = dato.lower()
+                for k, esp in enumerate(SECUENCIA_TITULOS):
+                    if esp.lower() in titulo_lower or titulo_lower in esp.lower():
+                        idx_secuencia = k + 1
+                        break
+                else:
+                    idx_secuencia += 1
+                # Buscar la siguiente fila de valores
+                if i + 1 < len(estructura) and estructura[i + 1][1] == 'valores':
+                    pares.append((dato, estructura[i + 1][0]))
+                    i += 2
+                    continue
+                i += 1
+            elif tipo == 'valores':
+                # Valores huérfanos: usar el siguiente título canónico
+                if idx_secuencia < len(SECUENCIA_TITULOS):
+                    titulo_deducido = SECUENCIA_TITULOS[idx_secuencia]
+                    pares.append((titulo_deducido, f))
+                    idx_secuencia += 1
+                i += 1
+            else:
+                i += 1
+        
+        # TERCER PASE: extraer los valores de cada par para cada jugador
         data_final = {}
         for i, j in enumerate(jugadores):
             stats = {}
-            curr_f = fila_n + 1
-            while curr_f + 1 < len(df) and curr_f < limite:
-                tit = str(df.iloc[curr_f, col_rango[0]]).strip()
-                if tit and tit.lower() != 'nan':
-                    val_fila1 = str(df.iloc[curr_f + 1, col_rango[0] + i]).strip() if curr_f + 1 < len(df) else 'nan'
-                    val_fila2 = str(df.iloc[curr_f + 2, col_rango[0] + i]).strip() if curr_f + 2 < len(df) else 'nan'
-                    
-                    # Anular val_fila2 (el fallback) si es un título conocido.
-                    # NO filtramos val_fila1 porque para el primer jugador (i=0)
-                    # el valor legítimo está en la misma columna que los títulos.
-                    if val_fila2.lower() in titulos_set:
-                        val_fila2 = 'nan'
-                    
-                    val = val_fila1 if val_fila1 != 'nan' else val_fila2
-                    if val and val.lower() != 'nan':
-                        stats[tit] = val
-                curr_f += 1
+            for titulo, fila_valores in pares:
+                col = col_rango[0] + i
+                if col < df.shape[1]:
+                    v = str(df.iloc[fila_valores, col]).strip()
+                    # Anular si por accidente capturamos un título
+                    if v.lower() in titulos_set:
+                        continue
+                    if v and v.lower() != 'nan':
+                        stats[titulo] = v
             data_final[j] = stats
         return data_final
     except:
