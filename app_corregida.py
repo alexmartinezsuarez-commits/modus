@@ -166,9 +166,11 @@ def extraer_stats_diarias(df, fila_n, col_rango):
       basándose en filas de valores numéricos huérfanas.
     """
     
-    # Secuencia canónica de títulos (orden fijo del spreadsheet).
-    # Nota: "Legs totales" aparece tras "PUNTIACIÓN GLOBAL" en el sheet de Grupo B Jueves
-    # (sin título visible en CSV, valores 4/4/7/7/0 etc.)
+    # Secuencia canónica de títulos (orden FIJO del spreadsheet, según se ve en
+    # la captura del sheet real de Grupo C/B Jueves):
+    #   Media 180 → Promedio puntos → Diferencia de legs → Promedio Checkouts →
+    #   Número victorias → Número derrotas → Porcentaje victoria →
+    #   PUNTIACIÓN GLOBAL → Legs por partido (al final, no al principio)
     SECUENCIA_TITULOS = [
         "Media 180 por partida",
         "Promedio puntos total",
@@ -178,7 +180,7 @@ def extraer_stats_diarias(df, fila_n, col_rango):
         "Número derrotas",
         "Porcentaje victoria",
         "PUNTIACIÓN GLOBAL (0-100)",
-        "Legs totales",
+        "Legs por partido",
     ]
     
     def parece_titulo(s):
@@ -220,21 +222,34 @@ def extraer_stats_diarias(df, fila_n, col_rango):
         # Rango ampliado para cubrir pestañas con más separadores
         limite = min(len(df), fila_n + 60)
         
+        # Helper: buscar un título visible en CUALQUIER columna del bloque
+        # (no solo en col_rango[0]). En el sheet, los títulos de stats con celdas
+        # combinadas (barras azules/amarillas) pueden quedar en columnas F, E, D...
+        # del CSV exportado, y necesitamos detectarlos aunque no estén en G.
+        def buscar_titulo_en_fila(f):
+            """Devuelve el primer string que parezca título en cualquier columna
+            de la fila f (preferentemente desde col_rango[0] hacia atrás)."""
+            cols_a_revisar = list(range(col_rango[0], -1, -1))  # de col_rango[0] hacia 0
+            for col in cols_a_revisar:
+                if col < df.shape[1]:
+                    v = str(df.iloc[f, col]).strip()
+                    if v and v.lower() != 'nan' and parece_titulo(v):
+                        return v
+            return None
+        
         # Pre-recolectar SOLO strings que parezcan títulos reales
+        # (busca en cualquier columna del bloque para detectar títulos en celdas combinadas)
         titulos_set = set()
         for f in range(fila_n + 1, limite):
-            t = str(df.iloc[f, col_rango[0]]).strip()
-            if t and t.lower() != 'nan' and parece_titulo(t):
+            t = buscar_titulo_en_fila(f)
+            if t:
                 titulos_set.add(t.lower())
         
         # PRIMER PASE: identificar la estructura real del bloque
         # Recorremos filas y clasificamos cada una como TÍTULO, VALORES o VACÍA.
-        # Una fila es VALORES si al menos una de las celdas de los jugadores 2..N
-        # contiene algo que parece un valor numérico.
         estructura = []  # lista de (fila_idx, tipo, dato)
         for f in range(fila_n + 1, limite):
-            t = str(df.iloc[f, col_rango[0]]).strip()
-            es_titulo_explicito = t and t.lower() != 'nan' and parece_titulo(t)
+            titulo_en_fila = buscar_titulo_en_fila(f)
             
             # ¿Hay valores en las columnas de los jugadores 2..N?
             hay_valores_otros_jugadores = False
@@ -246,11 +261,12 @@ def extraer_stats_diarias(df, fila_n, col_rango):
                         hay_valores_otros_jugadores = True
                         break
             
-            # ¿La col 0 tiene un valor numérico (valor del primer jugador)?
-            col0_es_valor = parece_valor(t)
+            # ¿La col_rango[0] tiene un valor numérico (valor del primer jugador)?
+            primera_celda = str(df.iloc[f, col_rango[0]]).strip() if col_rango[0] < df.shape[1] else ''
+            col0_es_valor = parece_valor(primera_celda)
             
-            if es_titulo_explicito:
-                estructura.append((f, 'titulo', t))
+            if titulo_en_fila:
+                estructura.append((f, 'titulo', titulo_en_fila))
             elif hay_valores_otros_jugadores or col0_es_valor:
                 estructura.append((f, 'valores', None))
             # filas completamente vacías se ignoran
@@ -427,8 +443,19 @@ def cargar_jugadores_desde(pestana: str):
                     lam_180  = safe_float(_buscar_stat(s, ["media 180", "180 por partida", "180 por partido"]))
                     lam_legs = safe_float(_buscar_stat(s, ["legs totales", "total legs", "legs por partido", "promedio legs", "leg por partido"]))
                     promedio_dardos = safe_float(_buscar_stat(s, ["promedio puntos", "average", "promedio dardos", "ppd", "media puntos"]))
-                    checkouts = safe_float(str(_buscar_stat(s, ["checkout"])).replace("%", ""))
-                    pct_vic = safe_float(str(_buscar_stat(s, ["porcentaje victoria", "% victoria"])).replace("%", ""))
+                    
+                    # Checkout: defensivo contra ratio decimal (0,46 → 46%)
+                    raw_ck = str(_buscar_stat(s, ["checkout"])).replace("%", "").replace(",", ".").strip()
+                    checkouts = safe_float(raw_ck)
+                    if 0 < checkouts <= 1:
+                        checkouts *= 100
+                    
+                    # Porcentaje victoria: misma lógica
+                    raw_pv = str(_buscar_stat(s, ["porcentaje victoria", "% victoria"])).replace("%", "").replace(",", ".").strip()
+                    pct_vic = safe_float(raw_pv)
+                    if 0 < pct_vic <= 1:
+                        pct_vic *= 100
+                    
                     jugadores[nombre.lower()] = {
                         "nombre_original": nombre,
                         "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
@@ -462,8 +489,17 @@ def cargar_jugadores_desde(pestana: str):
             lam_180  = safe_float(fila.get(col_180,   0)) if col_180   else 0.0
             lam_legs = safe_float(fila.get(col_legs,  0)) if col_legs  else 0.0
             promedio_dardos = safe_float(fila.get(col_promedio_dardos, 0)) if col_promedio_dardos else 0.0
-            checkouts = safe_float(str(fila.get(col_checkouts, 0)).replace("%", "")) if col_checkouts else 0.0
-            pct_vic = safe_float(str(fila.get(col_pct_vic, 0)).replace("%", "")) if col_pct_vic else 0.0
+            
+            # Checkout y % victoria con conversión defensiva 0-1 → 0-100
+            raw_ck = str(fila.get(col_checkouts, 0)).replace("%", "").replace(",", ".").strip() if col_checkouts else "0"
+            checkouts = safe_float(raw_ck)
+            if 0 < checkouts <= 1:
+                checkouts *= 100
+            
+            raw_pv = str(fila.get(col_pct_vic, 0)).replace("%", "").replace(",", ".").strip() if col_pct_vic else "0"
+            pct_vic = safe_float(raw_pv)
+            if 0 < pct_vic <= 1:
+                pct_vic *= 100
             jugadores[nombre.lower()] = {
                 "nombre_original": nombre,
                 "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
@@ -1157,6 +1193,20 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
             continue
         
         claves_usadas.add(clave_encontrada)
+        
+        # Formatear valor: si es decimal con muchos decimales, redondear a 1 decimal
+        # (ej. "5,666666667" → "5,7"). Conserva % y enteros tal cual.
+        valor_str = str(valor).strip()
+        if '%' not in valor_str and not valor_str.startswith('#'):
+            try:
+                num = float(valor_str.replace(',', '.').strip())
+                # Si tiene parte decimal significativa y la cadena original tiene >3 chars decimales
+                partes = valor_str.replace(',', '.').split('.')
+                if len(partes) == 2 and len(partes[1]) > 2:
+                    # Redondear a 1 decimal con coma española
+                    valor = f"{num:.1f}".replace('.', ',')
+            except:
+                pass
         
         # Tendencia (comparación con resumen semanal)
         indicador = ""
