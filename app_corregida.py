@@ -377,6 +377,27 @@ def cargar_jugadores_desde(pestana: str):
             return {}
         df = pd.read_csv(url, header=None)
         st.session_state.last_update[pestana] = datetime.now()
+        
+        # Caso especial: Resumen Semanal tiene formato tabla horizontal
+        # (jugadores en filas, stats en columnas), distinto del resto.
+        if pestana == "Resumen Semanal":
+            stats_dict = extraer_stats_resumen_semanal(df)
+            jugadores = {}
+            for nombre_lower, s in stats_dict.items():
+                pr       = safe_float(_buscar_stat(s, ["puntiación global", "puntuación global", "puntacion global", "puntuación", "puntiación"]))
+                lam_180  = safe_float(_buscar_stat(s, ["media 180", "180 por partida", "180 por partido"]))
+                lam_legs = safe_float(_buscar_stat(s, ["legs totales", "total legs", "legs por partido", "promedio legs", "leg por partido"]))
+                promedio_dardos = safe_float(_buscar_stat(s, ["promedio puntos", "average", "promedio dardos", "ppd", "media puntos"]))
+                checkouts = safe_float(str(_buscar_stat(s, ["checkout"])).replace("%", ""))
+                pct_vic = safe_float(str(_buscar_stat(s, ["porcentaje victoria", "% victoria"])).replace("%", ""))
+                jugadores[nombre_lower] = {
+                    "nombre_original": nombre_lower.title(),
+                    "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
+                    "promedio_dardos": promedio_dardos,
+                    "checkouts": checkouts, "pct_victorias": pct_vic
+                }
+            return jugadores
+        
         fila_header = None
         for i, row in df.iterrows():
             if any(str(v).strip().lower() == "jugador" for v in row.values):
@@ -1053,7 +1074,7 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
          ["media 180 por partida", "180 por partida", "180 por partido", "media 180", "media de 180"]),
         ("Promedio puntos total", "📊",
          ["promedio puntos total", "promedio puntos", "media puntos", "puntos total", "promedio dardos", "average"]),
-        ("Legs totales", "🎮",
+        ("Legs por partido", "🎮",
          ["legs totales", "total legs", "legs por partido", "leg por partido"]),
         ("Promedio Checkouts", "✅",
          ["promedio checkouts", "promedio checkout", "checkouts", "checkout"]),
