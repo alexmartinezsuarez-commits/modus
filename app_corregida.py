@@ -426,15 +426,28 @@ def obtener_bandera(nombre_jugador):
     return None
 
 def calcular_tendencia(valor_actual, valor_semanal, etiqueta):
-    """Calcula tendencia con reglas específicas: 5% general, 3% para Puntuación Global"""
+    """Calcula tendencia con reglas específicas: 5% general, 3% para Puntuación Global.
+    
+    Soporta valores con coma decimal (formato europeo: 5,6 → 5.6) y porcentaje.
+    Excluye Número de Victorias/Derrotas (contadores absolutos), pero SÍ aplica
+    a Porcentaje Victoria (valor relativo).
+    """
     try:
-        val_act = float(str(valor_actual).replace('%', '').strip())
-        val_sem = float(str(valor_semanal).replace('%', '').strip())
+        # Limpiar formato europeo (coma decimal) y símbolo de porcentaje
+        val_act = float(str(valor_actual).replace('%', '').replace(',', '.').strip())
+        val_sem = float(str(valor_semanal).replace('%', '').replace(',', '.').strip())
     except:
         return "", valor_actual, ""
     
-    # No mostrar indicador para Victorias o Derrotas
-    if "victoria" in etiqueta.lower() or "derrota" in etiqueta.lower():
+    # Excluir solo los conteos absolutos de Victorias/Derrotas
+    # (Porcentaje Victoria sí debe mostrar tendencia)
+    etiqueta_lower = etiqueta.lower()
+    es_conteo_vic_der = (
+        ("victoria" in etiqueta_lower or "derrota" in etiqueta_lower)
+        and "porcentaje" not in etiqueta_lower
+        and "%" not in etiqueta_lower
+    )
+    if es_conteo_vic_der:
         return "", valor_actual, ""
     
     # Calcular porcentaje de cambio
@@ -444,18 +457,19 @@ def calcular_tendencia(valor_actual, valor_semanal, etiqueta):
         porcentaje_cambio = ((val_act - val_sem) / abs(val_sem)) * 100
     
     # Umbral diferente para Puntuación Global
-    umbral = 3 if "puntiación" in etiqueta.lower() else 5
+    umbral = 3 if "puntiación" in etiqueta_lower else 5
+    
+    # Formato del valor de referencia con coma decimal (estilo español)
+    comparativa = f"({val_sem:.1f})".replace(".", ",")
     
     # Mostrar indicador solo si supera el umbral
     if abs(porcentaje_cambio) >= umbral:
         if porcentaje_cambio > 0:
-            indicador = f"🟢 ↑"
+            indicador = "🟢 ↑"
         else:
-            indicador = f"🔴 ↓"
-        comparativa = f"({val_sem:.1f})"
+            indicador = "🔴 ↓"
         return indicador, valor_actual, comparativa
     else:
-        comparativa = f"({val_sem:.1f})"
         return "", valor_actual, comparativa
 
 def verificar_alerta_excepcional(valor_actual, valor_semanal, etiqueta):
