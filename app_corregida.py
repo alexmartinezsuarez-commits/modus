@@ -1314,7 +1314,7 @@ def selector_jornada(key_prefix, incluir_resumen=True):
 
 
 def render_value_bets():
-    st.title("💰 Value Bets — Motor de Probabilidades")
+    st.title("💰 Value Bets")
     value_bets_list = []
     with st.expander("⚙️ Configuración", expanded=True):
         st.markdown("**📂 Fuente de datos**")
@@ -2015,7 +2015,9 @@ elif "💰 VALUE BETS" in opcion_principal:
 
 elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     st.title("📊 RESULTADOS Y ESTADÍSTICAS")
-    selected = selector_jornada("res", incluir_resumen=True)
+    with st.expander("⚙️ Configuración", expanded=True):
+        st.markdown("**📂 Selecciona jornada**")
+        selected = selector_jornada("res", incluir_resumen=True)
     selected_url = URLS[selected]
     st.markdown("---")
     d1, d2 = cargar_todo(selected_url, selected, CORTES.get(selected, 2))
