@@ -1247,16 +1247,78 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
     cards_html += '</div>'
     st.markdown(cards_html, unsafe_allow_html=True)
 
+
+def selector_jornada(key_prefix, incluir_resumen=True):
+    """Selector de jornada por grupos con botones.
+
+    Layout:
+        Fila 1: [Grupo A] [Grupo B] [Grupo C]
+        Fila 2: [🏆 Final] [📊 Resumen Semanal]   (Resumen opcional)
+        Fila 3 (solo si grupo activo): [Día 1] [Día 2] [Día 3]
+
+    Devuelve el nombre de la jornada seleccionada (clave de URLS).
+    El parámetro key_prefix evita colisiones cuando se usa en varias secciones.
+    """
+    grupos = {
+        "Grupo A": ["Grupo A Lunes", "Grupo A Martes", "Grupo A Miércoles"],
+        "Grupo B": ["Grupo B Jueves", "Grupo B Viernes"],
+        "Grupo C": ["Grupo C Jueves", "Grupo C Viernes"],
+    }
+
+    grupo_key = f"{key_prefix}_grupo_sel"
+    jornada_key = f"{key_prefix}_jornada_sel"
+
+    if grupo_key not in st.session_state:
+        st.session_state[grupo_key] = "Grupo A"
+    if jornada_key not in st.session_state:
+        st.session_state[jornada_key] = "Grupo A Lunes"
+
+    # Fila 1: grupos principales
+    cols1 = st.columns(3)
+    for i, g in enumerate(["Grupo A", "Grupo B", "Grupo C"]):
+        with cols1[i]:
+            tipo = "primary" if st.session_state[grupo_key] == g else "secondary"
+            if st.button(g, key=f"{key_prefix}_btn_{g}", use_container_width=True, type=tipo):
+                st.session_state[grupo_key] = g
+                st.session_state[jornada_key] = grupos[g][0]
+                st.rerun()
+
+    # Fila 2: Final y opcionalmente Resumen Semanal
+    extras = ["Final"]
+    if incluir_resumen:
+        extras.append("Resumen Semanal")
+    cols2 = st.columns(len(extras))
+    for i, b in enumerate(extras):
+        with cols2[i]:
+            tipo = "primary" if st.session_state[grupo_key] == b else "secondary"
+            etiqueta = "🏆 Final" if b == "Final" else "📊 Resumen Semanal"
+            if st.button(etiqueta, key=f"{key_prefix}_btn_{b}", use_container_width=True, type=tipo):
+                st.session_state[grupo_key] = b
+                st.session_state[jornada_key] = "Final Sábado" if b == "Final" else "Resumen Semanal"
+                st.rerun()
+
+    # Fila 3: días del grupo activo (solo si es Grupo A/B/C)
+    grupo_actual = st.session_state[grupo_key]
+    if grupo_actual in grupos:
+        dias = grupos[grupo_actual]
+        sub_cols = st.columns(len(dias))
+        for i, dia in enumerate(dias):
+            with sub_cols[i]:
+                etiqueta = dia.replace(grupo_actual + " ", "")
+                tipo = "primary" if st.session_state[jornada_key] == dia else "secondary"
+                if st.button(etiqueta, key=f"{key_prefix}_btn_dia_{dia}", use_container_width=True, type=tipo):
+                    st.session_state[jornada_key] = dia
+                    st.rerun()
+
+    return st.session_state[jornada_key]
+
+
 def render_value_bets():
     st.title("💰 Value Bets — Motor de Probabilidades")
     value_bets_list = []
     with st.expander("⚙️ Configuración", expanded=True):
-        fuente = st.selectbox(
-            "📂 Fuente de datos",
-            PESTANAS_CON_STATS,
-            index=PESTANAS_CON_STATS.index(st.session_state.vb_fuente),
-            key="selector_fuente"
-        )
+        st.markdown("**📂 Fuente de datos**")
+        fuente = selector_jornada("vb", incluir_resumen=True)
         st.session_state.vb_fuente = fuente
     with st.spinner(f"Cargando datos de '{fuente}'..."):
         db_jugadores = cargar_jugadores_desde(fuente)
@@ -1953,19 +2015,8 @@ elif "💰 VALUE BETS" in opcion_principal:
 
 elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     st.title("📊 RESULTADOS Y ESTADÍSTICAS")
-    jornadas_dict = {
-        "Grupo A Lunes": URLS["Grupo A Lunes"],
-        "Grupo A Martes": URLS["Grupo A Martes"],
-        "Grupo A Miércoles": URLS["Grupo A Miércoles"],
-        "Grupo C Jueves": URLS["Grupo C Jueves"],
-        "Grupo C Viernes": URLS["Grupo C Viernes"],
-        "Grupo B Jueves": URLS["Grupo B Jueves"],
-        "Grupo B Viernes": URLS["Grupo B Viernes"],
-        "Final Sábado": URLS["Final Sábado"],
-        "Resumen Semanal": URLS["Resumen Semanal"],
-    }
-    selected = st.selectbox("Selecciona una jornada:", list(jornadas_dict.keys()), key="jornada_select")
-    selected_url = jornadas_dict[selected]
+    selected = selector_jornada("res", incluir_resumen=True)
+    selected_url = URLS[selected]
     st.markdown("---")
     d1, d2 = cargar_todo(selected_url, selected, CORTES.get(selected, 2))
     
