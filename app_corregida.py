@@ -2202,6 +2202,16 @@ GRUPOS_DIAS = {
     "Grupo C": ["Grupo C Jueves", "Grupo C Viernes"],
 }
 
+# Configuración del coloreado de la clasificación por grupo:
+# 'verdes' = nº de filas desde arriba que se pintan en verde (clasifican / mejor posición)
+# 'rojos'  = nº de filas desde abajo que se pintan en rojo (eliminados / peor posición)
+# En Grupo A solo se pinta el líder, sin rojos. Grupo B: 2 arriba, 3 abajo. Grupo C: 3 y 3.
+COLORES_CLASIFICACION = {
+    "Grupo A": {"verdes": 1, "rojos": 0},
+    "Grupo B": {"verdes": 2, "rojos": 3},
+    "Grupo C": {"verdes": 3, "rojos": 3},
+}
+
 
 def detectar_grupo(jornada):
     """Mapea el nombre de jornada a su grupo. Devuelve None para Final/Resumen."""
@@ -2331,8 +2341,12 @@ def calcular_clasificacion_grupo(grupo):
 
 
 def render_clasificacion_grupo(grupo):
-    """Renderiza la tabla de clasificación de un grupo con líder en verde
-    y último en rojo (solo si hay >2 jugadores)."""
+    """Renderiza la tabla de clasificación de un grupo aplicando los colores
+    configurados en COLORES_CLASIFICACION (verdes desde arriba, rojos desde abajo).
+
+    Si verdes + rojos > nº de jugadores, el verde tiene prioridad para evitar
+    pintar la misma fila dos veces.
+    """
     df = calcular_clasificacion_grupo(grupo)
     if df is None or df.empty:
         st.info(f"ℹ️ Aún no hay partidos terminados en {grupo}")
@@ -2341,12 +2355,17 @@ def render_clasificacion_grupo(grupo):
     st.subheader(f"🏆 Clasificación {grupo}")
 
     n = len(df)
+    config = COLORES_CLASIFICACION.get(grupo, {"verdes": 1, "rojos": 0})
+    n_verdes = config["verdes"]
+    n_rojos = config["rojos"]
+    umbral_rojo = n - n_rojos  # filas con idx >= umbral_rojo van en rojo
 
     def estilo_fila(fila):
-        if fila.name == 0:
+        idx = fila.name
+        if idx < n_verdes:
             return ['background-color: rgba(40,167,69,0.18); font-weight: 600;'] * len(fila)
-        if fila.name == n - 1 and n > 2:
-            return ['background-color: rgba(220,53,69,0.10);'] * len(fila)
+        if n_rojos > 0 and idx >= umbral_rojo:
+            return ['background-color: rgba(220,53,69,0.12);'] * len(fila)
         return [''] * len(fila)
 
     styled = df.style.apply(estilo_fila, axis=1).set_properties(**{
