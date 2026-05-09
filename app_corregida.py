@@ -1975,12 +1975,41 @@ def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadís
     st.subheader(titulo)
     st.caption("🟢 Mejor en cada métrica · 🔴 Peor · El gradiente es relativo al rango de cada columna")
 
-    # Aplicar estilo: gradiente verde-amarillo-rojo por columna
-    # vmin/vmax automáticos según los datos de cada columna
-    styled = df.style.background_gradient(
-        cmap='RdYlGn',
+    def color_celda(val, vmin, vmax):
+        """Mapea un valor a un color de fondo rojo→amarillo→verde.
+        Reemplaza Styler.background_gradient (que requiere matplotlib)."""
+        if pd.isna(val) or vmin == vmax:
+            return ''
+        norm = (val - vmin) / (vmax - vmin)
+        norm = max(0.0, min(1.0, norm))
+        # Interpolación rojo (0) → amarillo (0.5) → verde (1)
+        if norm < 0.5:
+            # Rojo → amarillo: R fijo, G sube
+            r = 235
+            g = int(80 + norm * 2 * 175)
+            b = 80
+        else:
+            # Amarillo → verde: R baja, G fijo
+            r = int(235 - (norm - 0.5) * 2 * 175)
+            g = 200
+            b = 80
+        return f'background-color: rgba({r}, {g}, {b}, 0.55); color: #111; font-weight: 600;'
+
+    def gradiente_columna(col):
+        """Aplica gradiente a una columna entera. Usa min/max de la propia columna,
+        así cada métrica se normaliza dentro de su propio rango."""
+        valores_validos = col.dropna()
+        if len(valores_validos) == 0:
+            return ['' for _ in col]
+        vmin = valores_validos.min()
+        vmax = valores_validos.max()
+        return [color_celda(v, vmin, vmax) for v in col]
+
+    # Aplicar estilo: gradiente verde-amarillo-rojo por columna (sin matplotlib)
+    styled = df.style.apply(
+        gradiente_columna,
         subset=cols_metricas,
-        axis=0  # gradiente independiente por columna
+        axis=0
     ).format({
         "Media 180": lambda x: f"{x:.2f}" if pd.notna(x) else "—",
         "Promedio Puntos": lambda x: f"{x:.1f}" if pd.notna(x) else "—",
@@ -1989,7 +2018,6 @@ def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadís
         "Puntuación Global": lambda x: f"{x:.1f}" if pd.notna(x) else "—",
     }).set_properties(**{
         'text-align': 'center',
-        'font-weight': '500',
     }).set_table_styles([
         {'selector': 'th', 'props': [('text-align', 'center'), ('font-weight', 'bold')]},
         {'selector': 'th.col_heading', 'props': [('background-color', '#1f2937'), ('color', 'white')]},
@@ -2077,6 +2105,11 @@ if "🔴 LIVE" in opcion_principal:
         if d1 is not None:
             st.subheader("⚔️ Partidos")
             st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
+
+        # Heatmap comparativo de estadísticas
+        if d2 is not None and len(d2) > 0:
+            st.markdown("---")
+            render_heatmap_estadisticas(d2, titulo="📊 Comparativa Visual de Estadísticas")
     else:
         proxima, url_proxima = get_proxima_jornada()
         st.info(f"📅 **Próxima jornada:** {proxima}")
@@ -2096,6 +2129,11 @@ if "🔴 LIVE" in opcion_principal:
         if d1 is not None:
             st.subheader("⚔️ Partidos")
             st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
+
+        # Heatmap comparativo de estadísticas
+        if d2 is not None and len(d2) > 0:
+            st.markdown("---")
+            render_heatmap_estadisticas(d2, titulo="📊 Comparativa Visual de Estadísticas")
 
 elif "💰 VALUE BETS" in opcion_principal:
     render_value_bets()
