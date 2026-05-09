@@ -1911,24 +1911,17 @@ def render_value_bets():
     else:
         st.info("ℹ️ No se encontraron value bets con las cuotas introducidas")
 
-def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadísticas"):
-    """Renderiza un heatmap (tabla coloreada) con las 5 métricas clave por jugador.
+def _extraer_metricas_jugadores(stats_dict):
+    """Helper común para heatmap y radar: extrae las 5 métricas clave de cada
+    jugador y las devuelve como DataFrame ya saneado.
 
-    Cada columna se colorea independientemente con gradiente RdYlGn (rojo-amarillo-verde)
-    según el valor relativo del jugador en esa métrica. Esto evita que escalas distintas
-    (ej. λ180s en 0-3 vs. % victoria en 0-100) se aplasten entre sí.
+    Devuelve un DataFrame con columnas:
+        Jugador | Media 180 | Promedio Puntos | Checkout % | % Victoria | Puntuación Global
 
-    Métricas mostradas:
-        - Media 180 por partida
-        - Promedio puntos
-        - Checkout %
-        - % Victoria
-        - Puntuación Global
+    Maneja los sinónimos típicos de las jornadas diarias y del Resumen Semanal,
+    y aplica la conversión defensiva 0-1 → 0-100 para Checkout y % Victoria.
+    Filas con todas las métricas a None se eliminan.
     """
-    if not stats_dict:
-        return
-
-    # Sinónimos por métrica (de más específico a más genérico)
     metricas = [
         ("Media 180", ["media 180 por partida", "180 por partida", "180 por partido", "media 180"]),
         ("Promedio Puntos", ["promedio puntos total", "promedio puntos", "media puntos", "promedio dardos", "average"]),
@@ -1937,16 +1930,13 @@ def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadís
         ("Puntuación Global", ["puntiación global", "puntuación global", "puntacion global", "puntiación", "puntuación", "puntacion"]),
     ]
 
-    def buscar_valor_metrica(stats, sinonimos, nombre_metrica):
-        """Busca el valor numérico de una métrica en el dict de stats del jugador.
-        Convierte ratios decimales 0-1 a porcentajes para Checkout y % Victoria."""
+    def buscar_valor(stats, sinonimos, nombre_metrica):
         for syn in sinonimos:
             syn_lower = syn.lower()
             for k, v in stats.items():
                 if syn_lower in str(k).lower():
                     try:
                         num = float(str(v).replace('%', '').replace(',', '.').strip())
-                        # Conversión defensiva 0-1 → 0-100 para porcentajes
                         if 0 < num <= 1 and ("checkout" in nombre_metrica.lower() or "victoria" in nombre_metrica.lower()):
                             num *= 100
                         return num
@@ -1954,21 +1944,33 @@ def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadís
                         continue
         return None
 
-    # Construir DataFrame
     rows = []
     for jugador, stats in stats_dict.items():
         fila = {"Jugador": str(jugador).title()}
         for nombre_metrica, sinonimos in metricas:
-            fila[nombre_metrica] = buscar_valor_metrica(stats, sinonimos, nombre_metrica)
+            fila[nombre_metrica] = buscar_valor(stats, sinonimos, nombre_metrica)
         rows.append(fila)
 
     df = pd.DataFrame(rows)
     if df.empty:
-        return
+        return df, [m[0] for m in metricas]
 
-    # Filtrar filas sin ningún dato (todas las métricas a None)
     cols_metricas = [m[0] for m in metricas]
     df = df.dropna(how='all', subset=cols_metricas).reset_index(drop=True)
+    return df, cols_metricas
+
+
+def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadísticas"):
+    """Renderiza un heatmap (tabla coloreada) con las 5 métricas clave por jugador.
+
+    Cada columna se colorea independientemente con gradiente rojo→amarillo→verde
+    según el valor relativo del jugador en esa métrica. Esto evita que escalas distintas
+    (ej. λ180s en 0-3 vs. % victoria en 0-100) se aplasten entre sí.
+    """
+    if not stats_dict:
+        return
+
+    df, cols_metricas = _extraer_metricas_jugadores(stats_dict)
     if df.empty:
         return
 
@@ -1982,22 +1984,17 @@ def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadís
             return ''
         norm = (val - vmin) / (vmax - vmin)
         norm = max(0.0, min(1.0, norm))
-        # Interpolación rojo (0) → amarillo (0.5) → verde (1)
         if norm < 0.5:
-            # Rojo → amarillo: R fijo, G sube
             r = 235
             g = int(80 + norm * 2 * 175)
             b = 80
         else:
-            # Amarillo → verde: R baja, G fijo
             r = int(235 - (norm - 0.5) * 2 * 175)
             g = 200
             b = 80
         return f'background-color: rgba({r}, {g}, {b}, 0.55); color: #111; font-weight: 600;'
 
     def gradiente_columna(col):
-        """Aplica gradiente a una columna entera. Usa min/max de la propia columna,
-        así cada métrica se normaliza dentro de su propio rango."""
         valores_validos = col.dropna()
         if len(valores_validos) == 0:
             return ['' for _ in col]
@@ -2005,7 +2002,6 @@ def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadís
         vmax = valores_validos.max()
         return [color_celda(v, vmin, vmax) for v in col]
 
-    # Aplicar estilo: gradiente verde-amarillo-rojo por columna (sin matplotlib)
     styled = df.style.apply(
         gradiente_columna,
         subset=cols_metricas,
@@ -2024,6 +2020,180 @@ def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadís
     ])
 
     st.dataframe(styled, use_container_width=True, hide_index=True)
+
+
+def render_radar_multiple(stats_dict, titulo="🕸️ Perfil Comparativo (Pentágono)", key_prefix="radar"):
+    """Pentágono múltiple superpuesto: 1 polígono por jugador, 5 vértices = 5 métricas.
+
+    Permite filtrar jugadores con un multiselect (por defecto los 5 primeros, para
+    no saturar visualmente cuando hay 8+ jugadores).
+
+    Normalización fija por métrica:
+        - Media 180: 0-3
+        - Promedio Puntos: 0-100
+        - Checkout %, % Victoria, Puntuación Global: 0-100
+    """
+    if not stats_dict:
+        return
+
+    df, cols_metricas = _extraer_metricas_jugadores(stats_dict)
+    if df.empty:
+        return
+
+    # Rangos máximos para normalizar cada eje a 0-100% del radio
+    rangos_max = {
+        "Media 180": 3.0,
+        "Promedio Puntos": 100.0,
+        "Checkout %": 100.0,
+        "% Victoria": 100.0,
+        "Puntuación Global": 100.0,
+    }
+
+    st.subheader(titulo)
+
+    # Multiselect: por defecto los 5 primeros para evitar saturar
+    jugadores_disponibles = df["Jugador"].tolist()
+    default_n = min(5, len(jugadores_disponibles))
+    seleccionados = st.multiselect(
+        "Jugadores a comparar (puedes añadir o quitar):",
+        jugadores_disponibles,
+        default=jugadores_disponibles[:default_n],
+        key=f"{key_prefix}_multi_select"
+    )
+
+    if not seleccionados:
+        st.info("Selecciona al menos un jugador para visualizar el pentágono.")
+        return
+
+    # Paleta D3/Tableau (10 colores que se distinguen bien entre sí)
+    paleta = [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+        "#8c564b", "#e377c2", "#17becf", "#bcbd22", "#7f7f7f"
+    ]
+
+    # Geometría del SVG
+    svg_size = 480
+    center_x = center_y = svg_size / 2
+    radius = 150
+    angle_offset = -90
+
+    # Vértices del pentágono base + posiciones de etiquetas
+    base_points = []
+    label_pos = []
+    for i in range(5):
+        angle = angle_offset + i * 72
+        rad = np.radians(angle)
+        x = center_x + radius * np.cos(rad)
+        y = center_y + radius * np.sin(rad)
+        base_points.append((x, y))
+        # Las etiquetas a un radio mayor para que no se solapen con el pentágono
+        label_radius = radius + 38
+        lx = center_x + label_radius * np.cos(rad)
+        ly = center_y + label_radius * np.sin(rad)
+        label_pos.append((lx, ly))
+
+    svg = []
+    svg.append(f'<svg width="{svg_size}" height="{svg_size}" xmlns="http://www.w3.org/2000/svg" style="background:white;">')
+
+    # Círculos concéntricos de referencia (25%, 50%, 75%, 100%)
+    for r_pct in [25, 50, 75, 100]:
+        r = (r_pct / 100) * radius
+        svg.append(f'<circle cx="{center_x}" cy="{center_y}" r="{r}" fill="none" stroke="#e5e7eb" stroke-width="0.8"/>')
+
+    # Líneas radiales hacia los vértices
+    for p in base_points:
+        svg.append(f'<line x1="{center_x}" y1="{center_y}" x2="{p[0]}" y2="{p[1]}" stroke="#e5e7eb" stroke-width="0.8"/>')
+
+    # Pentágono base
+    pent_path = "M " + " L ".join([f"{p[0]},{p[1]}" for p in base_points]) + " Z"
+    svg.append(f'<path d="{pent_path}" fill="none" stroke="#9ca3af" stroke-width="1"/>')
+
+    # Polígono por cada jugador seleccionado
+    for idx, jugador in enumerate(seleccionados):
+        fila = df[df["Jugador"] == jugador].iloc[0]
+        color = paleta[idx % len(paleta)]
+        rgb = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
+
+        puntos_jugador = []
+        for i, nombre_metrica in enumerate(cols_metricas):
+            val = fila[nombre_metrica]
+            if pd.isna(val):
+                val = 0
+            max_val = rangos_max[nombre_metrica]
+            norm = min(1.0, max(0.0, val / max_val))
+            angle = angle_offset + i * 72
+            rad = np.radians(angle)
+            r = norm * radius
+            x = center_x + r * np.cos(rad)
+            y = center_y + r * np.sin(rad)
+            puntos_jugador.append((x, y))
+
+        path = "M " + " L ".join([f"{p[0]},{p[1]}" for p in puntos_jugador]) + " Z"
+        svg.append(f'<path d="{path}" fill="rgba({rgb[0]},{rgb[1]},{rgb[2]},0.18)" stroke="{color}" stroke-width="2.2"/>')
+
+        # Puntos en cada vértice del polígono del jugador
+        for p in puntos_jugador:
+            svg.append(f'<circle cx="{p[0]}" cy="{p[1]}" r="3.2" fill="{color}" stroke="white" stroke-width="1.2"/>')
+
+    # Etiquetas de las métricas en cada vértice
+    for i, (lx, ly) in enumerate(label_pos):
+        svg.append(
+            f'<text x="{lx}" y="{ly}" text-anchor="middle" dominant-baseline="middle" '
+            f'font-size="11" font-family="Arial, sans-serif" fill="#374151" font-weight="600">'
+            f'{cols_metricas[i]}</text>'
+        )
+
+    svg.append('</svg>')
+    svg_html = "".join(svg)
+
+    # Layout: pentágono a la izquierda, leyenda a la derecha
+    col_svg, col_leyenda = st.columns([2, 1])
+
+    with col_svg:
+        st.markdown(
+            f'<div style="text-align:center;">{svg_html}</div>',
+            unsafe_allow_html=True
+        )
+
+    with col_leyenda:
+        st.markdown("**Leyenda**")
+        for idx, jugador in enumerate(seleccionados):
+            color = paleta[idx % len(paleta)]
+            fila = df[df["Jugador"] == jugador].iloc[0]
+            # Mostrar puntuación global como referencia rápida
+            pg = fila["Puntuación Global"]
+            pg_str = f"{pg:.1f}" if pd.notna(pg) else "—"
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:10px;margin:6px 0;padding:6px;'
+                f'background:rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.08);'
+                f'border-left:3px solid {color};border-radius:4px;">'
+                f'<div style="width:14px;height:14px;background:{color};border-radius:3px;flex-shrink:0;"></div>'
+                f'<div style="flex:1;">'
+                f'<div style="font-size:13px;font-weight:600;color:#111;">{jugador}</div>'
+                f'<div style="font-size:11px;color:#666;">PG: {pg_str}</div>'
+                f'</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+    st.caption(
+        "💡 Cuanto más grande es el polígono, mejor perfil global. "
+        "La forma indica el estilo del jugador (puntudo en 180s, equilibrado, etc.)."
+    )
+
+
+def render_comparativa_completa(stats_dict, key_prefix="comp"):
+    """Opción 5: Heatmap + Radar múltiple combinados.
+
+    Renderiza primero el heatmap (datos exactos y ranking visual por columna)
+    y debajo el pentágono múltiple (perfil visual de cada jugador).
+    """
+    if not stats_dict:
+        return
+
+    render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa Visual de Estadísticas")
+    st.markdown("")
+    render_radar_multiple(stats_dict, titulo="🕸️ Perfil Comparativo (Pentágono)", key_prefix=key_prefix)
 
 
 st.sidebar.title("🎯 MODUS SUPER SERIES")
@@ -2106,10 +2276,10 @@ if "🔴 LIVE" in opcion_principal:
             st.subheader("⚔️ Partidos")
             st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
 
-        # Heatmap comparativo de estadísticas
+        # Comparativa completa: heatmap + radar
         if d2 is not None and len(d2) > 0:
             st.markdown("---")
-            render_heatmap_estadisticas(d2, titulo="📊 Comparativa Visual de Estadísticas")
+            render_comparativa_completa(d2, key_prefix="live_act")
     else:
         proxima, url_proxima = get_proxima_jornada()
         st.info(f"📅 **Próxima jornada:** {proxima}")
@@ -2130,10 +2300,10 @@ if "🔴 LIVE" in opcion_principal:
             st.subheader("⚔️ Partidos")
             st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
 
-        # Heatmap comparativo de estadísticas
+        # Comparativa completa: heatmap + radar
         if d2 is not None and len(d2) > 0:
             st.markdown("---")
-            render_heatmap_estadisticas(d2, titulo="📊 Comparativa Visual de Estadísticas")
+            render_comparativa_completa(d2, key_prefix="live_prox")
 
 elif "💰 VALUE BETS" in opcion_principal:
     render_value_bets()
@@ -2172,7 +2342,7 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
         else:
             st.dataframe(d1, use_container_width=True, hide_index=True)
 
-    # Heatmap comparativo de estadísticas (debajo de la tabla)
+    # Comparativa completa: heatmap + radar (debajo de la tabla)
     if d2 is not None and len(d2) > 0:
         st.markdown("---")
-        render_heatmap_estadisticas(d2, titulo="📊 Comparativa Visual de Estadísticas")
+        render_comparativa_completa(d2, key_prefix="res")
