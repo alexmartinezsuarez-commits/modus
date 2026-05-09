@@ -2182,18 +2182,125 @@ def render_radar_multiple(stats_dict, titulo="🕸️ Perfil Comparativo (Pentá
     )
 
 
-def render_comparativa_completa(stats_dict, key_prefix="comp"):
-    """Opción 5: Heatmap + Radar múltiple combinados.
+def render_small_multiples(stats_dict, titulo="📊 Ranking por Métrica"):
+    """Small multiples: 5 mini-gráficos de barras horizontales (uno por métrica),
+    cada uno mostrando el ranking de jugadores en esa métrica concreta.
 
-    Renderiza primero el heatmap (datos exactos y ranking visual por columna)
-    y debajo el pentágono múltiple (perfil visual de cada jugador).
+    Cada mini-gráfico:
+        - Ordena los jugadores de mejor a peor en esa métrica.
+        - Pinta una barra cuyo ancho es proporcional al valor (vs. el máximo de la métrica).
+        - Colorea la barra con gradiente verde (mejor del ranking) → rojo (peor).
+
+    Layout: rejilla CSS responsive (auto-fit, mínimo 320px), así en desktop
+    caben varios mini-gráficos por fila y en móvil se apilan verticalmente.
+    """
+    if not stats_dict:
+        return
+
+    df, cols_metricas = _extraer_metricas_jugadores(stats_dict)
+    if df.empty:
+        return
+
+    st.subheader(titulo)
+    st.caption("Cada gráfico ordena a los jugadores de mejor a peor en esa métrica concreta. 🟢 mejor del ranking · 🔴 peor")
+
+    # Formato del valor que se muestra al final de cada barra
+    formatos = {
+        "Media 180": lambda x: f"{x:.2f}",
+        "Promedio Puntos": lambda x: f"{x:.1f}",
+        "Checkout %": lambda x: f"{x:.1f}%",
+        "% Victoria": lambda x: f"{x:.1f}%",
+        "Puntuación Global": lambda x: f"{x:.1f}",
+    }
+
+    cards_html = '<div class="small-multiples-grid">'
+
+    for metrica in cols_metricas:
+        sub = df[["Jugador", metrica]].dropna(subset=[metrica]).copy()
+        if sub.empty:
+            continue
+        sub = sub.sort_values(by=metrica, ascending=False).reset_index(drop=True)
+        max_val = sub[metrica].max()
+        n = len(sub)
+
+        rows_html = ""
+        for idx, row in sub.iterrows():
+            jugador = row["Jugador"]
+            valor = row[metrica]
+            valor_str = formatos.get(metrica, lambda x: f"{x:.1f}")(valor)
+
+            # Ancho relativo al máximo de la métrica (mínimo 6% para que se vea algo)
+            if max_val and max_val > 0:
+                ancho_pct = max(6.0, (valor / max_val) * 100)
+            else:
+                ancho_pct = 6.0
+
+            # Color: gradiente verde→amarillo→rojo según posición en el ranking
+            # norm = 1.0 al primero, 0.0 al último; con n=1 forzamos verde puro
+            norm = 1.0 if n == 1 else 1 - (idx / (n - 1))
+            if norm >= 0.5:
+                r = int(235 - (norm - 0.5) * 2 * 175)
+                g = 200
+                b = 80
+            else:
+                r = 235
+                g = int(80 + norm * 2 * 175)
+                b = 80
+            color = f"rgb({r},{g},{b})"
+
+            rows_html += (
+                f'<div style="display:flex;align-items:center;gap:8px;margin:5px 0;">'
+                f'<span style="font-size:11px;width:95px;flex-shrink:0;color:#374151;font-weight:500;'
+                f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{jugador}">{jugador}</span>'
+                f'<div style="flex:1;background:rgba(0,0,0,0.05);border-radius:3px;height:22px;">'
+                f'<div style="width:{ancho_pct:.1f}%;background:{color};height:100%;border-radius:3px;'
+                f'display:flex;align-items:center;justify-content:flex-end;padding-right:6px;'
+                f'box-shadow:inset 0 0 0 1px rgba(0,0,0,0.04);">'
+                f'<span style="color:white;font-size:11px;font-weight:700;text-shadow:0 1px 1px rgba(0,0,0,0.2);">{valor_str}</span>'
+                f'</div>'
+                f'</div>'
+                f'</div>'
+            )
+
+        cards_html += (
+            f'<div style="background:white;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">'
+            f'<h5 style="margin:0 0 12px 0;color:#1f2937;font-size:14px;font-weight:700;'
+            f'border-bottom:2px solid #e5e7eb;padding-bottom:8px;">{metrica}</h5>'
+            f'{rows_html}'
+            f'</div>'
+        )
+
+    cards_html += '</div>'
+
+    # CSS de rejilla responsive (inyectado a la vez que las tarjetas)
+    st.markdown("""
+    <style>
+    .small-multiples-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 14px;
+        margin: 10px 0 20px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown(cards_html, unsafe_allow_html=True)
+
+
+def render_comparativa_completa(stats_dict, key_prefix="comp", tipo="radar"):
+    """Heatmap + visualización extra. El parámetro `tipo` decide qué se añade debajo:
+        - "radar":  pentágono múltiple superpuesto (varios jugadores a la vez)
+        - "barras": small multiples (5 mini-gráficos de barras horizontales)
     """
     if not stats_dict:
         return
 
     render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa Visual de Estadísticas")
     st.markdown("")
-    render_radar_multiple(stats_dict, titulo="🕸️ Perfil Comparativo (Pentágono)", key_prefix=key_prefix)
+    if tipo == "radar":
+        render_radar_multiple(stats_dict, titulo="🕸️ Perfil Comparativo (Pentágono)", key_prefix=key_prefix)
+    elif tipo == "barras":
+        render_small_multiples(stats_dict, titulo="📊 Ranking por Métrica")
 
 
 GRUPOS_DIAS = {
@@ -2525,10 +2632,10 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
         else:
             st.dataframe(d1, use_container_width=True, hide_index=True)
 
-    # Comparativa completa: heatmap + radar (debajo de la tabla)
+    # Comparativa completa: heatmap + small multiples (debajo de la tabla)
     if d2 is not None and len(d2) > 0:
         st.markdown("---")
-        render_comparativa_completa(d2, key_prefix="res")
+        render_comparativa_completa(d2, key_prefix="res", tipo="barras")
 
     # Clasificación del grupo (al final del todo)
     grupo_actual = detectar_grupo(selected)
