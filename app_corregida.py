@@ -918,8 +918,8 @@ def prob_a_cuota(p):
 # Constantes calibradas según la especificación matemática.
 # Cambiar estos valores recalibra TODO el modelo de victoria, hándicaps y legs.
 
-ELO_S = 25.0     # Sensibilidad: a menor S, el favorito tiene más peso
-ELO_B = 7.0      # Bonus de saque (Throw First Advantage), en puntos de PG
+ELO_S = 60.0     # Sensibilidad: a menor S, el favorito tiene más peso
+ELO_B = 3.0      # Bonus de saque (Throw First Advantage), en puntos de PG
 
 # Referencia para escalar lambda de 180s. Si E[legs] del partido > 5.7,
 # se esperan más 180s; si E[legs] < 5.7, menos. Calibrado a partidos equilibrados.
@@ -2724,60 +2724,71 @@ st.sidebar.divider()
 if "🔴 LIVE" in opcion_principal:
     st.title("🔴 LIVE")
     jornada_actual, url_actual, es_activa = get_jornada_actual()
-    
+
     # Cargar resumen semanal para comparativas (solo si hay jornada activa)
     stats_resumen_live = None
     if es_activa and jornada_actual and jornada_actual != "Resumen Semanal":
         _, stats_resumen_live = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
-    
+
+    # Determinar qué jornada mostrar (activa o próxima si no hay actividad)
     if es_activa and jornada_actual:
-        st.success(f"✅ Jornada activa: **{jornada_actual}** (datos en tiempo real)")
-        st.markdown("---")
-        
-        d1, d2 = cargar_todo(url_actual, jornada_actual, CORTES.get(jornada_actual, 2))
-        if jornada_actual in st.session_state.last_update:
-            tiempo = (datetime.now() - st.session_state.last_update[jornada_actual]).seconds
-            st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
-        
-        if d2 is not None:
-            st.subheader("📈 Estadísticas por Jugador")
-            for player, stats in d2.items():
-                player_display = f"👤 {player.title()}"
-                with st.expander(player_display, expanded=False):
-                    render_jugador_visual(player, stats, stats_resumen_live, jornada_actual, mostrar_tendencias=True)
-        
-        if d1 is not None:
-            st.subheader("⚔️ Partidos")
-            st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
-
-        # Comparativa completa: heatmap + radar
-        if d2 is not None and len(d2) > 0:
-            st.markdown("---")
-            render_comparativa_completa(d2, key_prefix="live_act")
+        selected = jornada_actual
+        selected_url = url_actual
+        st.success(f"✅ Jornada activa: **{selected}** (datos en tiempo real)")
+        mostrar_tendencias_live = True
+        stats_resumen_para_render = stats_resumen_live
     else:
-        proxima, url_proxima = get_proxima_jornada()
-        st.info(f"📅 **Próxima jornada:** {proxima}")
-        st.markdown("---")
-        d1, d2 = cargar_todo(url_proxima, proxima, CORTES.get(proxima, 2))
-        if proxima in st.session_state.last_update:
-            tiempo = (datetime.now() - st.session_state.last_update[proxima]).seconds
-            st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
-        
-        if d2 is not None:
-            st.subheader("📈 Estadísticas")
-            for player, stats in d2.items():
-                player_display = f"👤 {player.title()}"
-                with st.expander(player_display, expanded=False):
-                    render_jugador_visual(player, stats, None, proxima, mostrar_tendencias=False)
-        
-        if d1 is not None:
-            st.subheader("⚔️ Partidos")
-            st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
+        selected, selected_url = get_proxima_jornada()
+        st.info(f"📅 **Próxima jornada:** {selected}")
+        mostrar_tendencias_live = False
+        stats_resumen_para_render = None
 
-        # Comparativa completa: heatmap + radar
-        if d2 is not None and len(d2) > 0:
-            st.markdown("---")
-            render_comparativa_completa(d2, key_prefix="live_prox")
+    st.markdown("---")
+    d1, d2 = cargar_todo(selected_url, selected, CORTES.get(selected, 2))
+
+    if selected in st.session_state.last_update:
+        tiempo = (datetime.now() - st.session_state.last_update[selected]).seconds
+        st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
+
+    # Bloque idéntico al de Resultados y Estadísticas:
+    # 1) Cards de jugadores con tendencias
+    # 2) Tabla de partidos
+    # 3) Ranking por métrica (small multiples)
+    # 4) Clasificación del grupo (si la jornada pertenece a un grupo)
+
+    if d2 is not None:
+        st.subheader("📈 Estadísticas por Jugador")
+        for player, stats in d2.items():
+            player_display = f"👤 {player.title()}"
+            with st.expander(player_display, expanded=False):
+                render_jugador_visual(
+                    player, stats, stats_resumen_para_render, selected,
+                    mostrar_tendencias=mostrar_tendencias_live
+                )
+
+    if d1 is not None:
+        st.subheader("⚔️ Detalles")
+        if selected not in ["Resumen Semanal", "Value Bets"]:
+            st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(d1, use_container_width=True, hide_index=True)
+
+    # Ranking por métrica (sin heatmap): small multiples con Puntuación Global destacada
+    if d2 is not None and len(d2) > 0:
+        st.markdown("---")
+        render_small_multiples(d2, titulo="📊 Ranking por Métrica")
+
+    # Clasificación del grupo (al final del todo)
+    grupo_actual_live = detectar_grupo(selected)
+    if grupo_actual_live:
+        st.markdown("---")
+        render_clasificacion_grupo(grupo_actual_live)
+    elif selected in ("Final Sábado", "Resumen Semanal"):
+        st.markdown("---")
+        st.subheader("🏆 Clasificaciones por Grupo")
+        for g in ("Grupo A", "Grupo B", "Grupo C"):
+            render_clasificacion_grupo(g)
+            st.markdown("")
 
 elif "💰 VALUE BETS" in opcion_principal:
     render_value_bets()
