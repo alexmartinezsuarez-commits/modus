@@ -2499,8 +2499,8 @@ GRUPOS_DIAS = {
 # En Grupo A solo se pinta el líder, sin rojos. Grupo B: 2 arriba, 3 abajo. Grupo C: 3 y 3.
 COLORES_CLASIFICACION = {
     "Grupo A": {"verdes": 1, "rojos": 0},
-    "Grupo B": {"verdes": 2, "rojos": 3},
-    "Grupo C": {"verdes": 3, "rojos": 3},
+    "Grupo B": {"verdes": 3, "rojos": 2},
+    "Grupo C": {"verdes": 2, "rojos": 4},
 }
 
 
