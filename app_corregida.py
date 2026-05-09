@@ -1911,6 +1911,93 @@ def render_value_bets():
     else:
         st.info("ℹ️ No se encontraron value bets con las cuotas introducidas")
 
+def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadísticas"):
+    """Renderiza un heatmap (tabla coloreada) con las 5 métricas clave por jugador.
+
+    Cada columna se colorea independientemente con gradiente RdYlGn (rojo-amarillo-verde)
+    según el valor relativo del jugador en esa métrica. Esto evita que escalas distintas
+    (ej. λ180s en 0-3 vs. % victoria en 0-100) se aplasten entre sí.
+
+    Métricas mostradas:
+        - Media 180 por partida
+        - Promedio puntos
+        - Checkout %
+        - % Victoria
+        - Puntuación Global
+    """
+    if not stats_dict:
+        return
+
+    # Sinónimos por métrica (de más específico a más genérico)
+    metricas = [
+        ("Media 180", ["media 180 por partida", "180 por partida", "180 por partido", "media 180"]),
+        ("Promedio Puntos", ["promedio puntos total", "promedio puntos", "media puntos", "promedio dardos", "average"]),
+        ("Checkout %", ["promedio checkouts", "promedio checkout", "checkouts", "checkout"]),
+        ("% Victoria", ["porcentaje victoria", "porcentaje de victoria", "% victoria", "%victoria"]),
+        ("Puntuación Global", ["puntiación global", "puntuación global", "puntacion global", "puntiación", "puntuación", "puntacion"]),
+    ]
+
+    def buscar_valor_metrica(stats, sinonimos, nombre_metrica):
+        """Busca el valor numérico de una métrica en el dict de stats del jugador.
+        Convierte ratios decimales 0-1 a porcentajes para Checkout y % Victoria."""
+        for syn in sinonimos:
+            syn_lower = syn.lower()
+            for k, v in stats.items():
+                if syn_lower in str(k).lower():
+                    try:
+                        num = float(str(v).replace('%', '').replace(',', '.').strip())
+                        # Conversión defensiva 0-1 → 0-100 para porcentajes
+                        if 0 < num <= 1 and ("checkout" in nombre_metrica.lower() or "victoria" in nombre_metrica.lower()):
+                            num *= 100
+                        return num
+                    except:
+                        continue
+        return None
+
+    # Construir DataFrame
+    rows = []
+    for jugador, stats in stats_dict.items():
+        fila = {"Jugador": str(jugador).title()}
+        for nombre_metrica, sinonimos in metricas:
+            fila[nombre_metrica] = buscar_valor_metrica(stats, sinonimos, nombre_metrica)
+        rows.append(fila)
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return
+
+    # Filtrar filas sin ningún dato (todas las métricas a None)
+    cols_metricas = [m[0] for m in metricas]
+    df = df.dropna(how='all', subset=cols_metricas).reset_index(drop=True)
+    if df.empty:
+        return
+
+    st.subheader(titulo)
+    st.caption("🟢 Mejor en cada métrica · 🔴 Peor · El gradiente es relativo al rango de cada columna")
+
+    # Aplicar estilo: gradiente verde-amarillo-rojo por columna
+    # vmin/vmax automáticos según los datos de cada columna
+    styled = df.style.background_gradient(
+        cmap='RdYlGn',
+        subset=cols_metricas,
+        axis=0  # gradiente independiente por columna
+    ).format({
+        "Media 180": lambda x: f"{x:.2f}" if pd.notna(x) else "—",
+        "Promedio Puntos": lambda x: f"{x:.1f}" if pd.notna(x) else "—",
+        "Checkout %": lambda x: f"{x:.1f}%" if pd.notna(x) else "—",
+        "% Victoria": lambda x: f"{x:.1f}%" if pd.notna(x) else "—",
+        "Puntuación Global": lambda x: f"{x:.1f}" if pd.notna(x) else "—",
+    }).set_properties(**{
+        'text-align': 'center',
+        'font-weight': '500',
+    }).set_table_styles([
+        {'selector': 'th', 'props': [('text-align', 'center'), ('font-weight', 'bold')]},
+        {'selector': 'th.col_heading', 'props': [('background-color', '#1f2937'), ('color', 'white')]},
+    ])
+
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+
+
 st.sidebar.title("🎯 MODUS SUPER SERIES")
 st.sidebar.markdown("---")
 
@@ -2046,3 +2133,8 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
             st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
         else:
             st.dataframe(d1, use_container_width=True, hide_index=True)
+
+    # Heatmap comparativo de estadísticas (debajo de la tabla)
+    if d2 is not None and len(d2) > 0:
+        st.markdown("---")
+        render_heatmap_estadisticas(d2, titulo="📊 Comparativa Visual de Estadísticas")
