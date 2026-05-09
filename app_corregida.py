@@ -2183,16 +2183,16 @@ def render_radar_multiple(stats_dict, titulo="🕸️ Perfil Comparativo (Pentá
 
 
 def render_small_multiples(stats_dict, titulo="📊 Ranking por Métrica"):
-    """Small multiples: 5 mini-gráficos de barras horizontales (uno por métrica),
-    cada uno mostrando el ranking de jugadores en esa métrica concreta.
+    """Small multiples con layout simétrico:
+        - Puntuación Global destacada arriba ocupando toda la fila (más grande,
+          con acento dorado para subrayar su importancia).
+        - Las 4 métricas restantes en rejilla 2×2 simétrica debajo.
+        - En móvil todo se apila a 1 columna.
 
-    Cada mini-gráfico:
-        - Ordena los jugadores de mejor a peor en esa métrica.
-        - Pinta una barra cuyo ancho es proporcional al valor (vs. el máximo de la métrica).
-        - Colorea la barra con gradiente verde (mejor del ranking) → rojo (peor).
-
-    Layout: rejilla CSS responsive (auto-fit, mínimo 320px), así en desktop
-    caben varios mini-gráficos por fila y en móvil se apilan verticalmente.
+    Cada mini-gráfico ordena los jugadores de mejor a peor en su métrica y los
+    pinta con barras horizontales. El color va de verde (top del ranking) a rojo
+    (último), no por valor absoluto, así el ranking se lee de un vistazo aunque
+    los valores estén muy juntos.
     """
     if not stats_dict:
         return
@@ -2213,73 +2213,117 @@ def render_small_multiples(stats_dict, titulo="📊 Ranking por Métrica"):
         "Puntuación Global": lambda x: f"{x:.1f}",
     }
 
-    cards_html = '<div class="small-multiples-grid">'
+    def _color_ranking(idx, n):
+        """Gradiente verde→rojo según posición en el ranking (no según valor)."""
+        norm = 1.0 if n == 1 else 1 - (idx / (n - 1))
+        if norm >= 0.5:
+            r = int(235 - (norm - 0.5) * 2 * 175)
+            g = 200
+            b = 80
+        else:
+            r = 235
+            g = int(80 + norm * 2 * 175)
+            b = 80
+        return f"rgb({r},{g},{b})"
 
-    for metrica in cols_metricas:
+    def _render_card(metrica, destacada=False):
+        """Construye el HTML de una tarjeta (mini-gráfico de una métrica)."""
         sub = df[["Jugador", metrica]].dropna(subset=[metrica]).copy()
         if sub.empty:
-            continue
+            return ""
         sub = sub.sort_values(by=metrica, ascending=False).reset_index(drop=True)
         max_val = sub[metrica].max()
         n = len(sub)
+
+        # Dimensiones distintas si la tarjeta está destacada
+        bar_height = 30 if destacada else 22
+        font_size_value = 13 if destacada else 11
+        font_size_name = 13 if destacada else 11
+        name_width = 110 if destacada else 95
+        title_size = 17 if destacada else 14
+        margin_row = 7 if destacada else 5
 
         rows_html = ""
         for idx, row in sub.iterrows():
             jugador = row["Jugador"]
             valor = row[metrica]
             valor_str = formatos.get(metrica, lambda x: f"{x:.1f}")(valor)
-
-            # Ancho relativo al máximo de la métrica (mínimo 6% para que se vea algo)
-            if max_val and max_val > 0:
-                ancho_pct = max(6.0, (valor / max_val) * 100)
-            else:
-                ancho_pct = 6.0
-
-            # Color: gradiente verde→amarillo→rojo según posición en el ranking
-            # norm = 1.0 al primero, 0.0 al último; con n=1 forzamos verde puro
-            norm = 1.0 if n == 1 else 1 - (idx / (n - 1))
-            if norm >= 0.5:
-                r = int(235 - (norm - 0.5) * 2 * 175)
-                g = 200
-                b = 80
-            else:
-                r = 235
-                g = int(80 + norm * 2 * 175)
-                b = 80
-            color = f"rgb({r},{g},{b})"
+            ancho_pct = max(6.0, (valor / max_val) * 100) if (max_val and max_val > 0) else 6.0
+            color = _color_ranking(idx, n)
 
             rows_html += (
-                f'<div style="display:flex;align-items:center;gap:8px;margin:5px 0;">'
-                f'<span style="font-size:11px;width:95px;flex-shrink:0;color:#374151;font-weight:500;'
-                f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{jugador}">{jugador}</span>'
-                f'<div style="flex:1;background:rgba(0,0,0,0.05);border-radius:3px;height:22px;">'
-                f'<div style="width:{ancho_pct:.1f}%;background:{color};height:100%;border-radius:3px;'
-                f'display:flex;align-items:center;justify-content:flex-end;padding-right:6px;'
+                f'<div style="display:flex;align-items:center;gap:10px;margin:{margin_row}px 0;">'
+                f'<span style="font-size:{font_size_name}px;width:{name_width}px;flex-shrink:0;'
+                f'color:#374151;font-weight:500;overflow:hidden;text-overflow:ellipsis;'
+                f'white-space:nowrap;" title="{jugador}">{jugador}</span>'
+                f'<div style="flex:1;background:rgba(0,0,0,0.05);border-radius:4px;height:{bar_height}px;">'
+                f'<div style="width:{ancho_pct:.1f}%;background:{color};height:100%;border-radius:4px;'
+                f'display:flex;align-items:center;justify-content:flex-end;padding-right:8px;'
                 f'box-shadow:inset 0 0 0 1px rgba(0,0,0,0.04);">'
-                f'<span style="color:white;font-size:11px;font-weight:700;text-shadow:0 1px 1px rgba(0,0,0,0.2);">{valor_str}</span>'
+                f'<span style="color:white;font-size:{font_size_value}px;font-weight:700;'
+                f'text-shadow:0 1px 1px rgba(0,0,0,0.25);">{valor_str}</span>'
                 f'</div>'
                 f'</div>'
                 f'</div>'
             )
 
-        cards_html += (
-            f'<div style="background:white;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">'
-            f'<h5 style="margin:0 0 12px 0;color:#1f2937;font-size:14px;font-weight:700;'
-            f'border-bottom:2px solid #e5e7eb;padding-bottom:8px;">{metrica}</h5>'
+        # Estilo distinto para la tarjeta destacada (Puntuación Global)
+        if destacada:
+            card_style = (
+                'grid-column: 1 / -1;'
+                'background: linear-gradient(135deg, rgba(245,158,11,0.06) 0%, rgba(255,255,255,0.01) 100%);'
+                'border: 2px solid #f59e0b;'
+                'border-radius: 10px;'
+                'padding: 18px 22px;'
+                'box-shadow: 0 2px 8px rgba(245,158,11,0.08);'
+            )
+            title_color = "#b45309"
+            title_extra = '<span style="font-size:11px;color:#92400e;font-weight:600;margin-left:8px;background:rgba(245,158,11,0.15);padding:2px 8px;border-radius:10px;">⭐ MÉTRICA CLAVE</span>'
+        else:
+            card_style = (
+                'background: white;'
+                'border: 1px solid #e5e7eb;'
+                'border-radius: 8px;'
+                'padding: 14px 16px;'
+            )
+            title_color = "#1f2937"
+            title_extra = ""
+
+        return (
+            f'<div style="{card_style}">'
+            f'<h5 style="margin:0 0 12px 0;color:{title_color};font-size:{title_size}px;'
+            f'font-weight:700;border-bottom:2px solid #e5e7eb;padding-bottom:8px;'
+            f'display:flex;align-items:center;">{metrica}{title_extra}</h5>'
             f'{rows_html}'
             f'</div>'
         )
 
+    # Orden: Puntuación Global primero (destacada), luego las demás en orden fijo
+    metrica_destacada = "Puntuación Global"
+    orden_resto = ["Media 180", "Promedio Puntos", "Checkout %", "% Victoria"]
+    metricas_resto = [m for m in orden_resto if m in cols_metricas]
+
+    cards_html = '<div class="small-multiples-grid">'
+    if metrica_destacada in cols_metricas:
+        cards_html += _render_card(metrica_destacada, destacada=True)
+    for metrica in metricas_resto:
+        cards_html += _render_card(metrica, destacada=False)
     cards_html += '</div>'
 
-    # CSS de rejilla responsive (inyectado a la vez que las tarjetas)
+    # CSS de rejilla: 2 columnas en desktop, 1 en móvil. Puntuación Global usa
+    # `grid-column: 1 / -1` para ocupar toda la fila.
     st.markdown("""
     <style>
     .small-multiples-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: repeat(2, 1fr);
         gap: 14px;
         margin: 10px 0 20px 0;
+    }
+    @media (max-width: 768px) {
+        .small-multiples-grid {
+            grid-template-columns: 1fr;
+        }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -2632,10 +2676,10 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
         else:
             st.dataframe(d1, use_container_width=True, hide_index=True)
 
-    # Comparativa completa: heatmap + small multiples (debajo de la tabla)
+    # Ranking por métrica (sin heatmap): small multiples con Puntuación Global destacada
     if d2 is not None and len(d2) > 0:
         st.markdown("---")
-        render_comparativa_completa(d2, key_prefix="res", tipo="barras")
+        render_small_multiples(d2, titulo="📊 Ranking por Métrica")
 
     # Clasificación del grupo (al final del todo)
     grupo_actual = detectar_grupo(selected)
