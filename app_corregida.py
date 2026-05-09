@@ -5,6 +5,7 @@ import requests
 from scipy.stats import poisson
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
+from functools import lru_cache
 import time
 
 st.set_page_config(page_title="Modus Super Series App", layout="wide", page_icon="🎯")
@@ -784,75 +785,215 @@ def sanitize_prob(p):
 def prob_victoria(pr1, pr2):
     if pr1 <= 0 and pr2 <= 0:
         return 0.5, 0.5
-    num = (pr1 ** 4.5) * 1.12
-    den = num + (pr2 ** 4.5)
-    if den == 0:
-        return 0.5, 0.5
-    p1 = num / den
-    return sanitize_prob(p1), sanitize_prob(1 - p1)
+    finales = simular_match(pr1, pr2)
+    p1 = sum(p for (l1, _l2), p in finales.items() if l1 >= 4)
+    return sanitize_prob(p1), sanitize_prob(1.0 - p1)
 
-def prob_180s(lam1, lam2):
-    lam_total = lam1 + lam2
-    ambos_05 = sanitize_prob((1 - poisson.cdf(0, lam1)) * (1 - poisson.cdf(0, lam2)))
+def prob_180s(lam1, lam2, pr1=None, pr2=None):
+    """Mercados de 180s con Poisson. Si se pasan pr1, pr2 (PG de los jugadores),
+    ajusta lambda multiplicando por (E[legs del partido] / LEGS_PROMEDIO_REFERENCIA)
+    para que partidos más reñidos generen proporcionalmente más 180s.
+
+    Si solo se pasan lam1, lam2, no aplica ajuste (lambda = T directamente).
+    """
+    factor = 1.0
+    if pr1 is not None and pr2 is not None and pr1 > 0 and pr2 > 0:
+        finales = simular_match(pr1, pr2)
+        E_legs = legs_esperados_desde_finales(finales)
+        if E_legs > 0:
+            factor = E_legs / LEGS_PROMEDIO_REFERENCIA
+
+    lam1_aj = lam1 * factor
+    lam2_aj = lam2 * factor
+    lam_total = lam1_aj + lam2_aj
+    ambos_05 = sanitize_prob((1 - poisson.cdf(0, lam1_aj)) * (1 - poisson.cdf(0, lam2_aj)))
     return {
-        "J1 +0.5": sanitize_prob(1 - poisson.cdf(0, lam1)),
-        "J1 +1.5": sanitize_prob(1 - poisson.cdf(1, lam1)),
-        "J2 +0.5": sanitize_prob(1 - poisson.cdf(0, lam2)),
-        "J2 +1.5": sanitize_prob(1 - poisson.cdf(1, lam2)),
+        "J1 +0.5": sanitize_prob(1 - poisson.cdf(0, lam1_aj)),
+        "J1 +1.5": sanitize_prob(1 - poisson.cdf(1, lam1_aj)),
+        "J2 +0.5": sanitize_prob(1 - poisson.cdf(0, lam2_aj)),
+        "J2 +1.5": sanitize_prob(1 - poisson.cdf(1, lam2_aj)),
         "Ambos +0.5": ambos_05,
         "Ambos +1.5": sanitize_prob(1 - poisson.cdf(1, lam_total)),
         "Ambos +2.5": sanitize_prob(1 - poisson.cdf(2, lam_total)),
     }
 
-def quien_hace_mas_180s(lam1, lam2):
-    p_empate = sum(poisson.pmf(k, lam1) * poisson.pmf(k, lam2) for k in range(3))
-    lam_sum = lam1 + lam2
-    if lam_sum == 0:
-        return 1/3, 1/3, 1/3
-    p_j1 = (1 - p_empate) * (lam1 / lam_sum)
-    p_j2 = (1 - p_empate) * (lam2 / lam_sum)
-    return sanitize_prob(p_j1), sanitize_prob(p_empate), sanitize_prob(p_j2)
+def quien_hace_mas_180s(lam1, lam2, pr1=None, pr2=None, k_max=15):
+    """Match 180s (H2H) usando bivariada de Poisson independientes.
+    Si se pasan pr1, pr2, ajusta lambdas con el factor de legs esperados.
 
-def handicaps_legs(v1, v2):
-    denom = v1 * (1 - v2) + v2 * (1 - v1)
-    if denom == 0:
-        return {k: 0.5 for k in ["J1 -1.5 Legs", "J1 -2.5 Legs", "J1 +1.5 Legs", 
+    Suma sobre la matriz P(i, j) = P(N1=i) * P(N2=j) las celdas donde:
+        - i > j  → J1 hace más 180s
+        - i < j  → J2 hace más 180s
+        - i == j → empate
+
+    k_max=15 cubre cómodamente los rangos típicos (lam ≈ 1-3, P(>15) < 1e-8).
+    """
+    factor = 1.0
+    if pr1 is not None and pr2 is not None and pr1 > 0 and pr2 > 0:
+        finales = simular_match(pr1, pr2)
+        E_legs = legs_esperados_desde_finales(finales)
+        if E_legs > 0:
+            factor = E_legs / LEGS_PROMEDIO_REFERENCIA
+    lam1_aj = lam1 * factor
+    lam2_aj = lam2 * factor
+
+    if lam1_aj <= 0 and lam2_aj <= 0:
+        return 1/3, 1/3, 1/3
+
+    p_j1 = 0.0
+    p_j2 = 0.0
+    p_emp = 0.0
+    pmf1 = [poisson.pmf(i, lam1_aj) for i in range(k_max + 1)]
+    pmf2 = [poisson.pmf(j, lam2_aj) for j in range(k_max + 1)]
+    for i in range(k_max + 1):
+        for j in range(k_max + 1):
+            p_ij = pmf1[i] * pmf2[j]
+            if i > j:
+                p_j1 += p_ij
+            elif j > i:
+                p_j2 += p_ij
+            else:
+                p_emp += p_ij
+    return sanitize_prob(p_j1), sanitize_prob(p_emp), sanitize_prob(p_j2)
+
+def handicaps_legs(pr1, pr2):
+    """Hándicaps de legs derivados de las probabilidades de marcador exacto del
+    modelo ELO leg-a-leg. Mucho más fiel que la aproximación heurística previa.
+
+    Marcadores favorables a J1: (4,0), (4,1), (4,2), (4,3).
+    - J1 -1.5 (gana por ≥2 legs)  = P(4-0) + P(4-1) + P(4-2)
+    - J1 -2.5 (gana por ≥3 legs)  = P(4-0) + P(4-1)
+    - J1 +1.5 (no pierde por ≥2)  = 1 - [P(0-4) + P(1-4) + P(2-4)]
+    - J1 +2.5 (no pierde por ≥3)  = 1 - [P(0-4) + P(1-4)]
+    """
+    if pr1 <= 0 and pr2 <= 0:
+        return {k: 0.5 for k in ["J1 -1.5 Legs", "J1 -2.5 Legs", "J1 +1.5 Legs",
                                   "J1 +2.5 Legs", "J2 -1.5 Legs", "J2 -2.5 Legs",
                                   "J2 +1.5 Legs", "J2 +2.5 Legs"]}
-    R = (v1 * (1 - v2)) / denom
-    R2 = 1 - R
+    finales = simular_match(pr1, pr2)
+    p_4_0 = finales.get((4, 0), 0.0)
+    p_4_1 = finales.get((4, 1), 0.0)
+    p_4_2 = finales.get((4, 2), 0.0)
+    p_0_4 = finales.get((0, 4), 0.0)
+    p_1_4 = finales.get((1, 4), 0.0)
+    p_2_4 = finales.get((2, 4), 0.0)
     return {
-        "J1 -1.5 Legs": sanitize_prob(R * 0.75),
-        "J1 -2.5 Legs": sanitize_prob(R * 0.50),
-        "J1 +1.5 Legs": sanitize_prob(R + (1 - R) * 0.40),
-        "J1 +2.5 Legs": sanitize_prob(R + (1 - R) * 0.70),
-        "J2 -1.5 Legs": sanitize_prob(R2 * 0.75),
-        "J2 -2.5 Legs": sanitize_prob(R2 * 0.50),
-        "J2 +1.5 Legs": sanitize_prob(R2 + (1 - R2) * 0.40),
-        "J2 +2.5 Legs": sanitize_prob(R2 + (1 - R2) * 0.70),
+        "J1 -1.5 Legs": sanitize_prob(p_4_0 + p_4_1 + p_4_2),
+        "J1 -2.5 Legs": sanitize_prob(p_4_0 + p_4_1),
+        "J1 +1.5 Legs": sanitize_prob(1.0 - (p_0_4 + p_1_4 + p_2_4)),
+        "J1 +2.5 Legs": sanitize_prob(1.0 - (p_0_4 + p_1_4)),
+        "J2 -1.5 Legs": sanitize_prob(p_0_4 + p_1_4 + p_2_4),
+        "J2 -2.5 Legs": sanitize_prob(p_0_4 + p_1_4),
+        "J2 +1.5 Legs": sanitize_prob(1.0 - (p_4_0 + p_4_1 + p_4_2)),
+        "J2 +2.5 Legs": sanitize_prob(1.0 - (p_4_0 + p_4_1)),
     }
 
-def legs_totales(lam_legs1, lam_legs2):
-    if lam_legs1 + lam_legs2 == 0:
-        p = 0.5
-    else:
-        p = lam_legs1 / (lam_legs1 + lam_legs2)
-    q = 1 - p
-    prob_4_0_j1 = p ** 4
-    prob_4_1_j1 = 4 * (p ** 4) * q
-    prob_4_0_j2 = q ** 4
-    prob_4_1_j2 = 4 * (q ** 4) * p
-    prob_under_5_5 = prob_4_0_j1 + prob_4_1_j1 + prob_4_0_j2 + prob_4_1_j2
-    prob_over_5_5 = 1 - prob_under_5_5
+def legs_totales(pr1, pr2):
+    """Total de legs (over/under 5.5) derivado del modelo ELO leg-a-leg.
+    Bo7 → posibles totales: 4 (4-0/0-4), 5 (4-1/1-4), 6 (4-2/2-4), 7 (4-3/3-4).
+    """
+    if pr1 <= 0 and pr2 <= 0:
+        return {"Más de 5.5": 0.5, "Menos de 5.5": 0.5}
+    finales = simular_match(pr1, pr2)
+    p_4 = finales.get((4, 0), 0.0) + finales.get((0, 4), 0.0)  # 4 legs totales
+    p_5 = finales.get((4, 1), 0.0) + finales.get((1, 4), 0.0)
+    p_6 = finales.get((4, 2), 0.0) + finales.get((2, 4), 0.0)
+    p_7 = finales.get((4, 3), 0.0) + finales.get((3, 4), 0.0)
+    p_under = p_4 + p_5
+    p_over = p_6 + p_7
     return {
-        "Más de 5.5": sanitize_prob(prob_over_5_5),
-        "Menos de 5.5": sanitize_prob(prob_under_5_5)
+        "Más de 5.5": sanitize_prob(p_over),
+        "Menos de 5.5": sanitize_prob(p_under),
     }
 
 def prob_a_cuota(p):
     p_safe = sanitize_prob(p)
     cuota = 1.0 / p_safe
     return max(1.01, min(999.0, cuota))
+
+
+# =====================================================================
+# Modelo predictivo ELO leg-a-leg (Modus Super Series, Bo7 first-to-4)
+# =====================================================================
+# Constantes calibradas según la especificación matemática.
+# Cambiar estos valores recalibra TODO el modelo de victoria, hándicaps y legs.
+
+ELO_S = 25.0     # Sensibilidad: a menor S, el favorito tiene más peso
+ELO_B = 7.0      # Bonus de saque (Throw First Advantage), en puntos de PG
+
+# Referencia para escalar lambda de 180s. Si E[legs] del partido > 5.7,
+# se esperan más 180s; si E[legs] < 5.7, menos. Calibrado a partidos equilibrados.
+LEGS_PROMEDIO_REFERENCIA = 5.7
+
+
+def prob_leg(pg1, pg2, j1_saca, S=ELO_S, B=ELO_B):
+    """Probabilidad de que J1 gane UN leg, según quién saca.
+
+    Modelo logístico tipo ELO: P = 1 / (1 + 10^((PG_oponente_efectivo - PG_propio_efectivo) / S))
+    donde el saque añade B puntos al PG del que tiene el dardo.
+    """
+    if j1_saca:
+        diff = pg2 - (pg1 + B)
+    else:
+        diff = (pg2 + B) - pg1
+    return 1.0 / (1.0 + 10 ** (diff / S))
+
+
+def _simular_bo7_un_inicio(pg1, pg2, j1_saca_primero, S, B):
+    """Matriz de estados del Bo7. Estado = (legs_j1, legs_j2). Al inicio (0,0).
+    En cada paso, el leg actual = l1+l2+1 (1-indexed):
+        - leg impar  → saca el jugador inicial
+        - leg par    → saca el otro
+    El bucle ramifica las probabilidades hasta que cada estado llega a 4 legs.
+    Devuelve dict {(l1, l2): prob} con TODOS los marcadores finales.
+    """
+    estados = {(0, 0): 1.0}
+    finales = {}
+    while estados:
+        nuevos = {}
+        for (l1, l2), p in estados.items():
+            if l1 >= 4 or l2 >= 4:
+                finales[(l1, l2)] = finales.get((l1, l2), 0.0) + p
+                continue
+            leg_actual = l1 + l2 + 1
+            # Leg impar → saca el inicial; leg par → saca el otro
+            j1_saca_este_leg = ((leg_actual % 2) == 1) == j1_saca_primero
+            p_j1_gana = prob_leg(pg1, pg2, j1_saca_este_leg, S, B)
+            nuevos[(l1 + 1, l2)] = nuevos.get((l1 + 1, l2), 0.0) + p * p_j1_gana
+            nuevos[(l1, l2 + 1)] = nuevos.get((l1, l2 + 1), 0.0) + p * (1.0 - p_j1_gana)
+        estados = nuevos
+    return finales
+
+
+@lru_cache(maxsize=512)
+def _simular_match_cached(pg1, pg2, S, B):
+    """Promedia los dos escenarios de saque inicial (J1 o J2 saca primero)
+    porque desconocemos a priori quién comienza.
+
+    @lru_cache evita re-simular cuando la misma combinación de PGs se consulta
+    varias veces dentro de un mismo render (victoria, hándicaps, legs y 180s
+    comparten la simulación). Devuelve tupla ordenada (hashable) en lugar de
+    dict para que sea cacheable.
+    """
+    f1 = _simular_bo7_un_inicio(pg1, pg2, True, S, B)
+    f2 = _simular_bo7_un_inicio(pg1, pg2, False, S, B)
+    todas_claves = set(f1) | set(f2)
+    return tuple(
+        ((l1, l2), (f1.get((l1, l2), 0.0) + f2.get((l1, l2), 0.0)) / 2.0)
+        for (l1, l2) in sorted(todas_claves)
+    )
+
+
+def simular_match(pg1, pg2, S=ELO_S, B=ELO_B):
+    """Devuelve dict {(legs_j1, legs_j2): probabilidad} de cada marcador final
+    posible. Solo aparecen los 8 marcadores válidos del Bo7: (4,0)..(4,3) y (0,4)..(3,4).
+    """
+    return dict(_simular_match_cached(float(pg1), float(pg2), float(S), float(B)))
+
+
+def legs_esperados_desde_finales(finales):
+    """E[legs totales] = Σ legs * P(legs). Útil para ajustar lambda en 180s."""
+    return sum((l1 + l2) * p for (l1, l2), p in finales.items())
 
 def pct(p):
     return f"{p * 100:.1f}%"
@@ -1459,10 +1600,10 @@ def render_value_bets():
     else:
         st.info("ℹ️ No se encontraron enfrentamientos directos esta semana")
     v1, v2 = prob_victoria(pr1, pr2)
-    m180 = prob_180s(lam1, lam2)
-    p_j1_mas, p_emp, p_j2_mas = quien_hace_mas_180s(lam1, lam2)
-    hcaps = handicaps_legs(v1, v2)
-    legs_total_dict = legs_totales(legs1, legs2)
+    m180 = prob_180s(lam1, lam2, pr1=pr1, pr2=pr2)
+    p_j1_mas, p_emp, p_j2_mas = quien_hace_mas_180s(lam1, lam2, pr1=pr1, pr2=pr2)
+    hcaps = handicaps_legs(pr1, pr2)
+    legs_total_dict = legs_totales(pr1, pr2)
     st.markdown("---")
     st.markdown("### 🎲 Mercados Disponibles")
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Victoria", "🎯 180s", "🥇 ¿Quién hace más 180?", "📐 Hándicaps", "📊 Total Legs"])
