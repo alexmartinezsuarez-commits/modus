@@ -1595,24 +1595,14 @@ def render_value_bets():
     else:
         st.info("ℹ️ No se encontraron enfrentamientos directos esta semana")
 
-    # Selector de saque inicial (Throw First Advantage). Por defecto J1 saca primero;
-    # el usuario puede cambiarlo si conoce de antemano quién comienza el partido.
-    st.markdown("---")
-    st.markdown("### 🎯 Saque inicial")
-    saca_label = st.radio(
-        "¿Quién tiene el dardo en el primer leg?",
-        options=[j1['nombre_original'], j2['nombre_original']],
-        horizontal=True,
-        key="vb_saca_primero",
-        help=f"El jugador que empieza tiene una ventaja de +{ELO_B} puntos de PG en cada leg que saca."
-    )
-    j1_saca_primero = (saca_label == j1['nombre_original'])
-
-    v1, v2 = prob_victoria(pr1, pr2, j1_saca_primero=j1_saca_primero)
-    m180 = prob_180s(lam1, lam2, pr1=pr1, pr2=pr2, j1_saca_primero=j1_saca_primero)
-    p_j1_mas, p_emp, p_j2_mas = quien_hace_mas_180s(lam1, lam2, pr1=pr1, pr2=pr2, j1_saca_primero=j1_saca_primero)
-    hcaps = handicaps_legs(pr1, pr2, j1_saca_primero=j1_saca_primero)
-    legs_total_dict = legs_totales(pr1, pr2, j1_saca_primero=j1_saca_primero)
+    # J1 siempre saca primero (la ventaja de saque va al jugador 1 seleccionado).
+    # Las funciones tienen `j1_saca_primero=True` como default, así que basta con
+    # llamarlas sin pasar el parámetro.
+    v1, v2 = prob_victoria(pr1, pr2)
+    m180 = prob_180s(lam1, lam2, pr1=pr1, pr2=pr2)
+    p_j1_mas, p_emp, p_j2_mas = quien_hace_mas_180s(lam1, lam2, pr1=pr1, pr2=pr2)
+    hcaps = handicaps_legs(pr1, pr2)
+    legs_total_dict = legs_totales(pr1, pr2)
     st.markdown("---")
     st.markdown("### 🎲 Mercados Disponibles")
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Victoria", "🎯 180s", "🥇 ¿Quién hace más 180?", "📐 Hándicaps", "📊 Total Legs"])
