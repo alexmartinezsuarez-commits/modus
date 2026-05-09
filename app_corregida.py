@@ -1708,7 +1708,7 @@ def render_value_bets():
                 if y > 0:
                     value_bets_list.append({"Mercado": f"Más 180s: {j2['nombre_original']}", "Probabilidad": p_j2_mas, "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
     with tab4:
-        st.markdown("#### 🎯 Hándicaps 180 de Legs")
+        st.markdown("#### 🎯 Hándicaps de Legs")
         
         # JUGADOR 1
         st.markdown(f"<h4 style='color: #1f77b4;'>{j1['nombre_original']}</h4>", unsafe_allow_html=True)
@@ -2196,6 +2196,170 @@ def render_comparativa_completa(stats_dict, key_prefix="comp"):
     render_radar_multiple(stats_dict, titulo="🕸️ Perfil Comparativo (Pentágono)", key_prefix=key_prefix)
 
 
+GRUPOS_DIAS = {
+    "Grupo A": ["Grupo A Lunes", "Grupo A Martes", "Grupo A Miércoles"],
+    "Grupo B": ["Grupo B Jueves", "Grupo B Viernes"],
+    "Grupo C": ["Grupo C Jueves", "Grupo C Viernes"],
+}
+
+
+def detectar_grupo(jornada):
+    """Mapea el nombre de jornada a su grupo. Devuelve None para Final/Resumen."""
+    if not jornada:
+        return None
+    if "Grupo A" in jornada:
+        return "Grupo A"
+    if "Grupo B" in jornada:
+        return "Grupo B"
+    if "Grupo C" in jornada:
+        return "Grupo C"
+    return None
+
+
+def calcular_clasificacion_grupo(grupo):
+    """Calcula la clasificación de un grupo sumando todos los partidos terminados
+    de los días que lo componen.
+
+    Estructura asumida del DataFrame de partidos (idéntica a la usada en h2h):
+        - iloc[0] = nombre del jugador
+        - iloc[1] = legs ganados (4 = ganador en formato first-to-4)
+        - filas pares (i, i+1) son cada partido
+
+    Reglas:
+        - PJ: partidos jugados
+        - V/D: victorias/derrotas
+        - LF/LC: legs a favor / en contra
+        - DIF: LF - LC
+        - PTS: 2 × V (sistema estándar de round-robin)
+
+    Orden: PTS desc → DIF desc → LF desc.
+    Solo se cuentan partidos terminados (alguien llegó a 4 legs).
+    """
+    if grupo not in GRUPOS_DIAS:
+        return None
+
+    stats = {}  # key: nombre_lower → dict con stats
+    for dia in GRUPOS_DIAS[grupo]:
+        try:
+            df, _ = cargar_todo(URLS[dia], dia, CORTES[dia])
+            if df is None or len(df) < 2:
+                continue
+            for i in range(0, len(df) - 1, 2):
+                fila1 = df.iloc[i]
+                fila2 = df.iloc[i + 1]
+                nombre1 = str(fila1.iloc[0]).strip()
+                nombre2 = str(fila2.iloc[0]).strip()
+                # Saltar filas vacías o 'nan'
+                if (not nombre1 or not nombre2 or
+                        nombre1.lower() in ('nan', '') or
+                        nombre2.lower() in ('nan', '')):
+                    continue
+
+                # Parsear legs (robusto contra strings vacíos, comas decimales o 'nan')
+                def _parse_legs(val):
+                    try:
+                        return int(float(str(val).replace(',', '.').strip()))
+                    except:
+                        return -1
+
+                legs1 = _parse_legs(fila1.iloc[1]) if len(fila1) > 1 else -1
+                legs2 = _parse_legs(fila2.iloc[1]) if len(fila2) > 1 else -1
+
+                if legs1 < 0 or legs2 < 0:
+                    continue
+                # Solo cuentan partidos terminados (alguien llegó a 4 legs)
+                if legs1 < 4 and legs2 < 4:
+                    continue
+
+                # Inicializar entrada si no existe (.title() para nombre legible)
+                for n in (nombre1, nombre2):
+                    k = n.lower()
+                    if k not in stats:
+                        stats[k] = {
+                            "Jugador": n.title(),
+                            "PJ": 0, "V": 0, "D": 0,
+                            "LF": 0, "LC": 0,
+                        }
+
+                k1, k2 = nombre1.lower(), nombre2.lower()
+                stats[k1]["PJ"] += 1
+                stats[k2]["PJ"] += 1
+                stats[k1]["LF"] += legs1
+                stats[k1]["LC"] += legs2
+                stats[k2]["LF"] += legs2
+                stats[k2]["LC"] += legs1
+                if legs1 > legs2:
+                    stats[k1]["V"] += 1
+                    stats[k2]["D"] += 1
+                else:
+                    stats[k2]["V"] += 1
+                    stats[k1]["D"] += 1
+        except Exception:
+            continue
+
+    if not stats:
+        return None
+
+    # Construir DataFrame y aplicar criterios de desempate
+    rows = []
+    for v in stats.values():
+        v["DIF"] = v["LF"] - v["LC"]
+        v["PTS"] = v["V"] * 2
+        rows.append(v)
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return None
+
+    df = df.sort_values(
+        by=["PTS", "DIF", "LF"],
+        ascending=[False, False, False]
+    ).reset_index(drop=True)
+
+    # Posición con medalla para el podio
+    def _pos_emoji(idx):
+        if idx == 0:
+            return "🥇 1"
+        if idx == 1:
+            return "🥈 2"
+        if idx == 2:
+            return "🥉 3"
+        return str(idx + 1)
+
+    df.insert(0, "Pos", [_pos_emoji(i) for i in range(len(df))])
+    return df[["Pos", "Jugador", "PJ", "V", "D", "LF", "LC", "DIF", "PTS"]]
+
+
+def render_clasificacion_grupo(grupo):
+    """Renderiza la tabla de clasificación de un grupo con líder en verde
+    y último en rojo (solo si hay >2 jugadores)."""
+    df = calcular_clasificacion_grupo(grupo)
+    if df is None or df.empty:
+        st.info(f"ℹ️ Aún no hay partidos terminados en {grupo}")
+        return
+
+    st.subheader(f"🏆 Clasificación {grupo}")
+
+    n = len(df)
+
+    def estilo_fila(fila):
+        if fila.name == 0:
+            return ['background-color: rgba(40,167,69,0.18); font-weight: 600;'] * len(fila)
+        if fila.name == n - 1 and n > 2:
+            return ['background-color: rgba(220,53,69,0.10);'] * len(fila)
+        return [''] * len(fila)
+
+    styled = df.style.apply(estilo_fila, axis=1).set_properties(**{
+        'text-align': 'center',
+    }).set_table_styles([
+        {'selector': 'th', 'props': [('text-align', 'center'), ('font-weight', 'bold')]},
+        {'selector': 'th.col_heading', 'props': [('background-color', '#1f2937'), ('color', 'white')]},
+    ])
+
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+    st.caption("💡 Orden: **PTS** (2 por victoria) → **DIF** (legs a favor − en contra) → **LF** (legs a favor)")
+
+
 st.sidebar.title("🎯 MODUS SUPER SERIES")
 st.sidebar.markdown("---")
 
@@ -2346,3 +2510,16 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     if d2 is not None and len(d2) > 0:
         st.markdown("---")
         render_comparativa_completa(d2, key_prefix="res")
+
+    # Clasificación del grupo (al final del todo)
+    grupo_actual = detectar_grupo(selected)
+    if grupo_actual:
+        st.markdown("---")
+        render_clasificacion_grupo(grupo_actual)
+    elif selected in ("Final Sábado", "Resumen Semanal"):
+        # En Final/Resumen mostramos las 3 clasificaciones, una debajo de otra
+        st.markdown("---")
+        st.subheader("🏆 Clasificaciones por Grupo")
+        for g in ("Grupo A", "Grupo B", "Grupo C"):
+            render_clasificacion_grupo(g)
+            st.markdown("")
