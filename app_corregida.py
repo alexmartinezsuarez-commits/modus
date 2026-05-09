@@ -918,7 +918,7 @@ def prob_a_cuota(p):
 # Constantes calibradas según la especificación matemática.
 # Cambiar estos valores recalibra TODO el modelo de victoria, hándicaps y legs.
 
-ELO_S = 60.0     # Sensibilidad: a menor S, el favorito tiene más peso
+ELO_S = 80.0     # Sensibilidad: a menor S, el favorito tiene más peso
 ELO_B = 3.0      # Bonus de saque (Throw First Advantage), en puntos de PG
 
 # Referencia para escalar lambda de 180s. Si E[legs] del partido > 5.7,
