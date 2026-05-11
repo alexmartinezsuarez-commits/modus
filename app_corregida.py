@@ -919,7 +919,7 @@ def prob_a_cuota(p):
 # Cambiar estos valores recalibra TODO el modelo de victoria, hándicaps y legs.
 
 ELO_S = 60.0     # Sensibilidad: a menor S, el favorito tiene más peso
-ELO_B = 10.0      # Bonus de saque (Throw First Advantage), en puntos de PG
+ELO_B = 3.0      # Bonus de saque (Throw First Advantage), en puntos de PG
 
 # Referencia para escalar lambda de 180s. Si E[legs] del partido > 5.7,
 # se esperan más 180s; si E[legs] < 5.7, menos. Calibrado a partidos equilibrados.
@@ -2612,6 +2612,12 @@ def calcular_clasificacion_grupo(grupo):
     if df.empty:
         return None
 
+    # Filtrar jugadores sin partidos jugados (residuos de semanas pasadas o nombres
+    # cargados sin haber disputado encuentros válidos esta semana).
+    df = df[df["PJ"] > 0].copy()
+    if df.empty:
+        return None
+
     df = df.sort_values(
         by=["PTS", "DIF", "LF"],
         ascending=[False, False, False]
@@ -2668,6 +2674,199 @@ def render_clasificacion_grupo(grupo):
 
     st.dataframe(styled, use_container_width=True, hide_index=True)
     st.caption("💡 Orden: **PTS** (2 por victoria) → **DIF** (legs a favor − en contra) → **LF** (legs a favor)")
+
+
+def _ranking_grupo_semana(grupo):
+    """Devuelve la clasificación ordenada de un grupo semanal (lista de nombres
+    en orden 1º, 2º, 3º...). Si no hay datos, devuelve []."""
+    df = calcular_clasificacion_grupo(grupo)
+    if df is None or df.empty:
+        return []
+    return df["Jugador"].tolist()
+
+
+def construir_grupos_final():
+    """Construye los dos grupos de la Final Sábado a partir de los resultados
+    de la fase de grupos semanal.
+
+    Composición:
+        Final Grupo A:
+            - 1º del Grupo A (Lun-Mar-Mié)
+            - 2º del Grupo B (Jue-Vie)
+            - 2º del Grupo C (Jue-Vie)
+        Final Grupo B:
+            - 1º del Grupo B (Jue-Vie)
+            - 1º del Grupo C (Jue-Vie)
+            - 3º del Grupo B (Jue-Vie)
+
+    Devuelve dict {"Grupo A Final": [...], "Grupo B Final": [...]}, con cada
+    valor siendo lista de dicts {jugador, procedencia}. Si falta algún rango
+    en algún grupo, se omite ese hueco (la lista será más corta).
+    """
+    rank_a = _ranking_grupo_semana("Grupo A")
+    rank_b = _ranking_grupo_semana("Grupo B")
+    rank_c = _ranking_grupo_semana("Grupo C")
+
+    def _get(rank, idx):
+        return rank[idx] if idx < len(rank) else None
+
+    grupo_a_final = []
+    for nombre, proc in [
+        (_get(rank_a, 0), "1º Grupo A"),
+        (_get(rank_b, 1), "2º Grupo B"),
+        (_get(rank_c, 1), "2º Grupo C"),
+    ]:
+        if nombre:
+            grupo_a_final.append({"jugador": nombre, "procedencia": proc})
+
+    grupo_b_final = []
+    for nombre, proc in [
+        (_get(rank_b, 0), "1º Grupo B"),
+        (_get(rank_c, 0), "1º Grupo C"),
+        (_get(rank_b, 2), "3º Grupo B"),
+    ]:
+        if nombre:
+            grupo_b_final.append({"jugador": nombre, "procedencia": proc})
+
+    return {"Grupo A Final": grupo_a_final, "Grupo B Final": grupo_b_final}
+
+
+def calcular_clasificacion_final(jugadores_del_grupo):
+    """Calcula la clasificación del grupo de Final Sábado a partir de los
+    partidos disputados ESE día. Recibe la lista de jugadores que conforman
+    el grupo (los que debe filtrar de Final Sábado) y devuelve un DataFrame
+    con las mismas columnas que `calcular_clasificacion_grupo`.
+
+    A diferencia de la clasificación semanal (que suma 3 o 2 días), esta solo
+    lee la pestaña 'Final Sábado' y filtra para que el grupo solo refleje los
+    partidos entre los 3 jugadores que componen ese grupo de la final.
+    """
+    if not jugadores_del_grupo:
+        return None
+
+    nombres_grupo = {n.lower() for n in jugadores_del_grupo}
+
+    stats = {}
+    try:
+        df, _ = cargar_todo(URLS["Final Sábado"], "Final Sábado", CORTES["Final Sábado"])
+    except Exception:
+        df = None
+    if df is None or len(df) < 2:
+        # Pre-rellenar para que aparezcan los 3 jugadores aunque aún no haya partidos
+        for jugador in jugadores_del_grupo:
+            k = jugador.lower()
+            stats[k] = {"Jugador": jugador, "PJ": 0, "V": 0, "D": 0, "LF": 0, "LC": 0}
+    else:
+        # Pre-rellenar entradas de los jugadores del grupo para que aparezcan
+        # aunque aún no hayan jugado ningún partido
+        for jugador in jugadores_del_grupo:
+            k = jugador.lower()
+            stats[k] = {"Jugador": jugador, "PJ": 0, "V": 0, "D": 0, "LF": 0, "LC": 0}
+
+        for i in range(0, len(df) - 1, 2):
+            fila1 = df.iloc[i]
+            fila2 = df.iloc[i + 1]
+            nombre1 = str(fila1.iloc[0]).strip()
+            nombre2 = str(fila2.iloc[0]).strip()
+            if (not nombre1 or not nombre2 or
+                    nombre1.lower() in ('nan', '') or
+                    nombre2.lower() in ('nan', '')):
+                continue
+
+            # Filtro clave: el partido solo cuenta si AMBOS jugadores están en el grupo
+            if nombre1.lower() not in nombres_grupo or nombre2.lower() not in nombres_grupo:
+                continue
+
+            def _parse_legs(val):
+                try:
+                    return int(float(str(val).replace(',', '.').strip()))
+                except:
+                    return -1
+
+            legs1 = _parse_legs(fila1.iloc[1]) if len(fila1) > 1 else -1
+            legs2 = _parse_legs(fila2.iloc[1]) if len(fila2) > 1 else -1
+            if legs1 < 0 or legs2 < 0:
+                continue
+            if legs1 < 4 and legs2 < 4:
+                continue
+
+            k1, k2 = nombre1.lower(), nombre2.lower()
+            stats[k1]["PJ"] += 1
+            stats[k2]["PJ"] += 1
+            stats[k1]["LF"] += legs1
+            stats[k1]["LC"] += legs2
+            stats[k2]["LF"] += legs2
+            stats[k2]["LC"] += legs1
+            if legs1 > legs2:
+                stats[k1]["V"] += 1
+                stats[k2]["D"] += 1
+            else:
+                stats[k2]["V"] += 1
+                stats[k1]["D"] += 1
+
+    rows = []
+    for v in stats.values():
+        v["DIF"] = v["LF"] - v["LC"]
+        v["PTS"] = v["V"] * 2
+        rows.append(v)
+
+    df_out = pd.DataFrame(rows)
+    if df_out.empty:
+        return None
+
+    df_out = df_out.sort_values(
+        by=["PTS", "DIF", "LF"],
+        ascending=[False, False, False]
+    ).reset_index(drop=True)
+
+    def _pos_emoji(idx):
+        if idx == 0:
+            return "🥇 1"
+        if idx == 1:
+            return "🥈 2"
+        if idx == 2:
+            return "🥉 3"
+        return str(idx + 1)
+
+    df_out.insert(0, "Pos", [_pos_emoji(i) for i in range(len(df_out))])
+    return df_out[["Pos", "Jugador", "PJ", "V", "D", "LF", "LC", "DIF", "PTS"]]
+
+
+def render_clasificacion_final(nombre_grupo, jugadores_del_grupo):
+    """Renderiza la clasificación de uno de los grupos de la Final Sábado.
+
+    Reglas de pintado (igual que pediste):
+        - 2 primeros en verde (pasan a semifinales)
+        - último (tercero) en rojo
+    """
+    df = calcular_clasificacion_final(jugadores_del_grupo)
+    if df is None or df.empty:
+        st.info(f"ℹ️ Aún no hay datos para {nombre_grupo}")
+        return
+
+    st.subheader(f"🏆 {nombre_grupo}")
+    st.caption("Composición: " + " · ".join(
+        f"**{j['jugador']}** ({j['procedencia']})" for j in jugadores_del_grupo
+    ))
+
+    n = len(df)
+
+    def estilo_fila(fila):
+        idx = fila.name
+        if idx < 2:
+            return ['background-color: rgba(40,167,69,0.18); font-weight: 600;'] * len(fila)
+        if idx == n - 1 and n >= 3:
+            return ['background-color: rgba(220,53,69,0.12);'] * len(fila)
+        return [''] * len(fila)
+
+    styled = df.style.apply(estilo_fila, axis=1).set_properties(**{
+        'text-align': 'center',
+    }).set_table_styles([
+        {'selector': 'th', 'props': [('text-align', 'center'), ('font-weight', 'bold')]},
+        {'selector': 'th.col_heading', 'props': [('background-color', '#1f2937'), ('color', 'white')]},
+    ])
+
+    st.dataframe(styled, use_container_width=True, hide_index=True)
 
 
 st.sidebar.title("🎯 MODUS SUPER SERIES")
@@ -2783,7 +2982,17 @@ if "🔴 LIVE" in opcion_principal:
     if grupo_actual_live:
         st.markdown("---")
         render_clasificacion_grupo(grupo_actual_live)
-    elif selected in ("Final Sábado", "Resumen Semanal"):
+    elif selected == "Final Sábado":
+        # En Final Sábado renderizamos los DOS grupos de la final (A y B),
+        # compuestos según los rankings de la fase de grupos.
+        grupos_final = construir_grupos_final()
+        st.markdown("---")
+        st.subheader("🏆 Grupos de la Final")
+        for nombre_grupo, jugadores in grupos_final.items():
+            render_clasificacion_final(nombre_grupo, jugadores)
+            st.markdown("")
+    elif selected == "Resumen Semanal":
+        # En Resumen Semanal seguimos mostrando las 3 clasificaciones semanales
         st.markdown("---")
         st.subheader("🏆 Clasificaciones por Grupo")
         for g in ("Grupo A", "Grupo B", "Grupo C"):
@@ -2837,8 +3046,17 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     if grupo_actual:
         st.markdown("---")
         render_clasificacion_grupo(grupo_actual)
-    elif selected in ("Final Sábado", "Resumen Semanal"):
-        # En Final/Resumen mostramos las 3 clasificaciones, una debajo de otra
+    elif selected == "Final Sábado":
+        # En Final Sábado renderizamos los DOS grupos de la final (A y B),
+        # compuestos según los rankings de la fase de grupos.
+        grupos_final = construir_grupos_final()
+        st.markdown("---")
+        st.subheader("🏆 Grupos de la Final")
+        for nombre_grupo, jugadores in grupos_final.items():
+            render_clasificacion_final(nombre_grupo, jugadores)
+            st.markdown("")
+    elif selected == "Resumen Semanal":
+        # En Resumen Semanal mostramos las 3 clasificaciones semanales completas
         st.markdown("---")
         st.subheader("🏆 Clasificaciones por Grupo")
         for g in ("Grupo A", "Grupo B", "Grupo C"):
