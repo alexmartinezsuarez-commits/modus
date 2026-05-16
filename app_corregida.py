@@ -2744,7 +2744,24 @@ def calcular_clasificacion_final(jugadores_del_grupo):
     if not jugadores_del_grupo:
         return None
 
-    nombres_grupo = {n.lower() for n in jugadores_del_grupo}
+    # `jugadores_del_grupo` puede llegar como lista de dicts {"jugador":..., "procedencia":...}
+    # (caso normal desde construir_grupos_final) o, defensivamente, como lista de strings.
+    # Normalizamos a lista de nombres (str) descartando vacíos / NaN.
+    def _nombre_de(item):
+        if isinstance(item, dict):
+            return str(item.get("jugador", "")).strip()
+        if item is None:
+            return ""
+        return str(item).strip()
+
+    nombres_jugadores = [
+        n for n in (_nombre_de(j) for j in jugadores_del_grupo)
+        if n and n.lower() != 'nan'
+    ]
+    if not nombres_jugadores:
+        return None
+
+    nombres_grupo = {n.lower() for n in nombres_jugadores}
 
     stats = {}
     try:
@@ -2753,13 +2770,13 @@ def calcular_clasificacion_final(jugadores_del_grupo):
         df = None
     if df is None or len(df) < 2:
         # Pre-rellenar para que aparezcan los 3 jugadores aunque aún no haya partidos
-        for jugador in jugadores_del_grupo:
+        for jugador in nombres_jugadores:
             k = jugador.lower()
             stats[k] = {"Jugador": jugador, "PJ": 0, "V": 0, "D": 0, "LF": 0, "LC": 0}
     else:
         # Pre-rellenar entradas de los jugadores del grupo para que aparezcan
         # aunque aún no hayan jugado ningún partido
-        for jugador in jugadores_del_grupo:
+        for jugador in nombres_jugadores:
             k = jugador.lower()
             stats[k] = {"Jugador": jugador, "PJ": 0, "V": 0, "D": 0, "LF": 0, "LC": 0}
 
@@ -2845,9 +2862,20 @@ def render_clasificacion_final(nombre_grupo, jugadores_del_grupo):
         return
 
     st.subheader(f"🏆 {nombre_grupo}")
-    st.caption("Composición: " + " · ".join(
-        f"**{j['jugador']}** ({j['procedencia']})" for j in jugadores_del_grupo
-    ))
+    # Composición: tolerante a items dict o a strings sueltos.
+    _trozos = []
+    for j in jugadores_del_grupo:
+        if isinstance(j, dict):
+            nom = str(j.get("jugador", "")).strip()
+            proc = str(j.get("procedencia", "")).strip()
+            if nom:
+                _trozos.append(f"**{nom}** ({proc})" if proc else f"**{nom}**")
+        elif j:
+            nom = str(j).strip()
+            if nom and nom.lower() != 'nan':
+                _trozos.append(f"**{nom}**")
+    if _trozos:
+        st.caption("Composición: " + " · ".join(_trozos))
 
     n = len(df)
 
