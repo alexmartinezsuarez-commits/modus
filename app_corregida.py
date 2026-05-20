@@ -943,13 +943,19 @@ def obtener_ultimos_partidos(jugador_nombre, n=3):
             n1_lower = nombre1.lower().replace("_", " ")
             n2_lower = nombre2.lower().replace("_", " ")
             
-            # Match difuso del nombre (igual que en H2H)
+            # Match difuso del nombre (igual que en H2H).
+            # `jugador_primero` indica si nuestro jugador era la fila superior
+            # del par (jugador 1 del partido) en el spreadsheet. Lo usamos
+            # después en el render para preservar el orden real del partido
+            # en lugar de mostrar siempre "jugador vs rival".
             if jug_lower in n1_lower or n1_lower in jug_lower:
                 fila_jug, fila_riv = fila1, fila2
                 rival = nombre2
+                jugador_primero = True
             elif jug_lower in n2_lower or n2_lower in jug_lower:
                 fila_jug, fila_riv = fila2, fila1
                 rival = nombre1
+                jugador_primero = False
             else:
                 i -= 2
                 continue
@@ -972,11 +978,18 @@ def obtener_ultimos_partidos(jugador_nombre, n=3):
                 if pd.notna(val) and str(val).strip() not in ('', 'nan'):
                     stats[str(col)] = val
             
+            # Marcador con el orden original del partido (jugador 1 a la izquierda)
+            if jugador_primero:
+                marcador = f"{legs_jug}-{legs_riv}"
+            else:
+                marcador = f"{legs_riv}-{legs_jug}"
+            
             partidos.append({
                 "dia": dia,
                 "rival": rival,
-                "marcador": f"{legs_jug}-{legs_riv}",
+                "marcador": marcador,
                 "ganador": legs_jug > legs_riv,
+                "jugador_primero": jugador_primero,
                 "stats": stats,
             })
             i -= 2
@@ -1992,6 +2005,17 @@ def render_value_bets():
                     color_resultado = "#22c55e" if p["ganador"] else "#dc3545"
                     texto_resultado = "Victoria" if p["ganador"] else "Derrota"
                     
+                    # Preservar el orden original del partido: si nuestro jugador
+                    # era el de arriba en el spreadsheet, va a la izquierda; si
+                    # era el de abajo, va a la derecha. Así no parece que siempre
+                    # haya jugado de "local".
+                    if p.get("jugador_primero", True):
+                        izq_nombre, izq_color = nombre, color_jug
+                        der_nombre, der_color = p['rival'], color_rival
+                    else:
+                        izq_nombre, izq_color = p['rival'], color_rival
+                        der_nombre, der_color = nombre, color_jug
+                    
                     st.markdown(
                         f"<div style='margin-top: {16 if idx > 1 else 6}px; padding: 10px 14px; "
                         f"background: rgba(150,150,150,0.10); border-left: 4px solid {color_jug}; "
@@ -2001,9 +2025,9 @@ def render_value_bets():
                         f"<span style='font-weight: 600; color: #444; font-size: 13px;'>"
                         f"#{idx} · <span style='color: #888;'>{p['dia']}</span></span>"
                         f"<span style='font-size: 14px;'>"
-                        f"<span style='color: {color_jug}; font-weight: 700;'>{nombre}</span> "
+                        f"<span style='color: {izq_color}; font-weight: 700;'>{izq_nombre}</span> "
                         f"<span style='color: #888;'>vs</span> "
-                        f"<span style='color: {color_rival}; font-weight: 700;'>{p['rival']}</span>"
+                        f"<span style='color: {der_color}; font-weight: 700;'>{der_nombre}</span>"
                         f"</span>"
                         f"<span style='font-weight: 700; font-size: 16px; color: {color_resultado};'>"
                         f"{icono} {p['marcador']} · {texto_resultado}</span>"
@@ -2016,17 +2040,24 @@ def render_value_bets():
                     stats = p["stats"]
                     if stats:
                         # Saltar columna del nombre (primera) y otras vacías;
-                        # mostrar resto como pares etiqueta-valor en mini-grid
+                        # mostrar resto como pares etiqueta-valor en mini-grid.
+                        # También se omite la columna "Resultado" (legs del partido)
+                        # porque ya se muestra como marcador en la cabecera.
                         items = []
                         for k, v in stats.items():
                             k_str = str(k).strip()
+                            k_lower = k_str.lower()
                             v_str = str(v).strip()
-                            if not k_str or k_str.lower().startswith("unnamed"):
+                            if not k_str or k_lower.startswith("unnamed"):
                                 continue
                             if v_str.lower() in ('', 'nan'):
                                 continue
                             # Saltar la celda que contiene el propio nombre del jugador
                             if v_str.lower() == nombre.lower():
+                                continue
+                            # Saltar la columna "Resultado" — info redundante con
+                            # el marcador que ya aparece en la cabecera del partido
+                            if "resultado" in k_lower:
                                 continue
                             items.append((k_str, v_str))
                         
