@@ -139,10 +139,97 @@ def arreglar_columnas(df):
     df.columns = nuevas_cols
     return df
 
+# Paleta de colores para asignar a cada jugador en la tabla de detalles.
+# Colores vibrantes pero suaves, todos con suficiente contraste con texto oscuro.
+# La asignación es secuencial por orden de aparición y se guarda en
+# st.session_state para que un jugador conserve su color durante la sesión.
+PALETA_JUGADORES = [
+    "#fbbf24",  # ámbar
+    "#fb923c",  # naranja
+    "#f87171",  # rojo coral
+    "#e879f9",  # fucsia
+    "#a78bfa",  # violeta
+    "#818cf8",  # índigo
+    "#60a5fa",  # azul
+    "#22d3ee",  # cian
+    "#2dd4bf",  # turquesa
+    "#34d399",  # esmeralda
+    "#a3e635",  # lima
+    "#facc15",  # amarillo
+    "#fb7185",  # rosa
+    "#c084fc",  # púrpura
+    "#38bdf8",  # cielo
+    "#4ade80",  # verde
+    "#f472b6",  # rosa fuerte
+    "#fcd34d",  # mostaza
+]
+
+
+def obtener_color_jugador(nombre):
+    """Devuelve un color de fondo único para un jugador.
+    
+    Estrategia: asignación secuencial sin colisiones. La primera vez que se
+    ve un jugador se le asigna el siguiente color libre de la paleta y se
+    guarda en st.session_state['colores_jugadores']. En llamadas posteriores
+    devuelve el color ya asignado.
+    
+    Los nombres se normalizan (lowercase + strip) para que pequeñas variaciones
+    como espacios extra o capitalización no rompan la asignación.
+    
+    Si se agota la paleta (más de 18 jugadores únicos), cae a un esquema cíclico.
+    Devuelve None para nombres vacíos / inválidos.
+    """
+    if not nombre:
+        return None
+    nombre_str = str(nombre).strip()
+    if not nombre_str or nombre_str.lower() in ('nan', ''):
+        return None
+    nombre_norm = nombre_str.lower()
+    
+    # Inicializar el mapa en session_state si no existe
+    if 'colores_jugadores' not in st.session_state:
+        st.session_state['colores_jugadores'] = {}
+    
+    mapa = st.session_state['colores_jugadores']
+    
+    if nombre_norm in mapa:
+        return mapa[nombre_norm]
+    
+    # Asignar siguiente color libre
+    idx = len(mapa) % len(PALETA_JUGADORES)
+    color = PALETA_JUGADORES[idx]
+    mapa[nombre_norm] = color
+    return color
+
+
 def pintar_partidos(fila):
-    if (fila.name // 2) % 2 == 0:
-        return ['background-color: rgba(150, 150, 150, 0.15)'] * len(fila)
-    return ['background-color: transparent'] * len(fila)
+    """Aplica dos capas de estilo a la tabla de detalles de partidos:
+    
+    - Cada par de filas (un partido) alterna fondo gris suave/transparente
+      para hacer visualmente bloque.
+    - La PRIMERA celda (nombre del jugador) se pinta con el color único que
+      le corresponde por nombre, en negrita y con texto oscuro para contraste.
+    
+    Si la primera celda no tiene un nombre válido, se pinta como el resto.
+    """
+    nombre_jugador = str(fila.iloc[0]).strip() if len(fila) > 0 else ""
+    color_jugador = obtener_color_jugador(nombre_jugador)
+    
+    # Fondo alternado por partido (cada par de filas)
+    es_par = (fila.name // 2) % 2 == 0
+    fondo_fila = 'rgba(150, 150, 150, 0.15)' if es_par else 'transparent'
+    
+    estilos = []
+    for i in range(len(fila)):
+        if i == 0 and color_jugador:
+            # Celda del nombre: color del jugador con texto oscuro y negrita
+            estilos.append(
+                f'background-color: {color_jugador}; '
+                f'color: #1a1a1a; font-weight: 700;'
+            )
+        else:
+            estilos.append(f'background-color: {fondo_fila};')
+    return estilos
 
 def extraer_stats_diarias(df, fila_n, col_rango):
     """Extrae estadísticas por jugador desde la sección derecha de cada pestaña diaria.
@@ -784,6 +871,117 @@ def extraer_h2h_semanal(j1_nombre, j2_nombre):
         except Exception as e:
             continue
     return h2h_data
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def obtener_ultimos_partidos(jugador_nombre, n=3):
+    """Devuelve los últimos n partidos jugados por un jugador a lo largo de la
+    semana, en orden cronológico INVERSO (el más reciente primero).
+    
+    Recorre las pestañas en orden: Final Sábado → Viernes → Jueves → Mié → Mar → Lun
+    y dentro de cada pestaña recorre los partidos también en orden inverso.
+    
+    Filtra partidos no terminados (ningún jugador llegó a 4 legs) y filas con
+    datos corruptos / vacíos.
+    
+    Devuelve lista de dicts con:
+        - dia:       nombre de la jornada (ej. "Grupo A Lunes")
+        - rival:     nombre del oponente
+        - marcador:  "X-Y" desde la perspectiva del jugador
+        - ganador:   True si el jugador ganó
+        - stats:     dict {nombre_columna: valor} con todas las stats del
+                     jugador en ese partido (180s, promedio, checkout %, etc.)
+    """
+    dias_semana = [
+        "Final Sábado",
+        "Grupo B Viernes", "Grupo C Viernes",
+        "Grupo B Jueves",  "Grupo C Jueves",
+        "Grupo A Miércoles", "Grupo A Martes", "Grupo A Lunes",
+    ]
+    jug_lower = str(jugador_nombre).lower().strip().replace("_", " ")
+    if not jug_lower:
+        return []
+    
+    partidos = []
+    
+    def _parse_legs(val):
+        try:
+            return int(float(str(val).replace(',', '.').strip()))
+        except:
+            return -1
+    
+    for dia in dias_semana:
+        if len(partidos) >= n:
+            break
+        try:
+            df_partidos, _ = cargar_todo(URLS[dia], dia, CORTES[dia])
+        except Exception:
+            continue
+        if df_partidos is None or len(df_partidos) < 2:
+            continue
+        
+        # Iterar pares de filas (cada par = 1 partido) en orden INVERSO
+        i = (len(df_partidos) - 1) // 2 * 2  # último índice par válido
+        while i >= 0:
+            if len(partidos) >= n:
+                break
+            if i + 1 >= len(df_partidos):
+                i -= 2
+                continue
+            
+            fila1 = df_partidos.iloc[i]
+            fila2 = df_partidos.iloc[i + 1]
+            nombre1 = str(fila1.iloc[0]).strip() if len(fila1) > 0 else ""
+            nombre2 = str(fila2.iloc[0]).strip() if len(fila2) > 0 else ""
+            
+            if (not nombre1 or not nombre2 or
+                    nombre1.lower() in ('nan', '') or
+                    nombre2.lower() in ('nan', '')):
+                i -= 2
+                continue
+            
+            n1_lower = nombre1.lower().replace("_", " ")
+            n2_lower = nombre2.lower().replace("_", " ")
+            
+            # Match difuso del nombre (igual que en H2H)
+            if jug_lower in n1_lower or n1_lower in jug_lower:
+                fila_jug, fila_riv = fila1, fila2
+                rival = nombre2
+            elif jug_lower in n2_lower or n2_lower in jug_lower:
+                fila_jug, fila_riv = fila2, fila1
+                rival = nombre1
+            else:
+                i -= 2
+                continue
+            
+            # Parsear legs y filtrar partidos no terminados
+            legs_jug = _parse_legs(fila_jug.iloc[1]) if len(fila_jug) > 1 else -1
+            legs_riv = _parse_legs(fila_riv.iloc[1]) if len(fila_riv) > 1 else -1
+            if legs_jug < 0 or legs_riv < 0:
+                i -= 2
+                continue
+            # Al menos uno debe haber llegado a 4 legs para que el partido cuente
+            if legs_jug < 4 and legs_riv < 4:
+                i -= 2
+                continue
+            
+            # Construir dict de stats del jugador en ese partido
+            stats = {}
+            for col in df_partidos.columns:
+                val = fila_jug[col]
+                if pd.notna(val) and str(val).strip() not in ('', 'nan'):
+                    stats[str(col)] = val
+            
+            partidos.append({
+                "dia": dia,
+                "rival": rival,
+                "marcador": f"{legs_jug}-{legs_riv}",
+                "ganador": legs_jug > legs_riv,
+                "stats": stats,
+            })
+            i -= 2
+    
+    return partidos[:n]
 
 def safe_float(val, default=0.0):
     try:
@@ -1768,6 +1966,95 @@ def render_value_bets():
                 st.markdown(f"**{partido['dia']}**: {partido['jugador1']} vs {partido['jugador2']} - **{partido['marcador']}** (Ganador: {partido['ganador']})")
     else:
         st.info("ℹ️ No se encontraron enfrentamientos directos esta semana")
+
+    # ─── Últimos 3 partidos por jugador ───────────────────────────────────────
+    # Dos desplegables (uno por jugador) con sus 3 últimos partidos jugados en
+    # la semana, en orden cronológico inverso. Muestra rival, marcador y todas
+    # las stats de la fila del jugador en cada partido.
+    st.markdown("---")
+    st.markdown("### 📅 Últimos partidos jugados")
+    col_u1, col_u2 = st.columns(2)
+    
+    def _render_ultimos_partidos(col, jugador_dict, color_jug, color_rival):
+        nombre = jugador_dict['nombre_original']
+        with col:
+            with st.expander(f"📂 Últimos 3 partidos de **{nombre}**", expanded=False):
+                with st.spinner(f"Buscando partidos de {nombre}..."):
+                    ultimos = obtener_ultimos_partidos(nombre, n=3)
+                
+                if not ultimos:
+                    st.info(f"ℹ️ No se encontraron partidos terminados de {nombre} esta semana")
+                    return
+                
+                for idx, p in enumerate(ultimos, start=1):
+                    # Cabecera del partido: resultado con marcador
+                    icono = "🏆" if p["ganador"] else "❌"
+                    color_resultado = "#22c55e" if p["ganador"] else "#dc3545"
+                    texto_resultado = "Victoria" if p["ganador"] else "Derrota"
+                    
+                    st.markdown(
+                        f"<div style='margin-top: {16 if idx > 1 else 6}px; padding: 10px 14px; "
+                        f"background: rgba(150,150,150,0.10); border-left: 4px solid {color_jug}; "
+                        f"border-radius: 6px;'>"
+                        f"<div style='display: flex; justify-content: space-between; align-items: center; "
+                        f"gap: 10px; flex-wrap: wrap;'>"
+                        f"<span style='font-weight: 600; color: #444; font-size: 13px;'>"
+                        f"#{idx} · <span style='color: #888;'>{p['dia']}</span></span>"
+                        f"<span style='font-size: 14px;'>"
+                        f"<span style='color: {color_jug}; font-weight: 700;'>{nombre}</span> "
+                        f"<span style='color: #888;'>vs</span> "
+                        f"<span style='color: {color_rival}; font-weight: 700;'>{p['rival']}</span>"
+                        f"</span>"
+                        f"<span style='font-weight: 700; font-size: 16px; color: {color_resultado};'>"
+                        f"{icono} {p['marcador']} · {texto_resultado}</span>"
+                        f"</div>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+                    
+                    # Stats del jugador en ese partido: tabla compacta
+                    stats = p["stats"]
+                    if stats:
+                        # Saltar columna del nombre (primera) y otras vacías;
+                        # mostrar resto como pares etiqueta-valor en mini-grid
+                        items = []
+                        for k, v in stats.items():
+                            k_str = str(k).strip()
+                            v_str = str(v).strip()
+                            if not k_str or k_str.lower().startswith("unnamed"):
+                                continue
+                            if v_str.lower() in ('', 'nan'):
+                                continue
+                            # Saltar la celda que contiene el propio nombre del jugador
+                            if v_str.lower() == nombre.lower():
+                                continue
+                            items.append((k_str, v_str))
+                        
+                        if items:
+                            # Grid responsivo: ~4 columnas en desktop, se adapta
+                            cells_html = ""
+                            for k, v in items:
+                                cells_html += (
+                                    f"<div style='background: rgba(255,255,255,0.03); "
+                                    f"padding: 8px 10px; border-radius: 5px; "
+                                    f"border: 1px solid rgba(150,150,150,0.2);'>"
+                                    f"<div style='font-size: 10px; color: #888; "
+                                    f"text-transform: uppercase; letter-spacing: 0.3px; "
+                                    f"margin-bottom: 3px;'>{k}</div>"
+                                    f"<div style='font-size: 15px; font-weight: 600; "
+                                    f"color: {color_jug};'>{v}</div>"
+                                    f"</div>"
+                                )
+                            st.markdown(
+                                f"<div style='display: grid; "
+                                f"grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); "
+                                f"gap: 8px; margin-top: 8px; margin-bottom: 4px;'>"
+                                f"{cells_html}</div>",
+                                unsafe_allow_html=True
+                            )
+    
+    _render_ultimos_partidos(col_u1, j1, "#1f77b4", "#ff7f0e")
+    _render_ultimos_partidos(col_u2, j2, "#ff7f0e", "#1f77b4")
 
     # J1 siempre saca primero (la ventaja de saque va al jugador 1 seleccionado).
     # Las funciones tienen `j1_saca_primero=True` como default, así que basta con
