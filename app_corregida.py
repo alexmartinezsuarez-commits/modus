@@ -20,6 +20,14 @@ st.markdown("""
     gap: 12px;
     margin: 10px 0 20px 0;
 }
+/* Tarjeta hero (Puntuación Global) ocupa toda la fila */
+.stats-grid .hero-card {
+    grid-column: 1 / -1;
+}
+/* Tarjeta hero secundaria (Índice Volatilidad) también full width */
+.stats-grid .hero-card-secondary {
+    grid-column: 1 / -1;
+}
 @media (max-width: 768px) {
     .stats-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -182,6 +190,7 @@ def extraer_stats_diarias(df, fila_n, col_rango):
         "Porcentaje victoria",
         "PUNTIACIÓN GLOBAL (0-100)",
         "Legs por partido",
+        "Índice Volatilidad",
     ]
     
     def parece_titulo(s):
@@ -392,12 +401,16 @@ def cargar_jugadores_desde(pestana: str):
                 pct_vic = safe_float(raw_pct)
                 if 0 < pct_vic <= 1:
                     pct_vic *= 100
-                
+
+                # Índice de volatilidad (irregularidad). Más bajo = más consistente.
+                volatilidad = safe_float(_buscar_stat(s, ["índice volatilidad", "indice volatilidad", "volatilidad"]))
+
                 jugadores[nombre_lower] = {
                     "nombre_original": nombre_lower.title(),
                     "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
                     "promedio_dardos": promedio_dardos,
-                    "checkouts": checkouts, "pct_victorias": pct_vic
+                    "checkouts": checkouts, "pct_victorias": pct_vic,
+                    "volatilidad": volatilidad
                 }
             return jugadores
         
@@ -430,12 +443,16 @@ def cargar_jugadores_desde(pestana: str):
                     pct_vic = safe_float(raw_pv)
                     if 0 < pct_vic <= 1:
                         pct_vic *= 100
-                    
+
+                    # Índice de volatilidad (irregularidad). Más bajo = más consistente.
+                    volatilidad = safe_float(_buscar_stat(s, ["índice volatilidad", "indice volatilidad", "volatilidad"]))
+
                     jugadores[nombre.lower()] = {
                         "nombre_original": nombre,
                         "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
                         "promedio_dardos": promedio_dardos,
-                        "checkouts": checkouts, "pct_victorias": pct_vic
+                        "checkouts": checkouts, "pct_victorias": pct_vic,
+                        "volatilidad": volatilidad
                     }
                 return jugadores
             return {}
@@ -455,6 +472,7 @@ def cargar_jugadores_desde(pestana: str):
         col_promedio_dardos = buscar_col(["promedio puntos", "average", "promedio dardos", "ppd", "media puntos"])
         col_checkouts = buscar_col(["checkout"])
         col_pct_vic = buscar_col(["porcentaje victoria", "% victoria", "% victoria", "%victoria"])
+        col_volatilidad = buscar_col(["índice volatilidad", "indice volatilidad", "volatilidad"])
         jugadores = {}
         for _, fila in data.iterrows():
             nombre = str(fila.get(col_jugador, "")).strip() if col_jugador else ""
@@ -475,11 +493,15 @@ def cargar_jugadores_desde(pestana: str):
             pct_vic = safe_float(raw_pv)
             if 0 < pct_vic <= 1:
                 pct_vic *= 100
+
+            volatilidad = safe_float(fila.get(col_volatilidad, 0)) if col_volatilidad else 0.0
+
             jugadores[nombre.lower()] = {
                 "nombre_original": nombre,
                 "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
                 "promedio_dardos": promedio_dardos,
-                "checkouts": checkouts, "pct_victorias": pct_vic
+                "checkouts": checkouts, "pct_victorias": pct_vic,
+                "volatilidad": volatilidad
             }
         return jugadores
     except Exception as e:
@@ -774,6 +796,26 @@ def safe_float(val, default=0.0):
         return v
     except:
         return default
+
+def _color_riesgo_volatilidad(valor):
+    """Devuelve la paleta (background, border, texto, etiqueta) para una tarjeta
+    de Índice de Volatilidad según los umbrales de riesgo:
+        - < 12   → verde  (Riesgo bajo)
+        - 12-18  → amarillo (Riesgo medio)
+        - > 18   → rojo   (Riesgo alto)
+        - 0 o no numérico → gris neutro (sin datos)
+    """
+    try:
+        v = float(str(valor).replace(',', '.').replace('%', '').strip())
+    except:
+        v = None
+    if v is None or v <= 0:
+        return "rgba(107,114,128,0.10)", "#6b7280", "#6b7280", "Sin datos"
+    if v < 12:
+        return "rgba(22,163,74,0.12)", "#16a34a", "#16a34a", "🟢 Riesgo bajo"
+    if v <= 18:
+        return "rgba(234,179,8,0.15)", "#eab308", "#a16207", "🟡 Riesgo medio"
+    return "rgba(220,38,38,0.12)", "#dc2626", "#dc2626", "🔴 Riesgo alto"
 
 def sanitize_prob(p):
     if not np.isfinite(p) or p <= 0:
@@ -1213,21 +1255,29 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     return html_datos
 
 def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=True):
-    """Renderiza un jugador con 8 tarjetas en rejilla de 2 filas x 4 columnas.
-    
-    Orden fijo: Media 180, Promedio puntos, Legs/partido, Checkouts (fila 1)
-                Victorias, Derrotas, % Victoria, Puntuación Global (fila 2)
-    Colores: azul por defecto, verde victorias, rojo derrotas, amarillo puntuación global.
-    
+    """Renderiza un jugador con layout asimétrico-jerárquico de 9 tarjetas:
+
+    Fila 0 (hero):   ⭐ Puntuación Global (full width, dorada, grande)
+    Fila 1 (4 cols): Media 180 | Promedio puntos | Legs/partido | Checkouts
+    Fila 2 (4 cols): Victorias | Derrotas | % Victoria | Índice Volatilidad
+
+    Volatilidad usa código de colores por riesgo:
+        - < 12  → 🟢 verde (Riesgo bajo)
+        - 12-18 → 🟡 amarillo (Riesgo medio)
+        - > 18  → 🔴 rojo (Riesgo alto)
+
     Sistema de sinónimos: cada etiqueta tiene varias formas posibles para que
     funcione tanto con las jornadas diarias (etiquetas largas) como con el
     Resumen Semanal (etiquetas más cortas).
-    
+
     HTML construido en una sola línea para evitar parsing como bloque de código.
     """
-    
+
     # Configuración: (etiqueta_display, icono, sinónimos_de_más_específico_a_más_genérico)
+    # Orden de render: PRIMERO la hero, luego las 8 normales en orden de visualización.
     config_stats = [
+        ("Puntuación Global", "⭐",
+         ["puntiación global", "puntuación global", "puntacion global", "puntiación", "puntuación", "puntacion"]),
         ("Media 180 por partida", "🎯",
          ["media 180 por partida", "180 por partida", "180 por partido", "media 180", "media de 180"]),
         ("Promedio puntos total", "📊",
@@ -1242,8 +1292,8 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
          ["número derrotas", "numero derrotas", "n. derrotas", "n derrotas", "derrotas"]),
         ("Porcentaje victoria", "📈",
          ["porcentaje victoria", "porcentaje de victoria", "% victoria", "%victoria", "porc. victoria"]),
-        ("Puntuación Global", "⭐",
-         ["puntiación global", "puntuación global", "puntacion global", "puntiación", "puntuación", "puntacion"]),
+        ("Índice Volatilidad", "📉",
+         ["índice volatilidad", "indice volatilidad", "volatilidad"]),
     ]
     
     def buscar_valor(stats_dict, sinonimos, claves_excluidas):
@@ -1328,6 +1378,8 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
             indicador, _, comparativa = calcular_tendencia(valor, valor_semanal, etiqueta_para_tendencia)
         
         # Colores según tipo de estadística
+        # Volatilidad: código de colores por riesgo (verde/amarillo/rojo según umbrales <12, 12-18, >18)
+        riesgo_label = ""  # se rellena solo para Volatilidad
         if etiqueta == "Número victorias":
             color_borde = "#28a745"
             color_valor = "#28a745"
@@ -1340,6 +1392,32 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
             color_borde = "#f59e0b"
             color_valor = "#f59e0b"
             bg_grad = "rgba(245, 158, 11, 0.12)"
+        elif etiqueta == "Índice Volatilidad":
+            # Parsear el valor para determinar el nivel de riesgo
+            try:
+                vol_num = float(str(valor).replace('%', '').replace(',', '.').strip())
+            except:
+                vol_num = None
+            if vol_num is None:
+                color_borde = "#6b7280"
+                color_valor = "#6b7280"
+                bg_grad = "rgba(107, 114, 128, 0.08)"
+                riesgo_label = ""
+            elif vol_num < 12:
+                color_borde = "#16a34a"
+                color_valor = "#16a34a"
+                bg_grad = "rgba(22, 163, 74, 0.10)"
+                riesgo_label = "🟢 Riesgo bajo"
+            elif vol_num <= 18:
+                color_borde = "#eab308"
+                color_valor = "#a16207"
+                bg_grad = "rgba(234, 179, 8, 0.12)"
+                riesgo_label = "🟡 Riesgo medio"
+            else:
+                color_borde = "#dc2626"
+                color_valor = "#dc2626"
+                bg_grad = "rgba(220, 38, 38, 0.10)"
+                riesgo_label = "🔴 Riesgo alto"
         else:
             # Azul por defecto para todas las demás
             color_borde = "#1f77b4"
@@ -1364,21 +1442,51 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
             )
         else:
             tend_html = ''
-        
-        # Construcción de la tarjeta en una sola línea
-        cards_html += (
-            f'<div style="background:linear-gradient(135deg,{bg_grad} 0%,rgba(255,255,255,0.01) 100%);'
-            f'border-left:3px solid {color_borde};border-radius:8px;padding:12px 15px;">'
-            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
-            f'<span style="font-size:18px;">{icono}</span>'
-            f'<span style="font-size:12px;color:#888;font-weight:600;">{etiqueta}</span>'
-            f'</div>'
-            f'<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;flex-wrap:wrap;">'
-            f'<span style="font-size:22px;font-weight:bold;color:{color_valor};">{valor}</span>'
-            f'{tend_html}'
-            f'</div>'
-            f'</div>'
-        )
+
+        # La tarjeta de Puntuación Global se renderiza como HERO (full width, más grande).
+        # La tarjeta de Volatilidad muestra adicionalmente la etiqueta de riesgo.
+        es_hero = etiqueta == "Puntuación Global"
+
+        if es_hero:
+            # Tarjeta destacada: full width, padding mayor, valor más grande, badge "MÉTRICA CLAVE"
+            cards_html += (
+                f'<div class="hero-card" style="background:linear-gradient(135deg,{bg_grad} 0%,rgba(255,255,255,0.01) 100%);'
+                f'border:2px solid {color_borde};border-radius:10px;padding:18px 22px;'
+                f'box-shadow:0 2px 8px rgba(245,158,11,0.10);">'
+                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">'
+                f'<span style="font-size:22px;">{icono}</span>'
+                f'<span style="font-size:13px;color:#92400e;font-weight:700;letter-spacing:0.3px;">{etiqueta}</span>'
+                f'<span style="font-size:10px;color:#92400e;font-weight:600;background:rgba(245,158,11,0.15);'
+                f'padding:2px 8px;border-radius:10px;margin-left:auto;">⭐ MÉTRICA CLAVE</span>'
+                f'</div>'
+                f'<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;">'
+                f'<span style="font-size:38px;font-weight:800;color:{color_valor};line-height:1;">{valor}</span>'
+                f'{tend_html}'
+                f'</div>'
+                f'</div>'
+            )
+        else:
+            # Construcción de la tarjeta normal
+            riesgo_html = ''
+            if riesgo_label:
+                riesgo_html = (
+                    f'<div style="margin-top:6px;font-size:11px;font-weight:600;color:{color_valor};'
+                    f'letter-spacing:0.2px;">{riesgo_label}</div>'
+                )
+            cards_html += (
+                f'<div style="background:linear-gradient(135deg,{bg_grad} 0%,rgba(255,255,255,0.01) 100%);'
+                f'border-left:3px solid {color_borde};border-radius:8px;padding:12px 15px;">'
+                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
+                f'<span style="font-size:18px;">{icono}</span>'
+                f'<span style="font-size:12px;color:#888;font-weight:600;">{etiqueta}</span>'
+                f'</div>'
+                f'<div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;flex-wrap:wrap;">'
+                f'<span style="font-size:22px;font-weight:bold;color:{color_valor};">{valor}</span>'
+                f'{tend_html}'
+                f'</div>'
+                f'{riesgo_html}'
+                f'</div>'
+            )
     
     cards_html += '</div>'
     st.markdown(cards_html, unsafe_allow_html=True)
@@ -1516,7 +1624,7 @@ def render_value_bets():
         st.markdown(f"<h3 style='text-align: center; color: #1f77b4;'>{j1['nombre_original']}</h3>", unsafe_allow_html=True)
         svg_j1 = render_pentagono_svg(pr1, lam1, j1["promedio_dardos"], j1["checkouts"], j1["pct_victorias"], color="#1f77b4")
         st.markdown(f"<div style='text-align: center;'>{svg_j1}</div>", unsafe_allow_html=True)
-        
+
         # Datos en 5 columnas coloreados en azul
         dcols = st.columns(5)
         datos_j1 = [
@@ -1534,6 +1642,20 @@ def render_value_bets():
                     <p style='margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #1f77b4;'>{valor}</p>
                 </div>
                 """, unsafe_allow_html=True)
+
+        # Tarjeta de Volatilidad (Riesgo) — coloreada según umbral
+        vol_j1 = j1.get("volatilidad", 0.0)
+        bg_vol1, bd_vol1, txt_vol1, label_vol1 = _color_riesgo_volatilidad(vol_j1)
+        st.markdown(f"""
+        <div style='text-align:center;padding:10px 12px;margin-top:10px;
+            background:{bg_vol1};border-radius:6px;border-left:3px solid {bd_vol1};'>
+            <p style='margin:0;font-size:11px;color:#666;'>📉 Índice Volatilidad</p>
+            <div style='display:flex;align-items:baseline;justify-content:center;gap:10px;margin-top:5px;'>
+                <span style='font-size:20px;font-weight:bold;color:{txt_vol1};'>{vol_j1:.2f}</span>
+                <span style='font-size:12px;font-weight:600;color:{txt_vol1};'>{label_vol1}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col_vs:
         st.markdown("""
@@ -1564,6 +1686,20 @@ def render_value_bets():
                     <p style='margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #ff7f0e;'>{valor}</p>
                 </div>
                 """, unsafe_allow_html=True)
+
+        # Tarjeta de Volatilidad (Riesgo) — coloreada según umbral
+        vol_j2 = j2.get("volatilidad", 0.0)
+        bg_vol2, bd_vol2, txt_vol2, label_vol2 = _color_riesgo_volatilidad(vol_j2)
+        st.markdown(f"""
+        <div style='text-align:center;padding:10px 12px;margin-top:10px;
+            background:{bg_vol2};border-radius:6px;border-left:3px solid {bd_vol2};'>
+            <p style='margin:0;font-size:11px;color:#666;'>📉 Índice Volatilidad</p>
+            <div style='display:flex;align-items:baseline;justify-content:center;gap:10px;margin-top:5px;'>
+                <span style='font-size:20px;font-weight:bold;color:{txt_vol2};'>{vol_j2:.2f}</span>
+                <span style='font-size:12px;font-weight:600;color:{txt_vol2};'>{label_vol2}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     st.markdown("---")
     st.markdown("### 🔥 Head to Head Semanal")
