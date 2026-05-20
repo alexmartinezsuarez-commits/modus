@@ -3190,44 +3190,8 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     if d2 is not None:
         st.subheader("📈 Estadísticas por Jugador")
         
-import streamlit como st
-import pandas como pd
-import numpy como np
-import solicitudes
-de scipy.stats importar poisson
-de datetime import datetime, timedelta
-de difflib importar SequenceMatcher
-de functools importar lru_cache
-importar la hora
-
-
-st.set_page_config(page_title="Aplicación Modus Super Series", layout="wide", page_icon="🎯")
-
-
-# CSS global: rejilla de estadísticas responsive
-# Desktop/tablet: 4 columnas | Móvil (<=768px): 2 columnas
-st.markdown("""
-<style>
-.stats-grid {
-display: grid;
-grid-template-columns: repeat(4, minmax(0, 1fr));
-espacio: 12 píxeles;
-margen: 10px 0 20px 0;
-}
-/* Tarjeta hero (Puntuación Global) ocupa toda la fila */
-.stats-grid .hero-card {
-grid-column: 1 / -1;
-}
-/* Tarjeta hero secundaria (Índice Volatilidad) también full width */
-.stats-grid .hero-card-secondary {
-grid-column: 1 / -1;
-}
-@media (ancho máximo: 768 píxeles) {
-.stats-grid {
-grid-template-columns: repeat(2, minmax(0, 1fr));
-espacio: 8 píxeles;
-}
-}        stats_resumen = None
+        # Cargar resumen semanal solo si estamos viendo otra jornada
+        stats_resumen = None
         mostrar_tendencias = selected != "Resumen Semanal"
         if mostrar_tendencias:
             _, stats_resumen = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
@@ -3269,4 +3233,4 @@ espacio: 8 píxeles;
         st.subheader("🏆 Clasificaciones por Grupo")
         for g in ("Grupo A", "Grupo B", "Grupo C"):
             render_clasificacion_grupo(g)
-            st.markdown(""
+            st.markdown("")
