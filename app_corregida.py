@@ -1655,26 +1655,41 @@ def render_value_bets():
         svg_j1 = render_pentagono_svg(pr1, lam1, j1["promedio_dardos"], j1["checkouts"], j1["pct_victorias"], color="#1f77b4")
         st.markdown(f"<div style='text-align: center;'>{svg_j1}</div>", unsafe_allow_html=True)
         
-        # Datos en 6 columnas: 5 azules + 1 de volatilidad con semáforo (verde/amarillo/rojo)
-        vol_j1 = j1.get("volatilidad", 0.0)
-        paleta_vol_j1 = color_volatilidad(vol_j1)
-        dcols = st.columns(6)
+        # Datos en 5 columnas coloreados en azul
+        dcols = st.columns(5)
         datos_j1 = [
-            ("Power", f"{pr1:.1f}", "#1f77b4", "rgba(31, 119, 180, 0.1)"),
-            ("λ 180s", f"{lam1:.2f}", "#1f77b4", "rgba(31, 119, 180, 0.1)"),
-            ("Ø Dardos", f"{j1['promedio_dardos']:.1f}", "#1f77b4", "rgba(31, 119, 180, 0.1)"),
-            ("Checkout", f"{j1['checkouts']:.0f}%", "#1f77b4", "rgba(31, 119, 180, 0.1)"),
-            ("% Vic", f"{j1['pct_victorias']:.0f}%", "#1f77b4", "rgba(31, 119, 180, 0.1)"),
-            ("Volatilidad", f"{vol_j1:.1f}".replace(".", ","), paleta_vol_j1["valor"], paleta_vol_j1["bg"]),
+            ("Power", f"{pr1:.1f}"),
+            ("λ 180s", f"{lam1:.2f}"),
+            ("Ø Dardos", f"{j1['promedio_dardos']:.1f}"),
+            ("Checkout", f"{j1['checkouts']:.0f}%"),
+            ("% Vic", f"{j1['pct_victorias']:.0f}%")
         ]
-        for idx, (label, valor, color, bg) in enumerate(datos_j1):
+        for idx, (label, valor) in enumerate(datos_j1):
             with dcols[idx]:
                 st.markdown(f"""
-                <div style='text-align: center; padding: 10px; background: {bg}; border-radius: 6px; border-left: 3px solid {color};'>
+                <div style='text-align: center; padding: 10px; background: rgba(31, 119, 180, 0.1); border-radius: 6px; border-left: 3px solid #1f77b4;'>
                     <p style='margin: 0; font-size: 11px; color: #666;'>{label}</p>
-                    <p style='margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: {color};'>{valor}</p>
+                    <p style='margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #1f77b4;'>{valor}</p>
                 </div>
                 """, unsafe_allow_html=True)
+        
+        # Card de Índice Volatilidad — separada, full-width, con semáforo
+        vol_j1 = j1.get("volatilidad", 0.0)
+        paleta_vol_j1 = color_volatilidad(vol_j1)
+        vol_label_j1 = paleta_vol_j1["riesgo_label"].capitalize() if paleta_vol_j1["riesgo_label"] else "Sin datos"
+        vol_str_j1 = f"{vol_j1:.2f}".replace(".", ",")
+        st.markdown(
+            f"<div style='margin-top: 12px; text-align: center; padding: 14px 18px; "
+            f"background: {paleta_vol_j1['bg']}; border-radius: 8px; "
+            f"border: 1px solid {paleta_vol_j1['borde']};'>"
+            f"<p style='margin: 0; font-size: 12px; color: #666; font-weight: 600;'>📉 Índice Volatilidad</p>"
+            f"<div style='margin-top: 8px; display: flex; align-items: baseline; justify-content: center; gap: 12px; flex-wrap: wrap;'>"
+            f"<span style='font-size: 26px; font-weight: bold; color: {paleta_vol_j1['valor']};'>{vol_str_j1}</span>"
+            f"<span style='font-size: 13px; font-weight: 600; color: {paleta_vol_j1['riesgo_texto']};'>● {vol_label_j1}</span>"
+            f"</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
     
     with col_vs:
         st.markdown("""
@@ -1688,26 +1703,41 @@ def render_value_bets():
         svg_j2 = render_pentagono_svg(pr2, lam2, j2["promedio_dardos"], j2["checkouts"], j2["pct_victorias"], color="#ff7f0e")
         st.markdown(f"<div style='text-align: center;'>{svg_j2}</div>", unsafe_allow_html=True)
         
-        # Datos en 6 columnas: 5 naranjas + 1 de volatilidad con semáforo (verde/amarillo/rojo)
-        vol_j2 = j2.get("volatilidad", 0.0)
-        paleta_vol_j2 = color_volatilidad(vol_j2)
-        dcols = st.columns(6)
+        # Datos en 5 columnas coloreados en naranja
+        dcols = st.columns(5)
         datos_j2 = [
-            ("Power", f"{pr2:.1f}", "#ff7f0e", "rgba(255, 127, 14, 0.1)"),
-            ("λ 180s", f"{lam2:.2f}", "#ff7f0e", "rgba(255, 127, 14, 0.1)"),
-            ("Ø Dardos", f"{j2['promedio_dardos']:.1f}", "#ff7f0e", "rgba(255, 127, 14, 0.1)"),
-            ("Checkout", f"{j2['checkouts']:.0f}%", "#ff7f0e", "rgba(255, 127, 14, 0.1)"),
-            ("% Vic", f"{j2['pct_victorias']:.0f}%", "#ff7f0e", "rgba(255, 127, 14, 0.1)"),
-            ("Volatilidad", f"{vol_j2:.1f}".replace(".", ","), paleta_vol_j2["valor"], paleta_vol_j2["bg"]),
+            ("Power", f"{pr2:.1f}"),
+            ("λ 180s", f"{lam2:.2f}"),
+            ("Ø Dardos", f"{j2['promedio_dardos']:.1f}"),
+            ("Checkout", f"{j2['checkouts']:.0f}%"),
+            ("% Vic", f"{j2['pct_victorias']:.0f}%")
         ]
-        for idx, (label, valor, color, bg) in enumerate(datos_j2):
+        for idx, (label, valor) in enumerate(datos_j2):
             with dcols[idx]:
                 st.markdown(f"""
-                <div style='text-align: center; padding: 10px; background: {bg}; border-radius: 6px; border-left: 3px solid {color};'>
+                <div style='text-align: center; padding: 10px; background: rgba(255, 127, 14, 0.1); border-radius: 6px; border-left: 3px solid #ff7f0e;'>
                     <p style='margin: 0; font-size: 11px; color: #666;'>{label}</p>
-                    <p style='margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: {color};'>{valor}</p>
+                    <p style='margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #ff7f0e;'>{valor}</p>
                 </div>
                 """, unsafe_allow_html=True)
+        
+        # Card de Índice Volatilidad — separada, full-width, con semáforo
+        vol_j2 = j2.get("volatilidad", 0.0)
+        paleta_vol_j2 = color_volatilidad(vol_j2)
+        vol_label_j2 = paleta_vol_j2["riesgo_label"].capitalize() if paleta_vol_j2["riesgo_label"] else "Sin datos"
+        vol_str_j2 = f"{vol_j2:.2f}".replace(".", ",")
+        st.markdown(
+            f"<div style='margin-top: 12px; text-align: center; padding: 14px 18px; "
+            f"background: {paleta_vol_j2['bg']}; border-radius: 8px; "
+            f"border: 1px solid {paleta_vol_j2['borde']};'>"
+            f"<p style='margin: 0; font-size: 12px; color: #666; font-weight: 600;'>📉 Índice Volatilidad</p>"
+            f"<div style='margin-top: 8px; display: flex; align-items: baseline; justify-content: center; gap: 12px; flex-wrap: wrap;'>"
+            f"<span style='font-size: 26px; font-weight: bold; color: {paleta_vol_j2['valor']};'>{vol_str_j2}</span>"
+            f"<span style='font-size: 13px; font-weight: 600; color: {paleta_vol_j2['riesgo_texto']};'>● {vol_label_j2}</span>"
+            f"</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
     
     st.markdown("---")
     st.markdown("### 🔥 Head to Head Semanal")
