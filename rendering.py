@@ -10,6 +10,7 @@ Depende de: config, helpers, data_loading, stats_engine.
 import streamlit as st
 import pandas as pd
 import numpy as np
+from datetime import datetime
 
 from config import URLS, CORTES, PESTANAS_CON_STATS
 from helpers import (
