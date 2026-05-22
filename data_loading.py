@@ -581,13 +581,12 @@ def obtener_proximos_partidos_api(limite=3):
     # Ordenar cronológicamente (la API suele dar fechas ISO ordenables)
     proximos.sort(key=lambda p: p["_sort"])
 
-    # Construir etiqueta legible para el desplegable
+    # Construir etiqueta legible para el desplegable.
+    # La fecha se usa solo para ordenar (arriba), no se muestra al usuario:
+    # la etiqueta es simplemente "Jugador 1 vs Jugador 2".
     resultado = []
     for p in proximos[:limite]:
-        if p["fecha"]:
-            etiqueta = f"{p['j1']} vs {p['j2']}  ·  {p['fecha']}"
-        else:
-            etiqueta = f"{p['j1']} vs {p['j2']}"
+        etiqueta = f"{p['j1']} vs {p['j2']}"
         resultado.append({
             "id": p["id"],
             "j1": p["j1"],
