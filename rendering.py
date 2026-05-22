@@ -17,7 +17,9 @@ from helpers import (
     safe_float, color_volatilidad, calcular_tendencia, sanitize_prob,
     buscar_jugador, calcular_yield, pct, badge_yield, obtener_bandera,
 )
-from data_loading import cargar_todo, cargar_jugadores_desde
+from data_loading import (
+    cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+)
 from stats_engine import (
     prob_victoria, prob_180s, quien_hace_mas_180s, handicaps_legs,
     legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
@@ -538,6 +540,82 @@ def render_value_bets():
         tiempo_transcurrido = (datetime.now() - st.session_state.last_update[fuente]).seconds
         st.info(f"📊 {len(nombres_disponibles)} jugadores | ⏱️ Actualizado hace {tiempo_transcurrido}s")
     st.markdown("### 🥊 Seleccionar Enfrentamiento")
+
+    # ── Desplegable de próximos partidos ──────────────────────────────────────
+    # Lista los 3 próximos partidos que aún no han empezado (vía API de MODUS).
+    # Al elegir uno, autocompleta los selectores manuales de J1 y J2 de abajo.
+    # Si la API no responde o no hay próximos partidos, simplemente no aparece.
+    proximos = obtener_proximos_partidos_api(limite=3)
+    if proximos:
+        def _emparejar_nombre(nombre_api, candidatos):
+            """Empareja un nombre de la API con uno de la lista del desplegable.
+            Hace match exacto primero y, si falla, match difuso por subcadena
+            (útil cuando la API y el spreadsheet escriben el nombre distinto).
+            Devuelve el nombre del candidato o None si no hay coincidencia.
+            """
+            if not nombre_api:
+                return None
+            na = nombre_api.lower().strip()
+            # Match exacto (ignorando mayúsculas)
+            for c in candidatos:
+                if c.lower().strip() == na:
+                    return c
+            # Match por subcadena en ambos sentidos
+            for c in candidatos:
+                cl = c.lower().strip()
+                if na in cl or cl in na:
+                    return c
+            # Match por apellido (última palabra)
+            ape = na.split()[-1] if na.split() else na
+            for c in candidatos:
+                if ape and ape in c.lower():
+                    return c
+            return None
+
+        OPCION_MANUAL = "— Selección manual —"
+        opciones_prox = [OPCION_MANUAL] + [p["etiqueta"] for p in proximos]
+
+        seleccion_prox = st.selectbox(
+            "📅 Próximos partidos",
+            opciones_prox,
+            index=0,
+            key="vb_proximo_partido",
+            help="Elige un partido para autocompletar los jugadores. "
+                 "Se muestran los 3 próximos que aún no han empezado."
+        )
+
+        # Si el usuario eligió un partido concreto, autocompletar J1 y J2.
+        # Guardamos cuál fue la última etiqueta aplicada para no sobrescribir
+        # las selecciones manuales del usuario en cada rerun.
+        if seleccion_prox != OPCION_MANUAL:
+            partido = next((p for p in proximos
+                            if p["etiqueta"] == seleccion_prox), None)
+            if partido and st.session_state.get("vb_ultimo_prox") != seleccion_prox:
+                j1_match = _emparejar_nombre(partido["j1"], nombres_disponibles)
+                j2_match = _emparejar_nombre(partido["j2"], nombres_disponibles)
+                if j1_match and j2_match and j1_match != j2_match:
+                    st.session_state.vb_j1 = j1_match
+                    st.session_state.vb_j2 = j2_match
+                    st.session_state.vb_ultimo_prox = seleccion_prox
+                    st.rerun()
+                else:
+                    # No se pudo emparejar alguno de los dos jugadores
+                    faltan = []
+                    if not j1_match:
+                        faltan.append(partido["j1"])
+                    if not j2_match:
+                        faltan.append(partido["j2"])
+                    if faltan:
+                        st.warning(
+                            "⚠️ No encontré en esta fuente de datos a: "
+                            + ", ".join(faltan)
+                            + ". Selecciónalos manualmente abajo."
+                        )
+        else:
+            # Volvió a "Selección manual": limpiar el marcador para permitir
+            # que un partido se pueda volver a aplicar más adelante.
+            st.session_state.vb_ultimo_prox = None
+
     if st.session_state.vb_j1 is None or st.session_state.vb_j1 not in nombres_disponibles:
         st.session_state.vb_j1 = nombres_disponibles[0]
     if st.session_state.vb_j2 is None or st.session_state.vb_j2 not in nombres_disponibles:
@@ -545,24 +623,30 @@ def render_value_bets():
         st.session_state.vb_j2 = opciones_j2[0] if opciones_j2 else nombres_disponibles[0]
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
+        # El selectbox usa 'vb_j1' como key directamente: así el widget y el
+        # estado de sesión son la MISMA variable. Esto permite que el
+        # desplegable de próximos partidos autocomplete el valor sin que el
+        # widget lo sobrescriba con su memoria interna en el rerun.
         j1_sel = st.selectbox(
             "Jugador 1",
             nombres_disponibles,
             index=nombres_disponibles.index(st.session_state.vb_j1),
-            key="sel_j1"
+            key="vb_j1"
         )
-        st.session_state.vb_j1 = j1_sel
     with col2:
         opciones_j2 = [n for n in nombres_disponibles if n != j1_sel]
+        if not opciones_j2:
+            opciones_j2 = nombres_disponibles
+        # Si el J2 actual ya no es válido (coincide con J1), ajustarlo antes
+        # de crear el widget — no se puede modificar la key después de crearlo.
         if st.session_state.vb_j2 not in opciones_j2:
-            st.session_state.vb_j2 = opciones_j2[0] if opciones_j2 else nombres_disponibles[0]
+            st.session_state.vb_j2 = opciones_j2[0]
         j2_sel = st.selectbox(
             "Jugador 2",
             opciones_j2,
-            index=opciones_j2.index(st.session_state.vb_j2) if st.session_state.vb_j2 in opciones_j2 else 0,
-            key="sel_j2"
+            index=opciones_j2.index(st.session_state.vb_j2),
+            key="vb_j2"
         )
-        st.session_state.vb_j2 = j2_sel
     with col3:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔢 Calcular", type="primary", use_container_width=True, help="Calcular probabilidades"):
