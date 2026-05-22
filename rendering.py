@@ -590,13 +590,24 @@ def render_value_bets():
             opciones_prox,
             index=0,
             key="vb_proximo_partido",
-            help="Elige un partido para autocompletar los jugadores. "
-                 "Se muestran los 3 próximos que aún no han empezado."
+            help="Elige un partido para autocompletar automáticamente "
+                 "Jugador 1 y Jugador 2. Se muestran los 3 próximos partidos "
+                 "que aún no han empezado."
         )
 
         # Si el usuario eligió un partido concreto, autocompletar J1 y J2.
-        # Guardamos cuál fue la última etiqueta aplicada para no sobrescribir
-        # las selecciones manuales del usuario en cada rerun.
+        #
+        # Importante: NO se hace st.rerun() aquí. Un rerun reinicia toda la
+        # app y haría que la barra lateral volviese a la sección por defecto
+        # (LIVE), sacando al usuario de Value Bets. En su lugar, escribimos
+        # directamente en st.session_state.vb_j1 / vb_j2 ANTES de que los
+        # selectbox de abajo se creen: como esos selectbox usan esas mismas
+        # claves, se renderizan ya con los jugadores correctos en este mismo
+        # run, sin recargar la página.
+        #
+        # 'vb_ultimo_prox' recuerda qué partido se aplicó por última vez, para
+        # no machacar las selecciones manuales del usuario en cada rerun
+        # natural de Streamlit (al pulsar otros widgets de la página).
         if seleccion_prox != OPCION_MANUAL:
             partido = next((p for p in proximos
                             if p["etiqueta"] == seleccion_prox), None)
@@ -604,10 +615,14 @@ def render_value_bets():
                 j1_match = _emparejar_nombre(partido["j1"], nombres_disponibles)
                 j2_match = _emparejar_nombre(partido["j2"], nombres_disponibles)
                 if j1_match and j2_match and j1_match != j2_match:
+                    # Escritura directa en las claves de los widgets J1/J2.
+                    # Es seguro porque los widgets aún no se han instanciado.
                     st.session_state.vb_j1 = j1_match
                     st.session_state.vb_j2 = j2_match
                     st.session_state.vb_ultimo_prox = seleccion_prox
-                    st.rerun()
+                    st.success(
+                        f"✅ Enfrentamiento cargado: **{j1_match}** vs **{j2_match}**"
+                    )
                 else:
                     # No se pudo emparejar alguno de los dos jugadores
                     faltan = []
@@ -641,30 +656,34 @@ def render_value_bets():
         st.session_state.vb_j2 = opciones_j2[0] if opciones_j2 else nombres_disponibles[0]
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
-        # El selectbox usa 'vb_j1' como key directamente: así el widget y el
+        # El selectbox usa 'vb_j1' como key directamente: el widget y el
         # estado de sesión son la MISMA variable. Esto permite que el
-        # desplegable de próximos partidos autocomplete el valor sin que el
-        # widget lo sobrescriba con su memoria interna en el rerun.
-        j1_sel = st.selectbox(
-            "Jugador 1",
-            nombres_disponibles,
-            index=nombres_disponibles.index(st.session_state.vb_j1),
-            key="vb_j1"
-        )
+        # desplegable de próximos partidos autocomplete el valor sin recargar.
+        #
+        # Solo pasamos 'index' la primera vez (cuando la key aún no existe en
+        # session_state). Si ya existe, Streamlit usa el valor de la key, así
+        # que pasar 'index' además sería redundante y podría dar un warning.
+        kwargs_j1 = {"key": "vb_j1"}
+        if "vb_j1" not in st.session_state or st.session_state.vb_j1 not in nombres_disponibles:
+            valor_inicial = st.session_state.get("vb_j1")
+            if valor_inicial not in nombres_disponibles:
+                valor_inicial = nombres_disponibles[0]
+            kwargs_j1["index"] = nombres_disponibles.index(valor_inicial)
+        j1_sel = st.selectbox("Jugador 1", nombres_disponibles, **kwargs_j1)
     with col2:
         opciones_j2 = [n for n in nombres_disponibles if n != j1_sel]
         if not opciones_j2:
             opciones_j2 = nombres_disponibles
-        # Si el J2 actual ya no es válido (coincide con J1), ajustarlo antes
-        # de crear el widget — no se puede modificar la key después de crearlo.
-        if st.session_state.vb_j2 not in opciones_j2:
+        # Si el J2 actual ya no es válido (coincide con J1 o no está en la
+        # lista), ajustarlo ANTES de crear el widget — no se puede tocar la
+        # key una vez instanciado el selectbox.
+        if st.session_state.get("vb_j2") not in opciones_j2:
             st.session_state.vb_j2 = opciones_j2[0]
-        j2_sel = st.selectbox(
-            "Jugador 2",
-            opciones_j2,
-            index=opciones_j2.index(st.session_state.vb_j2),
-            key="vb_j2"
-        )
+        kwargs_j2 = {"key": "vb_j2"}
+        # Pasamos index solo si la key todavía no existe (primer render).
+        if "vb_j2" not in st.session_state:
+            kwargs_j2["index"] = 0
+        j2_sel = st.selectbox("Jugador 2", opciones_j2, **kwargs_j2)
     with col3:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔢 Calcular", type="primary", use_container_width=True, help="Calcular probabilidades"):
