@@ -544,34 +544,44 @@ def render_value_bets():
     # ── Desplegable de próximos partidos ──────────────────────────────────────
     # Lista los 3 próximos partidos que aún no han empezado (vía API de MODUS).
     # Al elegir uno, autocompleta los selectores manuales de J1 y J2 de abajo.
-    # Si la API no responde o no hay próximos partidos, simplemente no aparece.
-    proximos = obtener_proximos_partidos_api(limite=3)
-    if proximos:
-        def _emparejar_nombre(nombre_api, candidatos):
-            """Empareja un nombre de la API con uno de la lista del desplegable.
-            Hace match exacto primero y, si falla, match difuso por subcadena
-            (útil cuando la API y el spreadsheet escriben el nombre distinto).
-            Devuelve el nombre del candidato o None si no hay coincidencia.
-            """
-            if not nombre_api:
-                return None
-            na = nombre_api.lower().strip()
-            # Match exacto (ignorando mayúsculas)
-            for c in candidatos:
-                if c.lower().strip() == na:
-                    return c
-            # Match por subcadena en ambos sentidos
-            for c in candidatos:
-                cl = c.lower().strip()
-                if na in cl or cl in na:
-                    return c
-            # Match por apellido (última palabra)
-            ape = na.split()[-1] if na.split() else na
-            for c in candidatos:
-                if ape and ape in c.lower():
-                    return c
-            return None
+    # Si la API no responde, se muestra un mensaje explicando el motivo en
+    # lugar de ocultar el desplegable silenciosamente.
+    resultado_api = obtener_proximos_partidos_api(limite=3)
+    # Compatibilidad: la función ahora devuelve un dict; si por lo que sea
+    # llegara una lista (versión antigua en caché), la adaptamos.
+    if isinstance(resultado_api, dict):
+        proximos = resultado_api.get("partidos", [])
+        diagnostico = resultado_api.get("diagnostico", "")
+    else:
+        proximos = resultado_api or []
+        diagnostico = ""
 
+    def _emparejar_nombre(nombre_api, candidatos):
+        """Empareja un nombre de la API con uno de la lista del desplegable.
+        Hace match exacto primero y, si falla, match difuso por subcadena
+        (útil cuando la API y el spreadsheet escriben el nombre distinto).
+        Devuelve el nombre del candidato o None si no hay coincidencia.
+        """
+        if not nombre_api:
+            return None
+        na = nombre_api.lower().strip()
+        # Match exacto (ignorando mayúsculas)
+        for c in candidatos:
+            if c.lower().strip() == na:
+                return c
+        # Match por subcadena en ambos sentidos
+        for c in candidatos:
+            cl = c.lower().strip()
+            if na in cl or cl in na:
+                return c
+        # Match por apellido (última palabra)
+        ape = na.split()[-1] if na.split() else na
+        for c in candidatos:
+            if ape and ape in c.lower():
+                return c
+        return None
+
+    if proximos:
         OPCION_MANUAL = "— Selección manual —"
         opciones_prox = [OPCION_MANUAL] + [p["etiqueta"] for p in proximos]
 
@@ -615,6 +625,14 @@ def render_value_bets():
             # Volvió a "Selección manual": limpiar el marcador para permitir
             # que un partido se pueda volver a aplicar más adelante.
             st.session_state.vb_ultimo_prox = None
+    else:
+        # No hay próximos partidos: mostrar el motivo en vez de ocultar todo.
+        st.caption(
+            "📅 Próximos partidos: " +
+            (diagnostico or "no hay partidos pendientes ahora mismo.") +
+            " Selecciona los jugadores manualmente abajo."
+        )
+
 
     if st.session_state.vb_j1 is None or st.session_state.vb_j1 not in nombres_disponibles:
         st.session_state.vb_j1 = nombres_disponibles[0]
