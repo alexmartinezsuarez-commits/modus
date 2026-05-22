@@ -495,92 +495,119 @@ def obtener_proximos_partidos_api(limite=3):
     una vez el partido ha comenzado; aquí solo interesan los nombres de los
     dos jugadores para autocompletar el selector de Value Bets.
 
-    Cada elemento devuelto es un dict con:
-        - id:     identificador del fixture
-        - j1:     jugador local (playerHome)
-        - j2:     jugador visitante (playerAway)
-        - fecha:  cadena de fecha/hora tal cual la da la API (puede ir vacía)
-        - etiqueta: texto listo para mostrar en el desplegable
+    DEVUELVE UN DICT con dos claves:
+        - "partidos": lista de dicts {id, j1, j2, fecha, etiqueta}
+        - "diagnostico": string explicando qué pasó (para mostrar al usuario
+          si la lista sale vacía). Cadena vacía si todo fue bien.
 
-    Devuelve [] si no hay próximos partidos o si la API falla.
+    De esta forma el frontend puede distinguir entre "la API falló",
+    "la API respondió pero no hay próximos partidos" y "todo OK".
     """
+    base_url = "https://api-igamedc.igamemedia.com/api/mss-web"
+
+    # Paso 1: petición raíz para saber semana y grupos activos
     try:
-        base_url = "https://api-igamedc.igamemedia.com/api/mss-web"
-        response = requests.get(f"{base_url}/results-fixtures", timeout=5)
-        if response.status_code != 200:
-            return []
+        response = requests.get(f"{base_url}/results-fixtures", timeout=8)
+    except Exception as e:
+        return {"partidos": [],
+                "diagnostico": f"No se pudo conectar con la API de MODUS ({type(e).__name__})."}
+
+    if response.status_code != 200:
+        return {"partidos": [],
+                "diagnostico": f"La API de MODUS respondió con código {response.status_code}."}
+
+    try:
         data = response.json()
-        week_activa = data.get("selected", {}).get("week", "")
-        grupos = data.get("selected", {}).get("groups",
-                                              [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 8}])
-        proximos = []
-        vistos = set()  # evita duplicados si un fixture aparece en varios grupos
-
-        for grupo in grupos:
-            url = f"{base_url}/results-fixtures?group={grupo['id']}"
-            if week_activa:
-                url += f"&week={week_activa}"
-            try:
-                resp = requests.get(url, timeout=5)
-                if resp.status_code != 200:
-                    continue
-                cuerpo = resp.json()
-                fixtures = cuerpo.get("Fixtures", cuerpo.get("fixtures", []))
-                for fixture in fixtures:
-                    # Solo partidos que no han empezado
-                    if fixture.get("status", "").lower() != "not started":
-                        continue
-                    j1 = (fixture.get("playerHome", "") or "").strip()
-                    j2 = (fixture.get("playerAway", "") or "").strip()
-                    if not j1 or not j2:
-                        continue
-                    fixture_id = (fixture.get("gameId") or fixture.get("Id")
-                                  or fixture.get("id") or f"{j1}-{j2}")
-                    if fixture_id in vistos:
-                        continue
-                    vistos.add(fixture_id)
-                    # La API puede nombrar la fecha de varias formas; probamos
-                    # las más habituales y nos quedamos con la primera no vacía.
-                    fecha = ""
-                    for campo in ("fixture", "date", "startDate", "startTime",
-                                  "scheduledTime", "kickoff"):
-                        val = fixture.get(campo, "")
-                        if val:
-                            fecha = str(val)
-                            break
-                    proximos.append({
-                        "id": fixture_id,
-                        "j1": j1,
-                        "j2": j2,
-                        "fecha": fecha,
-                        # Orden de prioridad SR (sort raw): usamos la fecha como
-                        # clave; si está vacía, queda al final.
-                        "_sort": fecha or "zzzz",
-                    })
-            except Exception:
-                continue
-
-        # Ordenar cronológicamente (la API suele dar fechas ISO ordenables)
-        proximos.sort(key=lambda p: p["_sort"])
-
-        # Construir etiqueta legible para el desplegable
-        resultado = []
-        for p in proximos[:limite]:
-            if p["fecha"]:
-                etiqueta = f"{p['j1']} vs {p['j2']}  ·  {p['fecha']}"
-            else:
-                etiqueta = f"{p['j1']} vs {p['j2']}"
-            resultado.append({
-                "id": p["id"],
-                "j1": p["j1"],
-                "j2": p["j2"],
-                "fecha": p["fecha"],
-                "etiqueta": etiqueta,
-            })
-        return resultado
     except Exception:
-        # Silencioso: si la API falla, el desplegable simplemente no aparece
-        return []
+        return {"partidos": [],
+                "diagnostico": "La API de MODUS no devolvió un JSON válido."}
+
+    week_activa = data.get("selected", {}).get("week", "")
+    grupos = data.get("selected", {}).get("groups",
+                                          [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 8}])
+
+    proximos = []
+    vistos = set()       # evita duplicados si un fixture aparece en varios grupos
+    total_fixtures = 0   # cuántos fixtures vimos en total
+    estados_vistos = {}  # recuento de estados, para diagnóstico
+
+    for grupo in grupos:
+        url = f"{base_url}/results-fixtures?group={grupo.get('id')}"
+        if week_activa:
+            url += f"&week={week_activa}"
+        try:
+            resp = requests.get(url, timeout=8)
+            if resp.status_code != 200:
+                continue
+            cuerpo = resp.json()
+            fixtures = cuerpo.get("Fixtures", cuerpo.get("fixtures", []))
+            for fixture in fixtures:
+                total_fixtures += 1
+                estado = (fixture.get("status", "") or "").lower().strip()
+                estados_vistos[estado] = estados_vistos.get(estado, 0) + 1
+                # Solo partidos que no han empezado.
+                # Aceptamos varias formas de escribirlo por si la API cambia.
+                if estado not in ("not started", "notstarted", "scheduled",
+                                  "upcoming", "pending", ""):
+                    continue
+                j1 = (fixture.get("playerHome", "") or "").strip()
+                j2 = (fixture.get("playerAway", "") or "").strip()
+                if not j1 or not j2:
+                    continue
+                fixture_id = (fixture.get("gameId") or fixture.get("Id")
+                              or fixture.get("id") or f"{j1}-{j2}")
+                if fixture_id in vistos:
+                    continue
+                vistos.add(fixture_id)
+                # La API puede nombrar la fecha de varias formas; probamos
+                # las más habituales y nos quedamos con la primera no vacía.
+                fecha = ""
+                for campo in ("fixture", "date", "startDate", "startTime",
+                              "scheduledTime", "kickoff", "Date", "dateTime"):
+                    val = fixture.get(campo, "")
+                    if val:
+                        fecha = str(val)
+                        break
+                proximos.append({
+                    "id": fixture_id,
+                    "j1": j1,
+                    "j2": j2,
+                    "fecha": fecha,
+                    "_sort": fecha or "zzzz",
+                })
+        except Exception:
+            continue
+
+    # Ordenar cronológicamente (la API suele dar fechas ISO ordenables)
+    proximos.sort(key=lambda p: p["_sort"])
+
+    # Construir etiqueta legible para el desplegable
+    resultado = []
+    for p in proximos[:limite]:
+        if p["fecha"]:
+            etiqueta = f"{p['j1']} vs {p['j2']}  ·  {p['fecha']}"
+        else:
+            etiqueta = f"{p['j1']} vs {p['j2']}"
+        resultado.append({
+            "id": p["id"],
+            "j1": p["j1"],
+            "j2": p["j2"],
+            "fecha": p["fecha"],
+            "etiqueta": etiqueta,
+        })
+
+    # Diagnóstico para el caso de lista vacía
+    if resultado:
+        diag = ""
+    elif total_fixtures == 0:
+        diag = "La API de MODUS respondió pero no devolvió ningún partido."
+    else:
+        resumen_estados = ", ".join(f"{k or 'sin estado'}: {v}"
+                                    for k, v in estados_vistos.items())
+        diag = (f"La API devolvió {total_fixtures} partido(s), pero ninguno "
+                f"está pendiente de empezar. Estados encontrados → {resumen_estados}.")
+
+    return {"partidos": resultado, "diagnostico": diag}
 
 
 def get_jornada_actual():
