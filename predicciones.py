@@ -1,6 +1,85 @@
 """
 predicciones.py - Registro y seguimiento de predicciones del modelo.
 
+
+Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
+probabilidades que el modelo calcula para los partidos de una jornada, y
+despues medir la calidad del modelo comparando cada prediccion con el
+resultado real del partido.
+
+
+Metricas que calcula (FASE 1, sin yield):
+- Tasa de acierto: % de veces que el favorito del modelo gano.
+- Calibracion: cuando el modelo dice 70%, ¿pasa ~70% de las veces?
+- Brier score: medida agregada de la calidad de las predicciones.
+
+
+Almacenamiento: Google Sheets via gspread + cuenta de servicio. Las
+credenciales se leen de st.secrets["gcp_service_account_json"], que debe
+contener el JSON de la cuenta de servicio entre triples comillas.
+
+
+Depende de: config, stats_engine, data_loading.
+"""
+
+
+import json
+de fecha y hora importar fecha y hora
+
+
+import streamlit como st
+import pandas as pd
+
+
+desde stats_engine importar (
+prob_victoria, prob_180s, quien_hace_mas_180s,
+hándicaps_piernas, piernas_totales,
+)
+
+
+# Las librerias de Google son opcionales: si no estan instaladas, el modulo
+# sigue importando y el resto de la app funciona; solo el tracking queda
+# desactivado con un aviso. Esto evita que un fallo de dependencias de
+# Google tumbe toda la aplicacion.
+prueba:"""
+predicciones.py - Registro y seguimiento de predicciones del modelo.
+
+Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
+probabilidades que el modelo calcula para los partidos de una jornada, y
+despues medir la calidad del modelo comparando cada prediccion con el
+resultado real del partido.
+
+Metricas que calcula (FASE 1, sin yield):
+- Tasa de acierto: % de veces que el favorito del modelo gano.
+- Calibracion: cuando el modelo dice 70%, ¿pasa ~70% de las veces?
+- Brier score: medida agregada de la calidad de las predicciones.
+
+Almacenamiento: Google Sheets via gspread + cuenta de servicio. Las
+credenciales se leen de st.secrets["gcp_service_account_json"], que debe
+contener el JSON de la cuenta de servicio entre triples comillas.
+
+Depende de: config, stats_engine, data_loading.
+"""
+
+import json
+de fecha y hora importar fecha y hora
+
+import streamlit como st
+import pandas as pd
+
+desde stats_engine importar (
+prob_victoria, prob_180s, quien_hace_mas_180s,
+hándicaps_piernas, piernas_totales,
+)
+
+# Las librerias de Google son opcionales: si no estan instaladas, el modulo
+# sigue importando y el resto de la app funciona; solo el tracking queda
+# desactivado con un aviso. Esto evita que un fallo de dependencias de
+# Google tumbe toda la aplicacion.
+prueba:
+"""
+predicciones.py - Registro y seguimiento de predicciones del modelo.
+
 Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
 probabilidades que el modelo calcula para los partidos de una jornada, y
 despues medir la calidad del modelo comparando cada prediccion con el
@@ -28,6 +107,7 @@ from stats_engine import (
     prob_victoria, prob_180s, quien_hace_mas_180s,
     handicaps_legs, legs_totales,
 )
+from config import SHEET_ID_PREDICCIONES
 
 # Las librerias de Google son opcionales: si no estan instaladas, el modulo
 # sigue importando y el resto de la app funciona; solo el tracking queda
@@ -184,12 +264,10 @@ def diagnostico_conexion(url_sheet):
         return "\n\n".join(lineas)
     lineas.append("✅ Credenciales de Google validas.")
 
-    # 2) Abrir el libro por URL
-    if not url_sheet:
-        lineas.append("❌ No hay URL del Google Sheet para esta fuente.")
-        return "\n\n".join(lineas)
+    # 2) Abrir el libro por su ID (no por la URL publicada, que gspread no
+    #    puede usar para escribir). El ID esta fijado en config.py.
     try:
-        libro = cliente.open_by_url(url_sheet)
+        libro = cliente.open_by_key(SHEET_ID_PREDICCIONES)
         lineas.append(f"✅ Sheet abierto: '{libro.title}'.")
     except Exception as e:
         nombre_err = type(e).__name__
@@ -201,8 +279,9 @@ def diagnostico_conexion(url_sheet):
             )
         elif "SpreadsheetNotFound" in nombre_err or "404" in str(e):
             lineas.append(
-                "❌ No se encontro el Sheet con esa URL. Comprueba que la "
-                "URL es correcta."
+                "❌ No se encontro el Sheet. Comprueba que el ID en "
+                "config.py (SHEET_ID_PREDICCIONES) es correcto y que el "
+                "Sheet esta compartido con la cuenta de servicio."
             )
         else:
             lineas.append(f"❌ No se pudo abrir el Sheet: {nombre_err}: {e}")
@@ -232,8 +311,12 @@ def diagnostico_conexion(url_sheet):
     return "\n\n".join(lineas)
 
 
-def _abrir_hoja_predicciones(url_sheet):
+def _abrir_hoja_predicciones(url_sheet=None):
     """Abre (o crea) la pestaña 'Predicciones' dentro del Google Sheet.
+
+    El parametro url_sheet se mantiene por compatibilidad pero se ignora: el
+    Sheet se abre siempre por su ID (SHEET_ID_PREDICCIONES de config.py),
+    porque las URLs publicadas no sirven para escribir con gspread.
 
     Devuelve una tupla (worksheet, error):
       - Si todo va bien: (worksheet, "").
@@ -243,11 +326,8 @@ def _abrir_hoja_predicciones(url_sheet):
     if cliente is None:
         return None, err
 
-    if not url_sheet:
-        return None, "No hay URL del Google Sheet para esta fuente de datos."
-
     try:
-        libro = cliente.open_by_url(url_sheet)
+        libro = cliente.open_by_key(SHEET_ID_PREDICCIONES)
     except Exception as e:
         nombre_err = type(e).__name__
         if "PermissionError" in nombre_err or "403" in str(e):
@@ -256,7 +336,11 @@ def _abrir_hoja_predicciones(url_sheet):
                 "con el email de la cuenta de servicio (permiso Editor)."
             )
         if "SpreadsheetNotFound" in nombre_err or "404" in str(e):
-            return None, "No se encontro el Sheet con esa URL."
+            return None, (
+                "No se encontro el Sheet. Revisa SHEET_ID_PREDICCIONES en "
+                "config.py y que el Sheet este compartido con la cuenta de "
+                "servicio."
+            )
         return None, f"No se pudo abrir el Sheet ({nombre_err}: {e})."
 
     try:
@@ -578,4 +662,4 @@ def calcular_metricas(df):
         "tasa_acierto": tasa,
         "brier": brier,
         "calibracion": calibracion,
-    }
+    
