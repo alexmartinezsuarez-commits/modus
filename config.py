@@ -140,3 +140,17 @@ COLORES_CLASIFICACION = {
     "Grupo B": {"verdes": 3, "rojos": 2},
     "Grupo C": {"verdes": 2, "rojos": 4},
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GOOGLE SHEET DE ESCRITURA (tracking de predicciones)
+# ─────────────────────────────────────────────────────────────────────────────
+# Las URLs de URLS son de tipo "publicado" (/d/e/2PACX-...): sirven para LEER
+# datos en CSV, pero gspread NO puede escribir con ellas.
+# Para el tracking de predicciones, gspread necesita la URL NORMAL del Sheet,
+# la que contiene el ID real del documento. Es el mismo Google Sheet, solo
+# que referenciado por su ID en lugar de por la URL de publicacion.
+SHEET_ID_PREDICCIONES = "1OwbnxDnFrRKrZqZszPz8QvJsZLFegDI_yPde4j-yN2Q"
+SHEET_URL_PREDICCIONES = (
+    f"https://docs.google.com/spreadsheets/d/{SHEET_ID_PREDICCIONES}/edit"
+)
