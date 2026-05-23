@@ -25,6 +25,9 @@ from stats_engine import (
     legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
     _extraer_metricas_jugadores,
 )
+from predicciones import (
+    registrar_predicciones, cargar_predicciones, calcular_metricas,
+)
 
 def render_barras_enfrentadas(j1_nombre, j1_prob, j2_nombre, j2_prob, j1_color="#1f77b4", j2_color="#ff7f0e"):
     total = j1_prob + j2_prob
@@ -1806,3 +1809,158 @@ def render_comparativa_completa(stats_dict, key_prefix="comp", tipo="radar"):
         render_radar_multiple(stats_dict, titulo="🕸️ Perfil Comparativo (Pentágono)", key_prefix=key_prefix)
     elif tipo == "barras":
         render_small_multiples(stats_dict, titulo="📊 Ranking por Métrica")
+
+
+def render_tracking_predicciones():
+    """Renderiza la seccion de seguimiento de predicciones del modelo.
+
+    Tiene dos partes:
+      1) Boton para registrar todas las predicciones de una jornada en la
+         hoja 'Predicciones' del Google Sheet.
+      2) Panel de metricas: tasa de acierto, Brier score y tabla de
+         calibracion, calculadas sobre las predicciones ya verificadas.
+
+    Pensada para colocarse al final de la pestana Value Bets.
+    """
+    st.markdown("---")
+    st.markdown("## 📈 Seguimiento del modelo")
+    st.caption(
+        "Registra las predicciones de una jornada y compara, con el tiempo, "
+        "lo que el modelo predijo frente a lo que realmente ocurrio."
+    )
+
+    # ── Parte 1: registrar predicciones de una jornada ───────────────────────
+    with st.expander("📝 Registrar predicciones de una jornada", expanded=False):
+        st.markdown(
+            "Calcula **todos los mercados** de **todos los enfrentamientos** "
+            "de la fuente seleccionada y los guarda en la hoja *Predicciones*. "
+            "Registrar dos veces la misma jornada no duplica filas."
+        )
+
+        # Fuente de datos para los enfrentamientos
+        fuente_reg = selector_jornada("trk", incluir_resumen=False)
+
+        # Identificador de semana (el usuario lo confirma o ajusta)
+        semana_def = datetime.now().strftime("Semana %Y-%m-%d")
+        semana_reg = st.text_input(
+            "Identificador de la jornada/semana",
+            value=semana_def,
+            key="trk_semana",
+            help="Etiqueta para agrupar estas predicciones. Cambiala si "
+                 "registras una semana distinta."
+        )
+
+        if st.button("📝 Registrar predicciones de esta jornada",
+                      type="primary", key="trk_btn_registrar"):
+            with st.spinner(f"Cargando jugadores de '{fuente_reg}'..."):
+                db = cargar_jugadores_desde(fuente_reg)
+            if not db:
+                st.error(f"No se encontraron jugadores en '{fuente_reg}'.")
+            else:
+                # Construir los enfrentamientos. Como las pestanas diarias no
+                # dan emparejamientos directos, generamos todas las parejas
+                # posibles de jugadores de la fuente (cada par una vez).
+                jugadores = list(db.values())
+                enfrentamientos = []
+                for i in range(len(jugadores)):
+                    for j in range(i + 1, len(jugadores)):
+                        enfrentamientos.append((jugadores[i], jugadores[j]))
+
+                with st.spinner(
+                    f"Calculando y registrando {len(enfrentamientos)} "
+                    f"enfrentamientos..."
+                ):
+                    url_sheet = URLS.get(fuente_reg, "")
+                    resultado = registrar_predicciones(
+                        url_sheet, enfrentamientos, semana_reg, fuente_reg
+                    )
+
+                if resultado["ok"]:
+                    st.success(
+                        f"✅ Registro completado: "
+                        f"**{resultado['nuevas']}** predicciones nuevas, "
+                        f"{resultado['duplicadas']} ya existian "
+                        f"({resultado['total']} mercados procesados)."
+                    )
+                    # Limpiar cache de lectura para que el panel se actualice
+                    cargar_predicciones.clear()
+                else:
+                    st.error(f"❌ {resultado['error']}")
+
+    # ── Parte 2: panel de metricas de calibracion ────────────────────────────
+    st.markdown("### 🎯 Calidad del modelo")
+
+    # Leemos las predicciones de la fuente que el usuario tenga seleccionada
+    # arriba en Value Bets (vb_fuente); si no, del primer URL disponible.
+    fuente_metricas = st.session_state.get("vb_fuente", "")
+    url_metricas = URLS.get(fuente_metricas, "")
+    if not url_metricas and URLS:
+        url_metricas = list(URLS.values())[0]
+
+    with st.spinner("Leyendo predicciones registradas..."):
+        df_pred = cargar_predicciones(url_metricas)
+
+    if df_pred is None or df_pred.empty:
+        st.info(
+            "ℹ️ Aun no hay predicciones registradas (o no se pudo leer la "
+            "hoja). Registra una jornada con el boton de arriba para empezar."
+        )
+        return
+
+    metricas = calcular_metricas(df_pred)
+
+    total_reg = len(df_pred)
+    evaluadas = metricas["evaluadas"]
+    pendientes = metricas["pendientes"]
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Predicciones registradas", total_reg)
+    c2.metric("Verificadas", evaluadas)
+    c3.metric("Pendientes de resultado", pendientes)
+
+    if evaluadas == 0:
+        st.info(
+            "Hay predicciones registradas pero ninguna verificada todavia. "
+            "Cuando los partidos terminen, rellena la columna **Acierto** "
+            "de la hoja *Predicciones* (1 = acerto, 0 = fallo) y las "
+            "metricas apareceran aqui."
+        )
+        return
+
+    # Metricas principales
+    m1, m2 = st.columns(2)
+    m1.metric("Tasa de acierto", f"{metricas['tasa_acierto']:.1f}%",
+              help="% de predicciones acertadas sobre las verificadas.")
+    if metricas["brier"] is not None:
+        m2.metric("Brier score", f"{metricas['brier']:.3f}",
+                  help="Calidad de las probabilidades. 0 = perfecto, "
+                       "0.25 = azar. Cuanto menor, mejor.")
+
+    # Aviso de muestra pequena
+    if evaluadas < 30:
+        st.warning(
+            f"⚠️ Solo hay {evaluadas} predicciones verificadas. Con tan pocas, "
+            f"estas cifras son muy ruidosas: tomalas como orientativas hasta "
+            f"acumular bastantes mas."
+        )
+
+    # Tabla de calibracion
+    if metricas["calibracion"]:
+        st.markdown("#### 📊 Calibracion del modelo")
+        st.caption(
+            "Para cada tramo de probabilidad: lo que el modelo predijo de "
+            "media frente a lo que realmente paso. Si ambas columnas se "
+            "parecen, el modelo esta bien calibrado."
+        )
+        df_calib = pd.DataFrame(metricas["calibracion"])
+        df_calib = df_calib.rename(columns={
+            "rango": "Rango de probabilidad",
+            "n": "Nº predicciones",
+            "prob_media": "Modelo predijo (media)",
+            "real": "Ocurrio realmente",
+        })
+        df_calib["Modelo predijo (media)"] = df_calib["Modelo predijo (media)"].map(
+            lambda v: f"{v:.1f}%")
+        df_calib["Ocurrio realmente"] = df_calib["Ocurrio realmente"].map(
+            lambda v: f"{v:.1f}%")
+        st.dataframe(df_calib, use_container_width=True, hide_index=True)
