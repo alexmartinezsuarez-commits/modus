@@ -50,7 +50,7 @@ from data_loading import cargar_todo, get_jornada_actual, get_proxima_jornada
 from helpers import pintar_partidos
 from rendering import (
     render_jugador_visual, render_value_bets, render_small_multiples,
-    selector_jornada,
+    selector_jornada, render_tracking_predicciones,
 )
 from clasificacion import (
     detectar_grupo, construir_grupos_final,
@@ -203,6 +203,7 @@ if "🔴 LIVE" in opcion_principal:
 
 elif "💰 VALUE BETS" in opcion_principal:
     render_value_bets()
+    render_tracking_predicciones()
 
 elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     st.title("📊 RESULTADOS Y ESTADÍSTICAS")
@@ -264,4 +265,3 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
         for g in ("Grupo A", "Grupo B", "Grupo C"):
             render_clasificacion_grupo(g)
             st.markdown("")
-
