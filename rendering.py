@@ -1,6 +1,82 @@
 """
 rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
 
+
+Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
+comparativas, heatmaps, radares y la vista completa de Value Bets.
+
+
+Depende de: config, helpers, data_loading, stats_engine.
+"""
+
+
+import streamlit como st
+import pandas como pd
+import numpy como np
+de fecha y hora importar fecha y hora
+
+
+desde config importar URL, CORTES, PESTANAS_CON_ESTADÍSTICAS
+desde helpers importar (
+safe_float, color_volatilidad, calcular_tendencia, sanitize_prob,
+buscar_jugador, calcular_rendimiento, pct, insignia_rendimiento, obtener_bandera,
+)
+desde data_loading importar (
+cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+)
+de stats_engine importar (
+prob_victoria, prob_180s, quién_hace_más_180s, handicaps_legs,
+legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
+_extraer_metricas_jugadores,
+)
+
+
+# El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
+# o alguna de sus dependencias (gspread, google-auth), la app debe seguir
+# funcionando con normalidad y solo se desactiva la seccion de tracking.
+prueba:
+from predicciones import (
+registrar_predicciones, cargar_predicciones, calcular_metricas,
+seguimiento_disponible,
+)"""
+rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
+
+Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
+comparativas, heatmaps, radares y la vista completa de Value Bets.
+
+Depende de: config, helpers, data_loading, stats_engine.
+"""
+
+import streamlit como st
+import pandas como pd
+import numpy como np
+de fecha y hora importar fecha y hora
+
+desde config importar URL, CORTES, PESTANAS_CON_ESTADÍSTICAS
+desde helpers importar (
+safe_float, color_volatilidad, calcular_tendencia, sanitize_prob,
+buscar_jugador, calcular_rendimiento, pct, insignia_rendimiento, obtener_bandera,
+)
+desde data_loading importar (
+cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+)
+de stats_engine importar (
+prob_victoria, prob_180s, quién_hace_más_180s, handicaps_legs,
+legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
+_extraer_metricas_jugadores,
+)
+
+# El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
+# o alguna de sus dependencias (gspread, google-auth), la app debe seguir
+# funcionando con normalidad y solo se desactiva la seccion de tracking.
+prueba:
+from predicciones import (
+registrar_predicciones, cargar_predicciones, calcular_metricas,
+seguimiento_disponible,
+)
+"""
+rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
+
 Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
 comparativas, heatmaps, radares y la vista completa de Value Bets.
 
@@ -32,7 +108,7 @@ from stats_engine import (
 try:
     from predicciones import (
         registrar_predicciones, cargar_predicciones, calcular_metricas,
-        tracking_disponible,
+        tracking_disponible, diagnostico_conexion,
     )
     _PREDICCIONES_OK = True
     _PREDICCIONES_ERROR = ""
@@ -43,6 +119,7 @@ except Exception as _e:
     cargar_predicciones = None
     calcular_metricas = None
     tracking_disponible = None
+    diagnostico_conexion = None
 
 def render_barras_enfrentadas(j1_nombre, j1_prob, j2_nombre, j2_prob, j1_color="#1f77b4", j2_color="#ff7f0e"):
     total = j1_prob + j2_prob
@@ -1887,6 +1964,18 @@ def render_tracking_predicciones():
                  "registras una semana distinta."
         )
 
+        # Boton de diagnostico: prueba la conexion paso a paso y muestra
+        # exactamente que funciona y que no, para depurar sin mirar los logs.
+        if st.button("🔧 Probar conexion con Google Sheets",
+                     key="trk_btn_diag"):
+            url_diag = URLS.get(fuente_reg, "")
+            with st.spinner("Probando conexion..."):
+                if diagnostico_conexion is not None:
+                    informe = diagnostico_conexion(url_diag)
+                else:
+                    informe = "El modulo de predicciones no se cargo."
+            st.code(informe, language="text")
+
         if st.button("📝 Registrar predicciones de esta jornada",
                       type="primary", key="trk_btn_registrar"):
             with st.spinner(f"Cargando jugadores de '{fuente_reg}'..."):
@@ -2000,4 +2089,4 @@ def render_tracking_predicciones():
             lambda v: f"{v:.1f}%")
         df_calib["Ocurrio realmente"] = df_calib["Ocurrio realmente"].map(
             lambda v: f"{v:.1f}%")
-        st.dataframe(df_calib, use_container_width=True, hide_index=True)
+        st.dataframe(df_calib, use_container_width=True, hide_index=True
