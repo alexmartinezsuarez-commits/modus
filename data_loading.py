@@ -12,6 +12,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
+import re
 from datetime import datetime, timedelta
 
 from config import URLS, CORTES
@@ -483,6 +484,31 @@ def obtener_partidos_vivos_api():
         return None
 
 
+def _limpiar_nombre_jugador(nombre):
+    """Limpia el nombre de un jugador devuelto por la API.
+
+    La API puede añadir información extra al nombre: códigos de país entre
+    paréntesis "(ENG)", rankings numéricos "1. ", siglas entre corchetes,
+    espacios sobrantes, etc. Esta función deja únicamente el nombre limpio.
+
+    Ejemplos:
+        "George Killington (ENG)" -> "George Killington"
+        "1. Richie Howson"        -> "Richie Howson"
+        "  Arne  Spee  "          -> "Arne Spee"
+    """
+    if not nombre:
+        return ""
+    texto = str(nombre)
+    # Quitar lo que vaya entre paréntesis o corchetes (país, ranking, etc.)
+    texto = re.sub(r"\([^)]*\)", "", texto)
+    texto = re.sub(r"\[[^\]]*\]", "", texto)
+    # Quitar un prefijo de ranking tipo "12. " o "3) " al principio
+    texto = re.sub(r"^\s*\d+\s*[.)\-]\s*", "", texto)
+    # Colapsar espacios múltiples y recortar
+    texto = re.sub(r"\s+", " ", texto).strip()
+    return texto
+
+
 @st.cache_data(ttl=60)
 def obtener_proximos_partidos_api(limite=3):
     """Devuelve los próximos partidos que aún NO han empezado.
@@ -550,8 +576,8 @@ def obtener_proximos_partidos_api(limite=3):
                 if estado not in ("not started", "notstarted", "scheduled",
                                   "upcoming", "pending", ""):
                     continue
-                j1 = (fixture.get("playerHome", "") or "").strip()
-                j2 = (fixture.get("playerAway", "") or "").strip()
+                j1 = _limpiar_nombre_jugador(fixture.get("playerHome", ""))
+                j2 = _limpiar_nombre_jugador(fixture.get("playerAway", ""))
                 if not j1 or not j2:
                     continue
                 fixture_id = (fixture.get("gameId") or fixture.get("Id")
