@@ -535,7 +535,32 @@ def render_value_bets():
     if not db_jugadores:
         st.warning(f"⚠️ No se encontraron jugadores en '{fuente}'.")
         return
-    nombres_disponibles = sorted([v["nombre_original"] for v in db_jugadores.values()])
+
+    # Además de la fuente seleccionada, cargamos la base GLOBAL de jugadores
+    # desde el Resumen Semanal, que contiene a TODOS los jugadores de la
+    # semana (Grupo A, B y C). Esto permite que el desplegable de próximos
+    # partidos y los selectores de J1/J2 funcionen con cualquier jugador,
+    # independientemente del día/grupo seleccionado arriba.
+    #
+    # Para los cálculos seguimos prefiriendo los datos de la fuente elegida;
+    # solo si un jugador no está en esa fuente usamos su ficha del Resumen
+    # Semanal como respaldo (db_jugadores_completa).
+    db_global = {}
+    if fuente != "Resumen Semanal":
+        try:
+            db_global = cargar_jugadores_desde("Resumen Semanal") or {}
+        except Exception:
+            db_global = {}
+    # db_jugadores_completa = fuente seleccionada con prioridad, completada
+    # con los jugadores del Resumen Semanal que falten.
+    db_jugadores_completa = dict(db_global)
+    db_jugadores_completa.update(db_jugadores)  # la fuente elegida tiene prioridad
+
+    # La lista de nombres del selector usa la base COMPLETA, así puedes
+    # elegir (o autocompletar) cualquier jugador de cualquier grupo.
+    nombres_disponibles = sorted(
+        v["nombre_original"] for v in db_jugadores_completa.values()
+    )
     if fuente in st.session_state.last_update:
         tiempo_transcurrido = (datetime.now() - st.session_state.last_update[fuente]).seconds
         st.info(f"📊 {len(nombres_disponibles)} jugadores | ⏱️ Actualizado hace {tiempo_transcurrido}s")
@@ -583,7 +608,15 @@ def render_value_bets():
 
     if proximos:
         OPCION_MANUAL = "— Selección manual —"
-        opciones_prox = [OPCION_MANUAL] + [p["etiqueta"] for p in proximos]
+
+        # Reconstruimos la etiqueta de cada partido SOLO con los nombres de
+        # los dos jugadores ("J1 vs J2"), ignorando cualquier campo 'etiqueta'
+        # que venga de la API (que podría incluir fecha/hora u otra info
+        # extra). Así el desplegable siempre muestra únicamente nombres.
+        for p in proximos:
+            p["etiqueta_limpia"] = f"{p['j1']} vs {p['j2']}"
+
+        opciones_prox = [OPCION_MANUAL] + [p["etiqueta_limpia"] for p in proximos]
 
         seleccion_prox = st.selectbox(
             "📅 Próximos partidos",
@@ -610,7 +643,7 @@ def render_value_bets():
         # natural de Streamlit (al pulsar otros widgets de la página).
         if seleccion_prox != OPCION_MANUAL:
             partido = next((p for p in proximos
-                            if p["etiqueta"] == seleccion_prox), None)
+                            if p["etiqueta_limpia"] == seleccion_prox), None)
             if partido and st.session_state.get("vb_ultimo_prox") != seleccion_prox:
                 j1_match = _emparejar_nombre(partido["j1"], nombres_disponibles)
                 j2_match = _emparejar_nombre(partido["j2"], nombres_disponibles)
@@ -691,8 +724,12 @@ def render_value_bets():
     if not st.session_state.vb_calcular:
         st.info("👆 Selecciona los jugadores y pulsa **Calcular**")
         return
-    j1 = buscar_jugador(j1_sel, db_jugadores)
-    j2 = buscar_jugador(j2_sel, db_jugadores)
+    # Buscar los datos de cada jugador: primero en la fuente seleccionada
+    # (datos del día/grupo concreto) y, si no está ahí, en la base completa
+    # (Resumen Semanal). Así se puede analizar un enfrentamiento aunque uno
+    # de los jugadores sea de otro grupo distinto al seleccionado arriba.
+    j1 = buscar_jugador(j1_sel, db_jugadores) or buscar_jugador(j1_sel, db_jugadores_completa)
+    j2 = buscar_jugador(j2_sel, db_jugadores) or buscar_jugador(j2_sel, db_jugadores_completa)
     if not j1 or not j2:
         st.error("No se encontraron datos para uno de los jugadores.")
         return
