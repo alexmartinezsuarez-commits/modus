@@ -25,9 +25,22 @@ from stats_engine import (
     legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
     _extraer_metricas_jugadores,
 )
-from predicciones import (
-    registrar_predicciones, cargar_predicciones, calcular_metricas,
-)
+
+# El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
+# o alguna de sus dependencias (gspread, google-auth), la app debe seguir
+# funcionando con normalidad y solo se desactiva la seccion de tracking.
+try:
+    from predicciones import (
+        registrar_predicciones, cargar_predicciones, calcular_metricas,
+    )
+    _PREDICCIONES_OK = True
+    _PREDICCIONES_ERROR = ""
+except Exception as _e:
+    _PREDICCIONES_OK = False
+    _PREDICCIONES_ERROR = f"{type(_e).__name__}: {_e}"
+    registrar_predicciones = None
+    cargar_predicciones = None
+    calcular_metricas = None
 
 def render_barras_enfrentadas(j1_nombre, j1_prob, j2_nombre, j2_prob, j1_color="#1f77b4", j2_color="#ff7f0e"):
     total = j1_prob + j2_prob
@@ -1828,6 +1841,20 @@ def render_tracking_predicciones():
         "Registra las predicciones de una jornada y compara, con el tiempo, "
         "lo que el modelo predijo frente a lo que realmente ocurrio."
     )
+
+    # Si el modulo de predicciones no se pudo cargar (falta el archivo o sus
+    # dependencias gspread/google-auth), mostramos el motivo y salimos sin
+    # tumbar el resto de la app.
+    if not _PREDICCIONES_OK:
+        st.warning(
+            "⚠️ La seccion de seguimiento no esta disponible: el modulo "
+            "`predicciones.py` no se pudo cargar.\n\n"
+            f"Detalle tecnico: `{_PREDICCIONES_ERROR}`\n\n"
+            "Comprueba que el archivo **predicciones.py** esta subido al "
+            "repositorio y que **gspread** y **google-auth** figuran en el "
+            "archivo `requirements.txt`."
+        )
+        return
 
     # ── Parte 1: registrar predicciones de una jornada ───────────────────────
     with st.expander("📝 Registrar predicciones de una jornada", expanded=False):
