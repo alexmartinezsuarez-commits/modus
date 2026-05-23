@@ -513,23 +513,57 @@ def _limpiar_nombre_jugador(nombre):
 def obtener_proximos_partidos_api(limite=3):
     """Devuelve los próximos partidos que aún NO han empezado.
 
-    A diferencia de obtener_partidos_vivos_api (que filtra los partidos en
-    curso o terminados), esta función se queda con los que tienen estado
-    "not started" y devuelve los `limite` primeros, ordenados por fecha/hora.
+    CRITERIO DE "NO EMPEZADO" (importante):
+    No nos fiamos del campo 'status' de la API porque resulta poco fiable.
+    En su lugar aplicamos la regla observada en la pestaña Live: un partido
+    NO ha empezado cuando en sus datos SOLO aparecen los nombres de los dos
+    jugadores y NINGÚN dato de juego. Si el fixture tiene marcador, legs,
+    estadísticas, ganador, o cualquier otro dato de actividad, significa que
+    el partido ya ha comenzado (o terminado) y se descarta.
 
-    No pide el detalle de cada fixture porque las estadísticas solo existen
-    una vez el partido ha comenzado; aquí solo interesan los nombres de los
-    dos jugadores para autocompletar el selector de Value Bets.
+    Solo interesan los nombres de los dos jugadores, para autocompletar el
+    selector de Value Bets.
 
     DEVUELVE UN DICT con dos claves:
         - "partidos": lista de dicts {id, j1, j2, fecha, etiqueta}
-        - "diagnostico": string explicando qué pasó (para mostrar al usuario
-          si la lista sale vacía). Cadena vacía si todo fue bien.
-
-    De esta forma el frontend puede distinguir entre "la API falló",
-    "la API respondió pero no hay próximos partidos" y "todo OK".
+        - "diagnostico": string explicando qué pasó si la lista sale vacía.
     """
     base_url = "https://api-igamedc.igamemedia.com/api/mss-web"
+
+    # Campos del fixture que, si tienen un valor "real", indican que el
+    # partido YA tiene actividad (ha empezado o terminado).
+    CAMPOS_DE_JUEGO = (
+        "scorePlayerHome", "scorePlayerAway", "scoreHome", "scoreAway",
+        "legsPlayerHome", "legsPlayerAway", "legsHome", "legsAway",
+        "winner", "winnerId", "result", "playersStatistics", "statistics",
+        "average", "averageHome", "averageAway",
+        "turns180", "turns180Home", "turns180Away",
+        "checkoutPercentage", "currentLeg", "currentSet", "sets",
+    )
+
+    def _tiene_dato_de_juego(fixture):
+        """True si el fixture contiene algún dato que indique que el partido
+        ya tiene actividad. Un valor cuenta como "real" si no está vacío,
+        no es None, y no es un cero/cero-string (un 0-0 inicial no cuenta
+        como partido empezado)."""
+        for campo in CAMPOS_DE_JUEGO:
+            if campo not in fixture:
+                continue
+            val = fixture.get(campo)
+            if val is None:
+                continue
+            # Listas/dicts no vacíos = hay estadísticas → partido con actividad
+            if isinstance(val, (list, dict)):
+                if len(val) > 0:
+                    return True
+                continue
+            # Valores escalares: vacío o cero no cuentan como actividad
+            texto = str(val).strip().lower()
+            if texto in ("", "none", "null", "-", "0", "0.0", "0,0",
+                         "0-0", "00:00"):
+                continue
+            return True
+        return False
 
     # Paso 1: petición raíz para saber semana y grupos activos
     try:
@@ -553,9 +587,9 @@ def obtener_proximos_partidos_api(limite=3):
                                           [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 8}])
 
     proximos = []
-    vistos = set()       # evita duplicados si un fixture aparece en varios grupos
-    total_fixtures = 0   # cuántos fixtures vimos en total
-    estados_vistos = {}  # recuento de estados, para diagnóstico
+    vistos = set()        # evita duplicados si un fixture aparece en varios grupos
+    total_fixtures = 0    # cuántos fixtures vimos en total
+    ya_empezados = 0      # cuántos descartamos por tener datos de juego
 
     for grupo in grupos:
         url = f"{base_url}/results-fixtures?group={grupo.get('id')}"
@@ -569,24 +603,22 @@ def obtener_proximos_partidos_api(limite=3):
             fixtures = cuerpo.get("Fixtures", cuerpo.get("fixtures", []))
             for fixture in fixtures:
                 total_fixtures += 1
-                estado = (fixture.get("status", "") or "").lower().strip()
-                estados_vistos[estado] = estados_vistos.get(estado, 0) + 1
-                # Solo partidos que no han empezado.
-                # Aceptamos varias formas de escribirlo por si la API cambia.
-                if estado not in ("not started", "notstarted", "scheduled",
-                                  "upcoming", "pending", ""):
-                    continue
                 j1 = _limpiar_nombre_jugador(fixture.get("playerHome", ""))
                 j2 = _limpiar_nombre_jugador(fixture.get("playerAway", ""))
+                # Sin los dos nombres no es un enfrentamiento utilizable
                 if not j1 or not j2:
+                    continue
+                # CRITERIO CLAVE: si tiene datos de juego, ya empezó → descartar
+                if _tiene_dato_de_juego(fixture):
+                    ya_empezados += 1
                     continue
                 fixture_id = (fixture.get("gameId") or fixture.get("Id")
                               or fixture.get("id") or f"{j1}-{j2}")
                 if fixture_id in vistos:
                     continue
                 vistos.add(fixture_id)
-                # La API puede nombrar la fecha de varias formas; probamos
-                # las más habituales y nos quedamos con la primera no vacía.
+                # La fecha se usa SOLO para ordenar cronológicamente; no se
+                # muestra al usuario. Probamos varios nombres de campo.
                 fecha = ""
                 for campo in ("fixture", "date", "startDate", "startTime",
                               "scheduledTime", "kickoff", "Date", "dateTime"):
@@ -607,18 +639,15 @@ def obtener_proximos_partidos_api(limite=3):
     # Ordenar cronológicamente (la API suele dar fechas ISO ordenables)
     proximos.sort(key=lambda p: p["_sort"])
 
-    # Construir etiqueta legible para el desplegable.
-    # La fecha se usa solo para ordenar (arriba), no se muestra al usuario:
-    # la etiqueta es simplemente "Jugador 1 vs Jugador 2".
+    # Construir resultado: etiqueta SOLO con nombres "J1 vs J2"
     resultado = []
     for p in proximos[:limite]:
-        etiqueta = f"{p['j1']} vs {p['j2']}"
         resultado.append({
             "id": p["id"],
             "j1": p["j1"],
             "j2": p["j2"],
             "fecha": p["fecha"],
-            "etiqueta": etiqueta,
+            "etiqueta": f"{p['j1']} vs {p['j2']}",
         })
 
     # Diagnóstico para el caso de lista vacía
@@ -626,11 +655,12 @@ def obtener_proximos_partidos_api(limite=3):
         diag = ""
     elif total_fixtures == 0:
         diag = "La API de MODUS respondió pero no devolvió ningún partido."
+    elif ya_empezados == total_fixtures:
+        diag = ("Todos los partidos de esta semana ya han empezado o "
+                "terminado. Aún no hay próximos enfrentamientos publicados.")
     else:
-        resumen_estados = ", ".join(f"{k or 'sin estado'}: {v}"
-                                    for k, v in estados_vistos.items())
-        diag = (f"La API devolvió {total_fixtures} partido(s), pero ninguno "
-                f"está pendiente de empezar. Estados encontrados → {resumen_estados}.")
+        diag = ("No se encontraron próximos partidos pendientes. "
+                "Es posible que los enfrentamientos aún no estén publicados.")
 
     return {"partidos": resultado, "diagnostico": diag}
 
