@@ -1,61 +1,6 @@
 """
 predicciones.py - Registro y seguimiento de predicciones del modelo.
 
-
-
-
-
-
-
-
-Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
-probabilidades que el modelo calcula para los partidos de una jornada, y
-despues medir la calidad del modelo comparando cada prediccion con el
-resultado real del partido.
-
-
-
-
-
-
-
-
-Metricas que calcula (FASE 1, sin yield):
-- Tasa de acierto: % de veces que el favorito del modelo gano.
-- Calibracion: cuando el modelo dice 70%, ¿pasa ~70% de las veces?
-- Brier score: medida agregada de la calidad de las predicciones.
-
-
-
-
-
-
-
-
-Almacenamiento: Google Sheets via gspread + cuenta de servicio. Las
-credenciales se leen de st.secrets["gcp_service_account_json"], que debe
-contener el JSON de la cuenta de servicio entre triples comillas.
-
-
-
-
-
-
-
-
-Depende de: config, stats_engine, data_loading.
-"""
-
-
-
-
-
-
-
-
-import json"""
-predicciones.py - Registro y seguimiento de predicciones del modelo.
-
 Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
 probabilidades que el modelo calcula para los partidos de una jornada, y
 despues medir la calidad del modelo comparando cada prediccion con el
@@ -638,4 +583,4 @@ def calcular_metricas(df):
         "tasa_acierto": tasa,
         "brier": brier,
         "calibracion": calibracion,
-    
+    }
