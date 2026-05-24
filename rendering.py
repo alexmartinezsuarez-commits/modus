@@ -32,7 +32,7 @@ from stats_engine import (
 try:
     from predicciones import (
         registrar_predicciones, cargar_predicciones, calcular_metricas,
-        tracking_disponible, diagnostico_conexion,
+        tracking_disponible, diagnostico_conexion, verificar_resultados,
     )
     _PREDICCIONES_OK = True
     _PREDICCIONES_ERROR = ""
@@ -44,6 +44,7 @@ except Exception as _e:
     calcular_metricas = None
     tracking_disponible = None
     diagnostico_conexion = None
+    verificar_resultados = None
 
 def render_barras_enfrentadas(j1_nombre, j1_prob, j2_nombre, j2_prob, j1_color="#1f77b4", j2_color="#ff7f0e"):
     total = j1_prob + j2_prob
@@ -1937,7 +1938,33 @@ def render_tracking_predicciones():
                 else:
                     st.error(f"❌ {resultado['error']}")
 
-    # ── Parte 2: panel de metricas de calibracion ────────────────────────────
+    # ── Parte 2: verificacion automatica de resultados ───────────────────────
+    with st.expander("✅ Verificar resultados de los partidos", expanded=False):
+        st.markdown(
+            "Comprueba automaticamente las predicciones pendientes contra los "
+            "resultados reales de las pestanas de jornada. Cada prediccion se "
+            "marca como **acierto (1)**, **fallo (0)** o **no jugado** (si ese "
+            "enfrentamiento concreto no llego a disputarse)."
+        )
+        if st.button("✅ Verificar resultados ahora", type="primary",
+                     key="trk_btn_verificar"):
+            with st.spinner("Comparando predicciones con los resultados "
+                            "reales de las jornadas..."):
+                res_ver = verificar_resultados()
+            if res_ver["ok"]:
+                st.success(
+                    f"✅ Verificacion completada: "
+                    f"**{res_ver['aciertos']}** aciertos, "
+                    f"**{res_ver['fallos']}** fallos, "
+                    f"{res_ver['no_jugado']} no jugados, "
+                    f"{res_ver['sin_cambios']} ya estaban verificadas."
+                )
+                # Limpiar cache para que el panel de abajo se actualice
+                cargar_predicciones.clear()
+            else:
+                st.error(f"❌ {res_ver['error']}")
+
+    # ── Parte 3: panel de metricas de calibracion ────────────────────────────
     st.markdown("### 🎯 Calidad del modelo")
 
     # Leemos las predicciones de la fuente que el usuario tenga seleccionada
@@ -1962,16 +1989,60 @@ def render_tracking_predicciones():
     total_reg = len(df_pred)
     evaluadas = metricas["evaluadas"]
     pendientes = metricas["pendientes"]
+    no_jugado = metricas.get("no_jugado", 0)
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Predicciones registradas", total_reg)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Registradas", total_reg)
     c2.metric("Verificadas", evaluadas)
-    c3.metric("Pendientes de resultado", pendientes)
+    c3.metric("Pendientes", pendientes,
+              help="Predicciones de partidos que aun no se han verificado.")
+    c4.metric("No jugados", no_jugado,
+              help="Enfrentamientos que nunca llegaron a disputarse. No "
+                   "cuentan para las metricas.")
 
     if evaluadas == 0:
         st.info(
-            "Hay predicciones registradas pero ninguna verificada todavia. "
-            "Cuando los partidos terminen, rellena la columna **Acierto** "
+"""
+rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
+
+
+Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
+comparativas, heatmaps, radares y la vista completa de Value Bets.
+
+
+Depende de: config, helpers, data_loading, stats_engine.
+"""
+
+
+import streamlit como st
+import pandas como pd
+import numpy como np
+de fecha y hora importar fecha y hora
+
+
+desde config importar URL, CORTES, PESTANAS_CON_ESTADÍSTICAS
+desde helpers importar (
+safe_float, color_volatilidad, calcular_tendencia, sanitize_prob,
+buscar_jugador, calcular_rendimiento, pct, insignia_rendimiento, obtener_bandera,
+)
+desde data_loading importar (
+cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+)
+de stats_engine importar (
+prob_victoria, prob_180s, quién_hace_más_180s, handicaps_legs,
+legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
+_extraer_metricas_jugadores,
+)
+
+
+# El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
+# o alguna de sus dependencias (gspread, google-auth), la app debe seguir
+# funcionando con normalidad y solo se desactiva la seccion de tracking.
+prueba:
+from predicciones import (
+registrar_predicciones, cargar_predicciones, calcular_metricas,
+seguimiento_disponible, diagnóstico_de_conexión,
+)            "Cuando los partidos terminen, rellena la columna **Acierto** "
             "de la hoja *Predicciones* (1 = acerto, 0 = fallo) y las "
             "metricas apareceran aqui."
         )
@@ -2013,4 +2084,4 @@ def render_tracking_predicciones():
             lambda v: f"{v:.1f}%")
         df_calib["Ocurrio realmente"] = df_calib["Ocurrio realmente"].map(
             lambda v: f"{v:.1f}%")
-        st.dataframe(df_calib, use_container_width=True, hide_index=True)
+        st.dataframe(df_calib, use_container_width=True, hide_index=True
