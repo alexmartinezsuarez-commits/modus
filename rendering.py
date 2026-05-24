@@ -1,6 +1,82 @@
 """
 rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
 
+
+Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
+comparativas, heatmaps, radares y la vista completa de Value Bets.
+
+
+Depende de: config, helpers, data_loading, stats_engine.
+"""
+
+
+import streamlit como st
+import pandas como pd
+import numpy como np
+de fecha y hora importar fecha y hora
+
+
+desde config importar URL, CORTES, PESTANAS_CON_ESTADÍSTICAS
+desde helpers importar (
+safe_float, color_volatilidad, calcular_tendencia, sanitize_prob,
+buscar_jugador, calcular_rendimiento, pct, insignia_rendimiento, obtener_bandera,
+)
+desde data_loading importar (
+cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+)
+de stats_engine importar (
+prob_victoria, prob_180s, quién_hace_más_180s, handicaps_legs,
+legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
+_extraer_metricas_jugadores,
+)
+
+
+# El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
+# o alguna de sus dependencias (gspread, google-auth), la app debe seguir
+# funcionando con normalidad y solo se desactiva la seccion de tracking.
+prueba:
+from predicciones import (
+registrar_predicciones, cargar_predicciones, calcular_metricas,
+tracking_disponible, diagnostico_conexion, verificar_resultados,
+)"""
+rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
+
+Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
+comparativas, heatmaps, radares y la vista completa de Value Bets.
+
+Depende de: config, helpers, data_loading, stats_engine.
+"""
+
+import streamlit como st
+import pandas como pd
+import numpy como np
+de fecha y hora importar fecha y hora
+
+desde config importar URL, CORTES, PESTANAS_CON_ESTADÍSTICAS
+desde helpers importar (
+safe_float, color_volatilidad, calcular_tendencia, sanitize_prob,
+buscar_jugador, calcular_rendimiento, pct, insignia_rendimiento, obtener_bandera,
+)
+desde data_loading importar (
+cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+)
+de stats_engine importar (
+prob_victoria, prob_180s, quién_hace_más_180s, handicaps_legs,
+legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
+_extraer_metricas_jugadores,
+)
+
+# El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
+# o alguna de sus dependencias (gspread, google-auth), la app debe seguir
+# funcionando con normalidad y solo se desactiva la seccion de tracking.
+prueba:
+from predicciones import (
+registrar_predicciones, cargar_predicciones, calcular_metricas,
+tracking_disponible, diagnostico_conexion, verificar_resultados,
+)
+"""
+rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
+
 Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
 comparativas, heatmaps, radares y la vista completa de Value Bets.
 
@@ -1868,29 +1944,19 @@ def render_tracking_predicciones():
             st.warning(f"⚠️ Seguimiento no disponible: {motivo}")
             return
 
-    # ── Parte 1: registrar predicciones de una jornada ───────────────────────
-    with st.expander("📝 Registrar predicciones de una jornada", expanded=False):
+    # ── Parte 1: registrar UN partido concreto ───────────────────────────────
+    with st.expander("📝 Registrar un partido", expanded=False):
         st.markdown(
-            "Calcula **todos los mercados** de **todos los enfrentamientos** "
-            "de la fuente seleccionada y los guarda en la hoja *Predicciones*. "
-            "Registrar dos veces la misma jornada no duplica filas."
+            "Registra las predicciones de **un enfrentamiento concreto**, "
+            "justo antes de que se juegue. Se calculan y guardan los 22 "
+            "mercados de ese partido en la hoja *Predicciones*. Registrar el "
+            "mismo partido dos veces no duplica filas."
         )
 
-        # Fuente de datos para los enfrentamientos
+        # Fuente de datos: la jornada de la que salen los jugadores.
         fuente_reg = selector_jornada("trk", incluir_resumen=False)
 
-        # Identificador de semana (el usuario lo confirma o ajusta)
-        semana_def = datetime.now().strftime("Semana %Y-%m-%d")
-        semana_reg = st.text_input(
-            "Identificador de la jornada/semana",
-            value=semana_def,
-            key="trk_semana",
-            help="Etiqueta para agrupar estas predicciones. Cambiala si "
-                 "registras una semana distinta."
-        )
-
-        # Boton de diagnostico: prueba la conexion paso a paso y muestra
-        # exactamente que funciona y que no, para depurar sin mirar los logs.
+        # Botón de diagnóstico: prueba la conexión paso a paso.
         if st.button("🔧 Probar conexion con Google Sheets",
                      key="trk_btn_diag"):
             url_diag = URLS.get(fuente_reg, "")
@@ -1901,42 +1967,67 @@ def render_tracking_predicciones():
                     informe = "El modulo de predicciones no se cargo."
             st.code(informe, language="text")
 
-        if st.button("📝 Registrar predicciones de esta jornada",
-                      type="primary", key="trk_btn_registrar"):
-            with st.spinner(f"Cargando jugadores de '{fuente_reg}'..."):
-                db = cargar_jugadores_desde(fuente_reg)
-            if not db:
-                st.error(f"No se encontraron jugadores en '{fuente_reg}'.")
-            else:
-                # Construir los enfrentamientos. Como las pestanas diarias no
-                # dan emparejamientos directos, generamos todas las parejas
-                # posibles de jugadores de la fuente (cada par una vez).
-                jugadores = list(db.values())
-                enfrentamientos = []
-                for i in range(len(jugadores)):
-                    for j in range(i + 1, len(jugadores)):
-                        enfrentamientos.append((jugadores[i], jugadores[j]))
+        # Cargar los jugadores de esa fuente para los dos selectores.
+        with st.spinner(f"Cargando jugadores de '{fuente_reg}'..."):
+            db_reg = cargar_jugadores_desde(fuente_reg)
 
-                with st.spinner(
-                    f"Calculando y registrando {len(enfrentamientos)} "
-                    f"enfrentamientos..."
-                ):
-                    url_sheet = URLS.get(fuente_reg, "")
-                    resultado = registrar_predicciones(
-                        url_sheet, enfrentamientos, semana_reg, fuente_reg
-                    )
+        if not db_reg:
+            st.warning(f"No se encontraron jugadores en '{fuente_reg}'.")
+        else:
+            nombres_reg = sorted(v["nombre_original"] for v in db_reg.values())
 
-                if resultado["ok"]:
-                    st.success(
-                        f"✅ Registro completado: "
-                        f"**{resultado['nuevas']}** predicciones nuevas, "
-                        f"{resultado['duplicadas']} ya existian "
-                        f"({resultado['total']} mercados procesados)."
-                    )
-                    # Limpiar cache de lectura para que el panel se actualice
-                    cargar_predicciones.clear()
+            # Selectores de los dos jugadores del partido a registrar.
+            cr1, cr2 = st.columns(2)
+            with cr1:
+                j1_reg = st.selectbox("Jugador 1", nombres_reg,
+                                      key="trk_j1")
+            with cr2:
+                opc_j2 = [n for n in nombres_reg if n != j1_reg] or nombres_reg
+                j2_reg = st.selectbox("Jugador 2", opc_j2, key="trk_j2")
+
+            # Identificador de la jornada/semana.
+            semana_def = datetime.now().strftime("Semana %Y-%m-%d")
+            semana_reg = st.text_input(
+                "Identificador de la jornada/semana",
+                value=semana_def,
+                key="trk_semana",
+                help="Etiqueta para agrupar estas predicciones."
+            )
+
+            if st.button("📝 Registrar este partido",
+                          type="primary", key="trk_btn_registrar"):
+                if j1_reg == j2_reg:
+                    st.error("Elige dos jugadores distintos.")
                 else:
-                    st.error(f"❌ {resultado['error']}")
+                    # Buscar los dicts de los dos jugadores seleccionados.
+                    jd1 = next((v for v in db_reg.values()
+                                if v["nombre_original"] == j1_reg), None)
+                    jd2 = next((v for v in db_reg.values()
+                                if v["nombre_original"] == j2_reg), None)
+                    if not jd1 or not jd2:
+                        st.error("No se encontraron datos de los jugadores.")
+                    else:
+                        with st.spinner(
+                            f"Calculando y registrando {j1_reg} vs {j2_reg}..."
+                        ):
+                            url_sheet = URLS.get(fuente_reg, "")
+                            # registrar_predicciones espera una lista de
+                            # enfrentamientos: aqui pasamos solo uno.
+                            resultado = registrar_predicciones(
+                                url_sheet, [(jd1, jd2)],
+                                semana_reg, fuente_reg
+                            )
+                        if resultado["ok"]:
+                            st.success(
+                                f"✅ Partido registrado: **{j1_reg}** vs "
+                                f"**{j2_reg}** — {resultado['nuevas']} "
+                                f"predicciones nuevas, "
+                                f"{resultado['duplicadas']} ya existian "
+                                f"({resultado['total']} mercados)."
+                            )
+                            cargar_predicciones.clear()
+                        else:
+                            st.error(f"❌ {resultado['error']}")
 
     # ── Parte 2: verificacion automatica de resultados ───────────────────────
     with st.expander("✅ Verificar resultados de los partidos", expanded=False):
@@ -2045,4 +2136,4 @@ def render_tracking_predicciones():
             lambda v: f"{v:.1f}%")
         df_calib["Ocurrio realmente"] = df_calib["Ocurrio realmente"].map(
             lambda v: f"{v:.1f}%")
-        st.dataframe(df_calib, use_container_width=True, hide_index=True)
+        st.dataframe(df_calib, use_container_width=True, hide_index=True
