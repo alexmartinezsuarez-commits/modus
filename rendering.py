@@ -1444,6 +1444,44 @@ def render_value_bets():
     else:
         st.info("ℹ️ No se encontraron value bets con las cuotas introducidas")
 
+    # ── Registrar este partido en el seguimiento ─────────────────────────────
+    # Como el enfrentamiento (j1, j2) ya esta calculado aqui, ofrecemos
+    # registrarlo directamente, sin tener que volver a elegir los jugadores
+    # en otra seccion. Es el flujo natural: calculas un partido y, si quieres
+    # hacerle seguimiento, lo registras con un clic.
+    if _PREDICCIONES_OK and registrar_predicciones is not None:
+        st.markdown("---")
+        st.markdown("#### 📝 Seguimiento del modelo")
+        st.caption(
+            "Registra este enfrentamiento para comparar despues lo que el "
+            "modelo predijo con el resultado real. Hazlo justo antes de que "
+            "el partido se juegue."
+        )
+        semana_vb = st.text_input(
+            "Identificador de la jornada/semana",
+            value=datetime.now().strftime("Semana %Y-%m-%d"),
+            key="vb_semana_track",
+            help="Etiqueta para agrupar las predicciones de esta jornada."
+        )
+        if st.button(f"📝 Registrar {j1_sel} vs {j2_sel}",
+                     key="vb_btn_registrar_partido"):
+            with st.spinner(f"Registrando {j1_sel} vs {j2_sel}..."):
+                url_sheet = URLS.get(fuente, "")
+                resultado = registrar_predicciones(
+                    url_sheet, [(j1, j2)], semana_vb, fuente
+                )
+            if resultado["ok"]:
+                st.success(
+                    f"✅ Partido registrado: **{j1_sel}** vs **{j2_sel}** — "
+                    f"{resultado['nuevas']} predicciones nuevas, "
+                    f"{resultado['duplicadas']} ya existian "
+                    f"({resultado['total']} mercados)."
+                )
+                if cargar_predicciones is not None:
+                    cargar_predicciones.clear()
+            else:
+                st.error(f"❌ {resultado['error']}")
+
 def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadísticas"):
     """Renderiza un heatmap (tabla coloreada) con las 5 métricas clave por jugador.
 
@@ -1868,90 +1906,22 @@ def render_tracking_predicciones():
             st.warning(f"⚠️ Seguimiento no disponible: {motivo}")
             return
 
-    # ── Parte 1: registrar UN partido concreto ───────────────────────────────
-    with st.expander("📝 Registrar un partido", expanded=False):
-        st.markdown(
-            "Registra las predicciones de **un enfrentamiento concreto**, "
-            "justo antes de que se juegue. Se calculan y guardan los 22 "
-            "mercados de ese partido en la hoja *Predicciones*. Registrar el "
-            "mismo partido dos veces no duplica filas."
-        )
+    # ── Parte 1: como registrar (el registro se hace desde Value Bets) ───────
+    st.info(
+        "📝 **Para registrar un partido**: arriba, en Value Bets, selecciona "
+        "los dos jugadores, pulsa **Calcular** y al final del analisis "
+        "encontraras el boton **Registrar este partido**. Asi registras el "
+        "enfrentamiento con los mismos jugadores que acabas de analizar."
+    )
 
-        # Fuente de datos: la jornada de la que salen los jugadores.
-        fuente_reg = selector_jornada("trk", incluir_resumen=False)
-
-        # Botón de diagnóstico: prueba la conexión paso a paso.
-        if st.button("🔧 Probar conexion con Google Sheets",
-                     key="trk_btn_diag"):
-            url_diag = URLS.get(fuente_reg, "")
-            with st.spinner("Probando conexion..."):
-                if diagnostico_conexion is not None:
-                    informe = diagnostico_conexion(url_diag)
-                else:
-                    informe = "El modulo de predicciones no se cargo."
-            st.code(informe, language="text")
-
-        # Cargar los jugadores de esa fuente para los dos selectores.
-        with st.spinner(f"Cargando jugadores de '{fuente_reg}'..."):
-            db_reg = cargar_jugadores_desde(fuente_reg)
-
-        if not db_reg:
-            st.warning(f"No se encontraron jugadores en '{fuente_reg}'.")
-        else:
-            nombres_reg = sorted(v["nombre_original"] for v in db_reg.values())
-
-            # Selectores de los dos jugadores del partido a registrar.
-            cr1, cr2 = st.columns(2)
-            with cr1:
-                j1_reg = st.selectbox("Jugador 1", nombres_reg,
-                                      key="trk_j1")
-            with cr2:
-                opc_j2 = [n for n in nombres_reg if n != j1_reg] or nombres_reg
-                j2_reg = st.selectbox("Jugador 2", opc_j2, key="trk_j2")
-
-            # Identificador de la jornada/semana.
-            semana_def = datetime.now().strftime("Semana %Y-%m-%d")
-            semana_reg = st.text_input(
-                "Identificador de la jornada/semana",
-                value=semana_def,
-                key="trk_semana",
-                help="Etiqueta para agrupar estas predicciones."
-            )
-
-            if st.button("📝 Registrar este partido",
-                          type="primary", key="trk_btn_registrar"):
-                if j1_reg == j2_reg:
-                    st.error("Elige dos jugadores distintos.")
-                else:
-                    # Buscar los dicts de los dos jugadores seleccionados.
-                    jd1 = next((v for v in db_reg.values()
-                                if v["nombre_original"] == j1_reg), None)
-                    jd2 = next((v for v in db_reg.values()
-                                if v["nombre_original"] == j2_reg), None)
-                    if not jd1 or not jd2:
-                        st.error("No se encontraron datos de los jugadores.")
-                    else:
-                        with st.spinner(
-                            f"Calculando y registrando {j1_reg} vs {j2_reg}..."
-                        ):
-                            url_sheet = URLS.get(fuente_reg, "")
-                            # registrar_predicciones espera una lista de
-                            # enfrentamientos: aqui pasamos solo uno.
-                            resultado = registrar_predicciones(
-                                url_sheet, [(jd1, jd2)],
-                                semana_reg, fuente_reg
-                            )
-                        if resultado["ok"]:
-                            st.success(
-                                f"✅ Partido registrado: **{j1_reg}** vs "
-                                f"**{j2_reg}** — {resultado['nuevas']} "
-                                f"predicciones nuevas, "
-                                f"{resultado['duplicadas']} ya existian "
-                                f"({resultado['total']} mercados)."
-                            )
-                            cargar_predicciones.clear()
-                        else:
-                            st.error(f"❌ {resultado['error']}")
+    # Boton de diagnostico de la conexion con Google Sheets.
+    if st.button("🔧 Probar conexion con Google Sheets", key="trk_btn_diag"):
+        with st.spinner("Probando conexion..."):
+            if diagnostico_conexion is not None:
+                informe = diagnostico_conexion("")
+            else:
+                informe = "El modulo de predicciones no se cargo."
+        st.code(informe, language="text")
 
     # ── Parte 2: verificacion automatica de resultados ───────────────────────
     with st.expander("✅ Verificar resultados de los partidos", expanded=False):
