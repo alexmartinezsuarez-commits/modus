@@ -1,6 +1,85 @@
 """
 predicciones.py - Registro y seguimiento de predicciones del modelo.
 
+
+Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
+probabilidades que el modelo calcula para los partidos de una jornada, y
+despues medir la calidad del modelo comparando cada prediccion con el
+resultado real del partido.
+
+
+Metricas que calcula (FASE 1, sin yield):
+- Tasa de acierto: % de veces que el favorito del modelo gano.
+- Calibracion: cuando el modelo dice 70%, ¿pasa ~70% de las veces?
+- Brier score: medida agregada de la calidad de las predicciones.
+
+
+Almacenamiento: Google Sheets via gspread + cuenta de servicio. Las
+credenciales se leen de st.secrets["gcp_service_account_json"], que debe
+contener el JSON de la cuenta de servicio entre triples comillas.
+
+
+Depende de: config, stats_engine, data_loading.
+"""
+
+
+import json
+de fecha y hora importar fecha y hora
+
+
+import streamlit como st
+import pandas as pd
+
+
+desde stats_engine importar (
+prob_victoria, prob_180s, quien_hace_mas_180s,
+hándicaps_piernas, piernas_totales,
+)
+desde config importar SHEET_ID_PREDICCIONES
+
+
+# Las librerias de Google son opcionales: si no estan instaladas, el modulo
+# sigue importando y el resto de la app funciona; solo el tracking queda
+# desactivado con un aviso. Esto evita que un fallo de dependencias de
+# Google tumbe toda la aplicacion."""
+predicciones.py - Registro y seguimiento de predicciones del modelo.
+
+Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
+probabilidades que el modelo calcula para los partidos de una jornada, y
+despues medir la calidad del modelo comparando cada prediccion con el
+resultado real del partido.
+
+Metricas que calcula (FASE 1, sin yield):
+- Tasa de acierto: % de veces que el favorito del modelo gano.
+- Calibracion: cuando el modelo dice 70%, ¿pasa ~70% de las veces?
+- Brier score: medida agregada de la calidad de las predicciones.
+
+Almacenamiento: Google Sheets via gspread + cuenta de servicio. Las
+credenciales se leen de st.secrets["gcp_service_account_json"], que debe
+contener el JSON de la cuenta de servicio entre triples comillas.
+
+Depende de: config, stats_engine, data_loading.
+"""
+
+import json
+de fecha y hora importar fecha y hora
+
+import streamlit como st
+import pandas as pd
+
+desde stats_engine importar (
+prob_victoria, prob_180s, quien_hace_mas_180s,
+hándicaps_piernas, piernas_totales,
+)
+desde config importar SHEET_ID_PREDICCIONES
+
+# Las librerias de Google son opcionales: si no estan instaladas, el modulo
+# sigue importando y el resto de la app funciona; solo el tracking queda
+# desactivado con un aviso. Esto evita que un fallo de dependencias de
+# Google tumbe toda la aplicacion.
+"""
+predicciones.py - Registro y seguimiento de predicciones del modelo.
+
 Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
 probabilidades que el modelo calcula para los partidos de una jornada, y
 despues medir la calidad del modelo comparando cada prediccion con el
@@ -517,29 +596,44 @@ def calcular_metricas(df):
         calibracion:    lista de tramos con {rango, n, prob_media, real},
       }
     """
-    vacio = {"evaluadas": 0, "pendientes": 0, "aciertos": 0,
+    vacio = {"evaluadas": 0, "pendientes": 0, "no_jugado": 0, "aciertos": 0,
              "tasa_acierto": 0.0, "brier": None, "calibracion": []}
     if df is None or df.empty or "Acierto" not in df.columns:
         return vacio
 
-    # Normalizar la columna Acierto: aceptamos 1/0, si/no, true/false, vacio
+    # Normalizar la columna Acierto. Tres estados posibles:
+    #   1 / 0   -> prediccion verificada (acierto / fallo)
+    #   "no jugado" -> el enfrentamiento no se disputo (categoria aparte)
+    #   vacio   -> aun pendiente de verificar
     def _norm_acierto(v):
         s = str(v).strip().lower()
         if s in ("1", "si", "sí", "true", "verdadero", "acierto", "ok"):
             return 1
-        if s in ("0", "no", "false", "falso", "fallo"):
+        if s in ("0", "false", "falso", "fallo"):
+            return 0
+        if s in ("no jugado", "no_jugado", "nojugado", "n/a", "na"):
+            return "no_jugado"
+        if s == "no":
             return 0
         return None  # vacio / desconocido -> pendiente
 
     df = df.copy()
     df["_acierto"] = df["Acierto"].apply(_norm_acierto)
 
+    # Separar las tres categorias
+    no_jugado = int((df["_acierto"] == "no_jugado").sum())
     pendientes = int(df["_acierto"].isna().sum())
-    evaluadas_df = df[df["_acierto"].notna()].copy()
+    # Solo 1 y 0 cuentan como evaluadas
+    evaluadas_df = df[df["_acierto"].isin([0, 1])].copy()
     n_eval = len(evaluadas_df)
     if n_eval == 0:
         vacio["pendientes"] = pendientes
+        vacio["no_jugado"] = no_jugado
         return vacio
+
+    # En evaluadas_df, _acierto solo tiene 0 y 1: lo forzamos a entero para
+    # que los calculos numericos (suma, media, Brier) funcionen sin mezclas.
+    evaluadas_df["_acierto"] = evaluadas_df["_acierto"].astype(int)
 
     aciertos = int(evaluadas_df["_acierto"].sum())
     tasa = 100.0 * aciertos / n_eval
@@ -579,8 +673,367 @@ def calcular_metricas(df):
     return {
         "evaluadas": n_eval,
         "pendientes": pendientes,
+        "no_jugado": no_jugado,
         "aciertos": aciertos,
         "tasa_acierto": tasa,
         "brier": brier,
         "calibracion": calibracion,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VERIFICACION AUTOMATICA DE RESULTADOS (FASE 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Pestanas de jornada donde buscar los resultados reales de los partidos.
+JORNADAS_VERIFICABLES = [
+    "Grupo A Lunes", "Grupo A Martes", "Grupo A Miércoles",
+    "Grupo C Jueves", "Grupo B Jueves",
+    "Grupo C Viernes", "Grupo B Viernes",
+    "Final Sábado",
+]
+
+
+def _emparejar_nombre_simple(nombre, candidatos):
+    """Empareja un nombre con uno de una lista (exacto -> subcadena -> apellido).
+    Devuelve el nombre del candidato que coincide, o None.
+    """
+    if not nombre:
+        return None
+    n = str(nombre).lower().strip()
+    for c in candidatos:
+        if str(c).lower().strip() == n:
+            return c
+    for c in candidatos:
+        cl = str(c).lower().strip()
+        if n in cl or cl in n:
+            return c
+    ape = n.split()[-1] if n.split() else n
+    for c in candidatos:
+        if ape and ape in str(c).lower():
+            return c
+    return None
+
+
+def _extraer_partidos_jugados(jornada):
+    """Lee una pestana de jornada y devuelve los partidos realmente jugados.
+
+    Cada partido son DOS filas consecutivas en la zona de partidos (columnas
+    A-E): nombre, RESULTADO (legs), Nº 180S. Empareja las filas de dos en dos.
+
+    Devuelve una lista de dicts, uno por partido:
+      {j1, j2, legs1, legs2, t180_1, t180_2}
+
+    Tiene en cuenta que 'Final Sábado' tiene todo desplazado una fila mas
+    abajo (eso ya lo gestiona cargar_todo via los CORTES de config.py, asi
+    que aqui solo emparejamos las filas que cargar_todo devuelve).
+    """
+    from data_loading import cargar_todo
+    from config import URLS, CORTES
+
+    url = URLS.get(jornada, "")
+    cortes = CORTES.get(jornada, {})
+    if not url or not cortes:
+        return []
+
+    try:
+        df_izq, _ = cargar_todo(url, jornada, cortes)
+    except Exception:
+        return []
+    if df_izq is None or len(df_izq) < 2:
+        return []
+
+    # df_izq tiene columnas: [JUGADORES, RESULTADO, Nº 180S, Promedio, Checkout].
+    # Trabajamos por posicion para no depender de los nombres exactos.
+    filas = df_izq.values.tolist()
+
+    def _num(v):
+        try:
+            return int(float(str(v).replace(",", ".").strip()))
+        except Exception:
+            return None
+
+    partidos = []
+    i = 0
+    while i + 1 < len(filas):
+        f1 = filas[i]
+        f2 = filas[i + 1]
+        nombre1 = str(f1[0]).strip() if len(f1) > 0 else ""
+        nombre2 = str(f2[0]).strip() if len(f2) > 0 else ""
+        # Saltar filas sin nombre valido
+        if (not nombre1 or not nombre2 or
+                nombre1.lower() in ("nan", "") or
+                nombre2.lower() in ("nan", "")):
+            i += 1
+            continue
+        legs1 = _num(f1[1]) if len(f1) > 1 else None
+        legs2 = _num(f2[1]) if len(f2) > 1 else None
+        t180_1 = _num(f1[2]) if len(f1) > 2 else None
+        t180_2 = _num(f2[2]) if len(f2) > 2 else None
+        # Un partido valido necesita los legs de ambos
+        if legs1 is None or legs2 is None:
+            i += 1
+            continue
+        partidos.append({
+            "j1": nombre1, "j2": nombre2,
+            "legs1": legs1, "legs2": legs2,
+            "t180_1": t180_1 if t180_1 is not None else 0,
+            "t180_2": t180_2 if t180_2 is not None else 0,
+        })
+        i += 2
+
+    return partidos
+
+
+def _verificar_mercado(mercado, linea, prediccion, legs_a, legs_b,
+                       t180_a, t180_b):
+    """Comprueba si una prediccion acerto, dado el resultado real del partido.
+
+    'a' es el Jugador 1 de la prediccion, 'b' el Jugador 2 (en el mismo orden
+    en que se registraron). legs y t180 son los del partido real.
+
+    Devuelve:
+      1   -> la prediccion acerto
+      0   -> la prediccion fallo
+      None -> el mercado no se puede verificar (raro)
+    """
+    dif = legs_a - legs_b           # diferencia de legs J1 - J2
+    total_legs = legs_a + legs_b
+    gana_a = legs_a > legs_b
+
+    # ── Ganador ──────────────────────────────────────────────────────────────
+    if mercado == "Ganador":
+        # prediccion es "Gana J1" o "Gana J2"
+        acerto_es_j1 = "j1" in prediccion.lower()
+        if acerto_es_j1:
+            return 1 if gana_a else 0
+        else:
+            return 1 if not gana_a else 0
+
+    # ── Handicap legs ────────────────────────────────────────────────────────
+    if mercado == "Handicap legs":
+        # 'linea' es del tipo "J1 -1.5 Legs", "J2 +2.5 Legs", etc.
+        # 'prediccion' es "Si" / "No": Si = el modelo cree que SE CUMPLE.
+        se_cumple = None
+        l = linea.lower()
+        if l.startswith("j1 -1.5"):
+            se_cumple = dif >= 2
+        elif l.startswith("j1 -2.5"):
+            se_cumple = dif >= 3
+        elif l.startswith("j1 +1.5"):
+            se_cumple = dif >= -1     # no pierde por 2 o mas
+        elif l.startswith("j1 +2.5"):
+            se_cumple = dif >= -2
+        elif l.startswith("j2 -1.5"):
+            se_cumple = (-dif) >= 2
+        elif l.startswith("j2 -2.5"):
+            se_cumple = (-dif) >= 3
+        elif l.startswith("j2 +1.5"):
+            se_cumple = (-dif) >= -1
+        elif l.startswith("j2 +2.5"):
+            se_cumple = (-dif) >= -2
+        if se_cumple is None:
+            return None
+        predijo_si = prediccion.strip().lower() in ("si", "sí")
+        return 1 if (se_cumple == predijo_si) else 0
+
+    # ── Total de legs ────────────────────────────────────────────────────────
+    if mercado == "Total legs":
+        # 'linea' es "Más de 5.5" o "Menos de 5.5"
+        l = linea.lower()
+        if "más de" in l or "mas de" in l:
+            se_cumple = total_legs > 5.5
+        elif "menos de" in l:
+            se_cumple = total_legs < 5.5
+        else:
+            return None
+        predijo_si = prediccion.strip().lower() in ("si", "sí")
+        return 1 if (se_cumple == predijo_si) else 0
+
+    # ── 180s (lineas +0.5 / +1.5 / +2.5) ─────────────────────────────────────
+    if mercado == "180s":
+        l = linea.lower()
+        if l.startswith("j1 +0.5"):
+            se_cumple = t180_a >= 1
+        elif l.startswith("j1 +1.5"):
+            se_cumple = t180_a >= 2
+        elif l.startswith("j2 +0.5"):
+            se_cumple = t180_b >= 1
+        elif l.startswith("j2 +1.5"):
+            se_cumple = t180_b >= 2
+        elif l.startswith("ambos +0.5"):
+            se_cumple = (t180_a >= 1) and (t180_b >= 1)
+        elif l.startswith("ambos +1.5"):
+            se_cumple = (t180_a + t180_b) >= 2
+        elif l.startswith("ambos +2.5"):
+            se_cumple = (t180_a + t180_b) >= 3
+        else:
+            return None
+        predijo_si = prediccion.strip().lower() in ("si", "sí")
+        return 1 if (se_cumple == predijo_si) else 0
+
+    # ── Quien hace mas 180s (H2H) ────────────────────────────────────────────
+    if mercado == "Mas 180s (H2H)":
+        # 'prediccion' es el favorito: "J1 mas 180s" / "Empate 180s" / "J2 mas 180s"
+        if t180_a > t180_b:
+            real = "J1 mas 180s"
+        elif t180_b > t180_a:
+            real = "J2 mas 180s"
+        else:
+            real = "Empate 180s"
+        return 1 if (prediccion.strip().lower() == real.lower()) else 0
+
+    return None
+
+
+def verificar_resultados(url_sheet=None):
+    """Verifica automaticamente las predicciones pendientes comparandolas con
+    los resultados reales de los partidos en las pestanas de jornada.
+
+    Para cada prediccion sin 'Acierto':
+      - Busca si ese enfrentamiento se jugo de verdad en alguna jornada.
+      - Si se jugo: comprueba el mercado y escribe 1 o 0.
+      - Si NO se jugo: escribe "no jugado" (enfrentamiento hipotetico que
+        nunca llego a disputarse).
+
+    Escribe los resultados en LOTE en la columna 'Acierto' (y 'Resultado
+    real') de la hoja Predicciones.
+
+    Devuelve un dict resumen:
+      {ok, verificadas, aciertos, fallos, no_jugado, sin_cambios, error}
+    """
+    hoja, err = _abrir_hoja_predicciones(url_sheet)
+    if hoja is None:
+        return {"ok": False, "verificadas": 0, "aciertos": 0, "fallos": 0,
+                "no_jugado": 0, "sin_cambios": 0,
+                "error": err or "No se pudo abrir la hoja."}
+
+    # Leer todas las predicciones
+    try:
+        registros = hoja.get_all_records()
+    except Exception as e:
+        return {"ok": False, "verificadas": 0, "aciertos": 0, "fallos": 0,
+                "no_jugado": 0, "sin_cambios": 0,
+                "error": f"No se pudieron leer las predicciones: {e}"}
+
+    if not registros:
+        return {"ok": True, "verificadas": 0, "aciertos": 0, "fallos": 0,
+                "no_jugado": 0, "sin_cambios": 0, "error": ""}
+
+    # Cargar los partidos jugados de TODAS las jornadas (una sola vez).
+    # partidos_por_jornada[jornada] = lista de dicts de partido.
+    partidos_por_jornada = {}
+    for jornada in JORNADAS_VERIFICABLES:
+        partidos_por_jornada[jornada] = _extraer_partidos_jugados(jornada)
+
+    # Indice de columnas de la hoja (fila 1 = cabecera)
+    columnas = hoja.row_values(1)
+    try:
+        col_acierto = columnas.index("Acierto") + 1
+        col_resultado = columnas.index("Resultado real") + 1
+    except ValueError:
+        return {"ok": False, "verificadas": 0, "aciertos": 0, "fallos": 0,
+                "no_jugado": 0, "sin_cambios": 0,
+                "error": "La hoja no tiene las columnas 'Acierto' / "
+                         "'Resultado real'. ¿Es la hoja correcta?"}
+
+    # Recorrer predicciones y preparar las actualizaciones
+    actualizaciones = []   # lista de (fila_hoja, valor_acierto, valor_resultado)
+    aciertos = fallos = no_jugado = sin_cambios = 0
+
+    for idx, reg in enumerate(registros):
+        fila_hoja = idx + 2   # +1 cabecera, +1 base-1
+
+        # Si ya esta verificada (Acierto no vacio), no la tocamos
+        acierto_actual = str(reg.get("Acierto", "")).strip()
+        if acierto_actual != "":
+            sin_cambios += 1
+            continue
+
+        jornada = str(reg.get("Jornada", "")).strip()
+        j1_pred = str(reg.get("Jugador 1", "")).strip()
+        j2_pred = str(reg.get("Jugador 2", "")).strip()
+        mercado = str(reg.get("Mercado", "")).strip()
+        linea = str(reg.get("Linea", "")).strip()
+        prediccion = str(reg.get("Prediccion", "")).strip()
+
+        partidos = partidos_por_jornada.get(jornada, [])
+        if not partidos:
+            # Jornada desconocida o sin partidos cargados: lo dejamos pendiente
+            continue
+
+        # Buscar el partido real entre estos dos jugadores
+        nombres_jornada = []
+        for p in partidos:
+            nombres_jornada.extend([p["j1"], p["j2"]])
+        nombres_jornada = list(set(nombres_jornada))
+
+        j1_real = _emparejar_nombre_simple(j1_pred, nombres_jornada)
+        j2_real = _emparejar_nombre_simple(j2_pred, nombres_jornada)
+
+        partido = None
+        orden_invertido = False
+        if j1_real and j2_real:
+            for p in partidos:
+                if p["j1"] == j1_real and p["j2"] == j2_real:
+                    partido = p
+                    orden_invertido = False
+                    break
+                if p["j1"] == j2_real and p["j2"] == j1_real:
+                    partido = p
+                    orden_invertido = True
+                    break
+
+        if partido is None:
+            # El enfrentamiento no se jugo (pareja hipotetica)
+            actualizaciones.append((fila_hoja, "no jugado", "no jugado"))
+            no_jugado += 1
+            continue
+
+        # Alinear legs/180s con el orden J1/J2 de la PREDICCION
+        if not orden_invertido:
+            legs_a, legs_b = partido["legs1"], partido["legs2"]
+            t180_a, t180_b = partido["t180_1"], partido["t180_2"]
+        else:
+            legs_a, legs_b = partido["legs2"], partido["legs1"]
+            t180_a, t180_b = partido["t180_2"], partido["t180_1"]
+
+        resultado_txt = f"{legs_a}-{legs_b}"
+        acierto = _verificar_mercado(mercado, linea, prediccion,
+                                     legs_a, legs_b, t180_a, t180_b)
+        if acierto is None:
+            # Mercado no verificable: lo dejamos pendiente
+            continue
+
+        actualizaciones.append((fila_hoja, str(acierto), resultado_txt))
+        if acierto == 1:
+            aciertos += 1
+        else:
+            fallos += 1
+
+    # Escribir las actualizaciones en la hoja.
+    # Se hace celda por celda agrupando, pero usando update por rangos para
+    # no saturar la API. gspread permite actualizar celdas individuales;
+    # aqui agrupamos por columna en bloques.
+    if actualizaciones:
+        try:
+            celdas = []
+            for fila_hoja, val_acierto, val_resultado in actualizaciones:
+                celdas.append(gspread.Cell(fila_hoja, col_acierto, val_acierto))
+                celdas.append(gspread.Cell(fila_hoja, col_resultado,
+                                           val_resultado))
+            hoja.update_cells(celdas, value_input_option="USER_ENTERED")
+        except Exception as e:
+            return {"ok": False, "verificadas": 0, "aciertos": 0,
+                    "fallos": 0, "no_jugado": 0, "sin_cambios": sin_cambios,
+                    "error": f"Error escribiendo los resultados: {e}"}
+
+    return {
+        "ok": True,
+        "verificadas": aciertos + fallos,
+        "aciertos": aciertos,
+        "fallos": fallos,
+        "no_jugado": no_jugado,
+        "sin_cambios": sin_cambios,
+        "error": "",
+    
