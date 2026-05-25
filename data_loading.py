@@ -411,10 +411,13 @@ def cargar_jugadores_desde(pestana: str):
 
 # Pestanas de jornada candidatas a ser "la jornada de hoy", en orden
 # cronologico del torneo (lunes -> sabado).
+# Pestanas de jornada candidatas a ser "la jornada de hoy", en orden
+# cronologico del torneo. IMPORTANTE: jueves y viernes el Grupo C juega
+# por la manana y el Grupo B por la noche, asi que C va ANTES que B.
 _JORNADAS_ORDEN = [
     "Grupo A Lunes", "Grupo A Martes", "Grupo A Miércoles",
-    "Grupo B Jueves", "Grupo C Jueves",
-    "Grupo B Viernes", "Grupo C Viernes",
+    "Grupo C Jueves", "Grupo B Jueves",
+    "Grupo C Viernes", "Grupo B Viernes",
     "Final Sábado",
 ]
 

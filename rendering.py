@@ -581,10 +581,8 @@ def selector_jornada(key_prefix, incluir_resumen=True):
 def render_value_bets():
     st.title("💰 Value Bets")
     value_bets_list = []
-    with st.expander("⚙️ Configuración", expanded=True):
-        st.markdown("**📂 Fuente de datos**")
-        fuente = selector_jornada("vb", incluir_resumen=True)
-        st.session_state.vb_fuente = fuente
+    fuente = selector_jornada("vb", incluir_resumen=True)
+    st.session_state.vb_fuente = fuente
     with st.spinner(f"Cargando datos de '{fuente}'..."):
         # "Forma reciente" no es una pestana real: es la combinacion
         # ponderada de la jornada de hoy con el Resumen Semanal.
