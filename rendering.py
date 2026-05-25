@@ -1,6 +1,82 @@
 """
 rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
 
+
+Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
+comparativas, heatmaps, radares y la vista completa de Value Bets.
+
+
+Depende de: config, helpers, data_loading, stats_engine.
+"""
+
+
+import streamlit como st
+import pandas como pd
+import numpy como np
+de fecha y hora importar fecha y hora
+
+
+desde config importar URL, CORTES, PESTANAS_CON_ESTADÍSTICAS
+desde helpers importar (
+safe_float, color_volatilidad, calcular_tendencia, sanitize_prob,
+buscar_jugador, calcular_rendimiento, pct, insignia_rendimiento, obtener_bandera,
+)
+desde data_loading importar (
+cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+)
+de stats_engine importar (
+prob_victoria, prob_180s, quién_hace_más_180s, handicaps_legs,
+legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
+_extraer_metricas_jugadores,
+)
+
+
+# El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
+# o alguna de sus dependencias (gspread, google-auth), la app debe seguir
+# funcionando con normalidad y solo se desactiva la seccion de tracking.
+prueba:
+from predicciones import (
+registrar_predicciones, cargar_predicciones, calcular_metricas,
+tracking_disponible, diagnostico_conexion, verificar_resultados,
+)"""
+rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
+
+Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
+comparativas, heatmaps, radares y la vista completa de Value Bets.
+
+Depende de: config, helpers, data_loading, stats_engine.
+"""
+
+import streamlit como st
+import pandas como pd
+import numpy como np
+de fecha y hora importar fecha y hora
+
+desde config importar URL, CORTES, PESTANAS_CON_ESTADÍSTICAS
+desde helpers importar (
+safe_float, color_volatilidad, calcular_tendencia, sanitize_prob,
+buscar_jugador, calcular_rendimiento, pct, insignia_rendimiento, obtener_bandera,
+)
+desde data_loading importar (
+cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+)
+de stats_engine importar (
+prob_victoria, prob_180s, quién_hace_más_180s, handicaps_legs,
+legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
+_extraer_metricas_jugadores,
+)
+
+# El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
+# o alguna de sus dependencias (gspread, google-auth), la app debe seguir
+# funcionando con normalidad y solo se desactiva la seccion de tracking.
+prueba:
+from predicciones import (
+registrar_predicciones, cargar_predicciones, calcular_metricas,
+tracking_disponible, diagnostico_conexion, verificar_resultados,
+)
+"""
+rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
+
 Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
 comparativas, heatmaps, radares y la vista completa de Value Bets.
 
@@ -741,6 +817,38 @@ def render_value_bets():
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔢 Calcular", type="primary", use_container_width=True, help="Calcular probabilidades"):
             st.session_state.vb_calcular = True
+        # Boton pequeño para registrar este partido en el seguimiento del
+        # modelo. Va justo debajo de Calcular. Solo aparece si el modulo de
+        # predicciones esta disponible.
+        if _PREDICCIONES_OK and registrar_predicciones is not None:
+            if st.button("📝 Registrar", use_container_width=True,
+                         key="vb_btn_registrar",
+                         help="Registra este partido en el seguimiento del "
+                              "modelo (pestaña SEGUIMIENTO)."):
+                jr1 = (buscar_jugador(j1_sel, db_jugadores)
+                       or buscar_jugador(j1_sel, db_jugadores_completa))
+                jr2 = (buscar_jugador(j2_sel, db_jugadores)
+                       or buscar_jugador(j2_sel, db_jugadores_completa))
+                if not jr1 or not jr2:
+                    st.error("No se encontraron datos de los jugadores.")
+                elif j1_sel == j2_sel:
+                    st.error("Elige dos jugadores distintos.")
+                else:
+                    semana_vb = datetime.now().strftime("Semana %Y-%m-%d")
+                    with st.spinner(f"Registrando {j1_sel} vs {j2_sel}..."):
+                        resultado = registrar_predicciones(
+                            URLS.get(fuente, ""), [(jr1, jr2)],
+                            semana_vb, fuente
+                        )
+                    if resultado["ok"]:
+                        st.success(
+                            f"✅ Registrado: {j1_sel} vs {j2_sel} "
+                            f"({resultado['nuevas']} nuevas)."
+                        )
+                        if cargar_predicciones is not None:
+                            cargar_predicciones.clear()
+                    else:
+                        st.error(f"❌ {resultado['error']}")
     if not st.session_state.vb_calcular:
         st.info("👆 Selecciona los jugadores y pulsa **Calcular**")
         return
@@ -1444,44 +1552,6 @@ def render_value_bets():
     else:
         st.info("ℹ️ No se encontraron value bets con las cuotas introducidas")
 
-    # ── Registrar este partido en el seguimiento ─────────────────────────────
-    # Como el enfrentamiento (j1, j2) ya esta calculado aqui, ofrecemos
-    # registrarlo directamente, sin tener que volver a elegir los jugadores
-    # en otra seccion. Es el flujo natural: calculas un partido y, si quieres
-    # hacerle seguimiento, lo registras con un clic.
-    if _PREDICCIONES_OK and registrar_predicciones is not None:
-        st.markdown("---")
-        st.markdown("#### 📝 Seguimiento del modelo")
-        st.caption(
-            "Registra este enfrentamiento para comparar despues lo que el "
-            "modelo predijo con el resultado real. Hazlo justo antes de que "
-            "el partido se juegue."
-        )
-        semana_vb = st.text_input(
-            "Identificador de la jornada/semana",
-            value=datetime.now().strftime("Semana %Y-%m-%d"),
-            key="vb_semana_track",
-            help="Etiqueta para agrupar las predicciones de esta jornada."
-        )
-        if st.button(f"📝 Registrar {j1_sel} vs {j2_sel}",
-                     key="vb_btn_registrar_partido"):
-            with st.spinner(f"Registrando {j1_sel} vs {j2_sel}..."):
-                url_sheet = URLS.get(fuente, "")
-                resultado = registrar_predicciones(
-                    url_sheet, [(j1, j2)], semana_vb, fuente
-                )
-            if resultado["ok"]:
-                st.success(
-                    f"✅ Partido registrado: **{j1_sel}** vs **{j2_sel}** — "
-                    f"{resultado['nuevas']} predicciones nuevas, "
-                    f"{resultado['duplicadas']} ya existian "
-                    f"({resultado['total']} mercados)."
-                )
-                if cargar_predicciones is not None:
-                    cargar_predicciones.clear()
-            else:
-                st.error(f"❌ {resultado['error']}")
-
 def render_heatmap_estadisticas(stats_dict, titulo="📊 Comparativa de Estadísticas"):
     """Renderiza un heatmap (tabla coloreada) con las 5 métricas clave por jugador.
 
@@ -1875,13 +1945,11 @@ def render_tracking_predicciones():
       2) Panel de metricas: tasa de acierto, Brier score y tabla de
          calibracion, calculadas sobre las predicciones ya verificadas.
 
-    Pensada para colocarse al final de la pestana Value Bets.
+    Pensada para usarse como seccion propia ('SEGUIMIENTO').
     """
-    st.markdown("---")
-    st.markdown("## 📈 Seguimiento del modelo")
     st.caption(
-        "Registra las predicciones de una jornada y compara, con el tiempo, "
-        "lo que el modelo predijo frente a lo que realmente ocurrio."
+        "Comprueba, con el tiempo, lo que el modelo predijo frente a lo que "
+        "realmente ocurrio."
     )
 
     # Si el modulo de predicciones no se pudo cargar (falta el archivo o sus
@@ -1908,10 +1976,9 @@ def render_tracking_predicciones():
 
     # ── Parte 1: como registrar (el registro se hace desde Value Bets) ───────
     st.info(
-        "📝 **Para registrar un partido**: arriba, en Value Bets, selecciona "
-        "los dos jugadores, pulsa **Calcular** y al final del analisis "
-        "encontraras el boton **Registrar este partido**. Asi registras el "
-        "enfrentamiento con los mismos jugadores que acabas de analizar."
+        "📝 **Para registrar un partido**: ve a **Value Bets**, selecciona "
+        "los dos jugadores y pulsa el boton **📝 Registrar** (debajo de "
+        "Calcular). El partido se anade aqui para su seguimiento."
     )
 
     # Boton de diagnostico de la conexion con Google Sheets.
@@ -2051,4 +2118,4 @@ def render_tracking_predicciones():
             lambda v: f"{v:.1f}%")
         df_calib["Ocurrio realmente"] = df_calib["Ocurrio realmente"].map(
             lambda v: f"{v:.1f}%")
-        st.dataframe(df_calib, use_container_width=True, hide_index=True)
+        st.dataframe(df_calib, use_container_width=True, hide_index=True
