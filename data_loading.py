@@ -283,12 +283,19 @@ def cargar_jugadores_desde(pestana: str):
                 # Índice de volatilidad (irregularidad del rendimiento)
                 volatilidad = safe_float(_buscar_stat(s, ["índice volatilidad", "indice volatilidad", "índice de volatilidad", "volatilidad"]))
                 
+                # Numero de partidos jugados = victorias + derrotas.
+                # Se usa para ponderar la fuente "Forma reciente".
+                n_vic = safe_float(_buscar_stat(s, ["número victorias", "numero victorias", "victorias"]))
+                n_der = safe_float(_buscar_stat(s, ["número derrotas", "numero derrotas", "derrotas"]))
+                n_partidos = int(n_vic) + int(n_der)
+
                 jugadores[nombre_lower] = {
                     "nombre_original": nombre_lower.title(),
                     "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
                     "promedio_dardos": promedio_dardos,
                     "checkouts": checkouts, "pct_victorias": pct_vic,
-                    "volatilidad": volatilidad
+                    "volatilidad": volatilidad,
+                    "n_partidos": n_partidos,
                 }
             return jugadores
         
@@ -325,12 +332,18 @@ def cargar_jugadores_desde(pestana: str):
                     # Índice de volatilidad (irregularidad del rendimiento)
                     volatilidad = safe_float(_buscar_stat(s, ["índice volatilidad", "indice volatilidad", "índice de volatilidad", "volatilidad"]))
                     
+                    # Numero de partidos jugados = victorias + derrotas.
+                    n_vic = safe_float(_buscar_stat(s, ["número victorias", "numero victorias", "victorias"]))
+                    n_der = safe_float(_buscar_stat(s, ["número derrotas", "numero derrotas", "derrotas"]))
+                    n_partidos = int(n_vic) + int(n_der)
+
                     jugadores[nombre.lower()] = {
                         "nombre_original": nombre,
                         "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
                         "promedio_dardos": promedio_dardos,
                         "checkouts": checkouts, "pct_victorias": pct_vic,
-                        "volatilidad": volatilidad
+                        "volatilidad": volatilidad,
+                        "n_partidos": n_partidos,
                     }
                 return jugadores
             return {}
@@ -374,18 +387,136 @@ def cargar_jugadores_desde(pestana: str):
             
             # Índice de volatilidad (irregularidad del rendimiento)
             volatilidad = safe_float(fila.get(col_volatilidad, 0)) if col_volatilidad else 0.0
-            
+
+            # Numero de partidos jugados = victorias + derrotas.
+            col_vic = buscar_col(["número victorias", "numero victorias", "victorias"])
+            col_der = buscar_col(["número derrotas", "numero derrotas", "derrotas"])
+            n_vic = safe_float(fila.get(col_vic, 0)) if col_vic else 0.0
+            n_der = safe_float(fila.get(col_der, 0)) if col_der else 0.0
+            n_partidos = int(n_vic) + int(n_der)
+
             jugadores[nombre.lower()] = {
                 "nombre_original": nombre,
                 "PR": pr, "lam_180": lam_180, "lam_legs": lam_legs,
                 "promedio_dardos": promedio_dardos,
                 "checkouts": checkouts, "pct_victorias": pct_vic,
-                "volatilidad": volatilidad
+                "volatilidad": volatilidad,
+                "n_partidos": n_partidos,
             }
         return jugadores
     except Exception as e:
         st.error(f"Error cargando {pestana}: {e}")
         return {}
+
+
+# Pestanas de jornada candidatas a ser "la jornada de hoy", en orden
+# cronologico del torneo (lunes -> sabado).
+_JORNADAS_ORDEN = [
+    "Grupo A Lunes", "Grupo A Martes", "Grupo A Miércoles",
+    "Grupo B Jueves", "Grupo C Jueves",
+    "Grupo B Viernes", "Grupo C Viernes",
+    "Final Sábado",
+]
+
+
+def detectar_jornada_de_hoy():
+    """Detecta cual es la jornada mas reciente con datos.
+
+    Recorre las pestanas de jornada en orden cronologico y devuelve la
+    ULTIMA que tenga jugadores cargados. Si ninguna tiene datos, devuelve
+    None. Esto permite que 'Forma reciente' sepa que dia usar sin que el
+    usuario lo indique.
+    """
+    ultima = None
+    for jornada in _JORNADAS_ORDEN:
+        try:
+            jug = cargar_jugadores_desde(jornada)
+        except Exception:
+            jug = {}
+        if jug:
+            ultima = jornada
+    return ultima
+
+
+def cargar_forma_reciente():
+    """Construye la fuente de datos 'Forma reciente'.
+
+    Combina, para cada jugador, sus estadisticas de DOS fuentes:
+      - La jornada de hoy (lo mas reciente).
+      - El Resumen Semanal (el acumulado de toda la semana).
+
+    El peso de 'hoy' es DINAMICO segun cuantos partidos lleve hoy ese
+    jugador: con pocos partidos pesa poco (un solo partido no debe
+    distorsionar la valoracion), y con la jornada avanzada lo reciente
+    domina. Pesos: 1 partido -> 30%, 2 -> 45%, 3 -> 60%, 4 -> 65%,
+    5 -> 70%, y a partir de ahi sube suave hasta un tope del 85%.
+
+    Para cada estadistica numerica:
+        valor_final = peso_hoy * valor_hoy + (1 - peso_hoy) * valor_resumen
+
+    Si un jugador no aparece en la jornada de hoy (aun no ha jugado),
+    se usan directamente sus datos del Resumen Semanal.
+
+    Devuelve un dict {nombre_lower: {...stats...}} con la misma forma que
+    cargar_jugadores_desde, para que el resto de la app no note diferencia.
+    """
+    # Estadisticas numericas que se combinan
+    CAMPOS = ["PR", "lam_180", "lam_legs", "promedio_dardos",
+              "checkouts", "pct_victorias", "volatilidad"]
+
+    # Peso de "hoy" segun cuantos partidos lleve hoy el jugador.
+    # Tabla a medida: con pocos partidos pesa poco (un solo partido no debe
+    # distorsionar la valoracion); con la jornada avanzada, lo reciente
+    # domina. A partir de 5 partidos sigue subiendo suave, con tope del 85%.
+    _PESOS_HOY = {0: 0.0, 1: 0.30, 2: 0.45, 3: 0.60, 4: 0.65, 5: 0.70}
+
+    def _peso_hoy(n):
+        if n in _PESOS_HOY:
+            return _PESOS_HOY[n]
+        if n > 5:
+            return min(0.70 + 0.03 * (n - 5), 0.85)
+        return 0.0
+
+    resumen = cargar_jugadores_desde("Resumen Semanal")
+    if not resumen:
+        # Sin Resumen no hay base: devolvemos lo que haya de hoy, o vacio.
+        jornada_hoy = detectar_jornada_de_hoy()
+        return cargar_jugadores_desde(jornada_hoy) if jornada_hoy else {}
+
+    jornada_hoy = detectar_jornada_de_hoy()
+    if not jornada_hoy:
+        # No hay jornada con datos: la forma reciente es solo el Resumen.
+        return resumen
+    datos_hoy = cargar_jugadores_desde(jornada_hoy)
+
+    combinado = {}
+    for nombre_lower, jug_resumen in resumen.items():
+        jug_hoy = datos_hoy.get(nombre_lower)
+
+        if not jug_hoy:
+            # El jugador no ha jugado hoy: usamos su acumulado tal cual.
+            combinado[nombre_lower] = dict(jug_resumen)
+            continue
+
+        # Peso dinamico segun partidos jugados hoy
+        n_hoy = jug_hoy.get("n_partidos", 0)
+        peso_hoy = _peso_hoy(n_hoy)
+
+        nuevo = dict(jug_resumen)  # parte de la base del Resumen
+        for campo in CAMPOS:
+            v_hoy = jug_hoy.get(campo, 0.0)
+            v_res = jug_resumen.get(campo, 0.0)
+            # Si el valor de hoy es 0 (dato ausente), no lo mezclamos
+            if v_hoy == 0.0:
+                nuevo[campo] = v_res
+            else:
+                nuevo[campo] = peso_hoy * v_hoy + (1.0 - peso_hoy) * v_res
+        nuevo["nombre_original"] = jug_resumen.get(
+            "nombre_original", nombre_lower.title())
+        combinado[nombre_lower] = nuevo
+
+    return combinado
+
 
 @st.cache_data(ttl=5)
 def cargar_todo(url, opcion, cortes):
