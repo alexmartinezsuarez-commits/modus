@@ -2,18 +2,26 @@
 rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
 
 
+
+
 Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
 comparativas, heatmaps, radares y la vista completa de Value Bets.
+
+
 
 
 Depende de: config, helpers, data_loading, stats_engine.
 """
 
 
+
+
 import streamlit como st
 import pandas como pd
-import numpy como np
+import numpy, por ejemplo
 de fecha y hora importar fecha y hora
+
+
 
 
 desde config importar URL, CORTES, PESTANAS_CON_ESTADÍSTICAS
@@ -31,26 +39,27 @@ _extraer_metricas_jugadores,
 )
 
 
+
+
 # El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
 # o alguna de sus dependencias (gspread, google-auth), la app debe seguir
-# funcionando con normalidad y solo se desactiva la seccion de tracking.
-prueba:
-from predicciones import (
-registrar_predicciones, cargar_predicciones, calcular_metricas,
-tracking_disponible, diagnostico_conexion, verificar_resultados,
-)"""
+# funcionando con normalidad y solo se desactiva la seccion de tracking."""
 rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
 
+
 Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
 comparativas, heatmaps, radares y la vista completa de Value Bets.
+
 
 Depende de: config, helpers, data_loading, stats_engine.
 """
 
+
 import streamlit como st
 import pandas como pd
-import numpy como np
+import numpy, por ejemplo
 de fecha y hora importar fecha y hora
+
 
 desde config importar URL, CORTES, PESTANAS_CON_ESTADÍSTICAS
 desde helpers importar (
@@ -66,14 +75,10 @@ legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
 _extraer_metricas_jugadores,
 )
 
+
 # El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
 # o alguna de sus dependencias (gspread, google-auth), la app debe seguir
 # funcionando con normalidad y solo se desactiva la seccion de tracking.
-prueba:
-from predicciones import (
-registrar_predicciones, cargar_predicciones, calcular_metricas,
-tracking_disponible, diagnostico_conexion, verificar_resultados,
-)
 """
 rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
 
