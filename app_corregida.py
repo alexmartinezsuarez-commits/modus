@@ -209,7 +209,8 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     st.title("📊 RESULTADOS Y ESTADÍSTICAS")
     with st.expander("⚙️ Configuración", expanded=True):
         st.markdown("**📂 Selecciona jornada**")
-        selected = selector_jornada("res", incluir_resumen=True)
+        selected = selector_jornada("res", incluir_resumen=True,
+                                    modo_forma_reciente=False)
     selected_url = URLS[selected]
     st.markdown("---")
     d1, d2 = cargar_todo(selected_url, selected, CORTES.get(selected, 2))

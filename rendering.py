@@ -480,18 +480,21 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
     cards_html += '</div>'
     st.markdown(cards_html, unsafe_allow_html=True)
 
-def selector_jornada(key_prefix, incluir_resumen=True):
+def selector_jornada(key_prefix, incluir_resumen=True,
+                     modo_forma_reciente=True):
     """Selector de fuente de datos.
 
-    Por defecto la fuente es "⚡ Forma reciente": una combinacion de la
-    jornada de hoy con el Resumen Semanal, ponderada para dar mas peso a lo
-    reciente. El usuario no tiene que elegir nada.
+    modo_forma_reciente=True (Value Bets):
+        Por defecto la fuente es "⚡ Forma reciente" (combinacion ponderada
+        de la jornada de hoy con el Resumen Semanal). El selector manual de
+        grupo/dia va PLEGADO dentro de un expander discreto.
 
-    El selector manual de grupo/dia sigue disponible, pero PLEGADO dentro de
-    un expander discreto: si no se toca, la app usa "Forma reciente" sola.
+    modo_forma_reciente=False (Resultados y Estadisticas):
+        No existe "Forma reciente". El selector de grupo/dia se muestra
+        SIEMPRE visible, sin expander, como un menu normal.
 
     Devuelve el nombre de la fuente seleccionada (clave de URLS, o el valor
-    especial "Forma reciente").
+    especial "Forma reciente" solo en modo_forma_reciente).
     """
     grupos = {
         "Grupo A": ["Grupo A Lunes", "Grupo A Martes", "Grupo A Miércoles"],
@@ -502,39 +505,21 @@ def selector_jornada(key_prefix, incluir_resumen=True):
     grupo_key = f"{key_prefix}_grupo_sel"
     jornada_key = f"{key_prefix}_jornada_sel"
 
-    # Por defecto: Forma reciente (no hay nada que el usuario deba elegir).
+    # Valores por defecto segun el modo
+    if modo_forma_reciente:
+        defecto_jornada = "Forma reciente"
+        defecto_grupo = "Forma reciente"
+    else:
+        defecto_jornada = "Grupo A Lunes"
+        defecto_grupo = "Grupo A"
     if jornada_key not in st.session_state:
-        st.session_state[jornada_key] = "Forma reciente"
+        st.session_state[jornada_key] = defecto_jornada
     if grupo_key not in st.session_state:
-        st.session_state[grupo_key] = "Forma reciente"
+        st.session_state[grupo_key] = defecto_grupo
 
-    seleccion_actual = st.session_state[jornada_key]
-
-    # El selector manual va dentro de un expander discreto. Solo se abre
-    # automaticamente si el usuario ya habia elegido una fuente manual.
-    expandido = (seleccion_actual != "Forma reciente")
-    etiqueta_exp = "⚙️ Cambiar fuente de datos"
-    if seleccion_actual != "Forma reciente":
-        etiqueta_exp += f" — usando: {seleccion_actual}"
-
-    with st.expander(etiqueta_exp, expanded=expandido):
-        st.caption(
-            "Por defecto se usa **⚡ Forma reciente** (combina la jornada de "
-            "hoy con el acumulado semanal, dando mas peso a lo reciente). "
-            "Puedes elegir una jornada concreta abajo si lo prefieres."
-        )
-
-        # Boton para volver a Forma reciente
-        tipo_fr = "primary" if seleccion_actual == "Forma reciente" else "secondary"
-        if st.button("⚡ Forma reciente (recomendado)",
-                     key=f"{key_prefix}_btn_forma", use_container_width=True,
-                     type=tipo_fr):
-            st.session_state[jornada_key] = "Forma reciente"
-            st.session_state[grupo_key] = "Forma reciente"
-            st.rerun()
-
-        st.markdown("---")
-
+    # Funcion interna que dibuja los botones de grupo/dia. Se reutiliza en
+    # los dos modos; solo cambia si va dentro de un expander o no.
+    def _dibujar_botones():
         # Fila 1: grupos principales
         cols1 = st.columns(3)
         for i, g in enumerate(["Grupo A", "Grupo B", "Grupo C"]):
@@ -576,12 +561,41 @@ def selector_jornada(key_prefix, incluir_resumen=True):
                         st.session_state[jornada_key] = dia
                         st.rerun()
 
+    # ── Modo Resultados: menu normal, siempre visible ────────────────────────
+    if not modo_forma_reciente:
+        _dibujar_botones()
+        return st.session_state[jornada_key]
+
+    # ── Modo Value Bets: Forma reciente + selector plegado ───────────────────
+    seleccion_actual = st.session_state[jornada_key]
+    expandido = (seleccion_actual != "Forma reciente")
+    etiqueta_exp = "⚙️ Cambiar fuente de datos"
+    if seleccion_actual != "Forma reciente":
+        etiqueta_exp += f" — usando: {seleccion_actual}"
+
+    with st.expander(etiqueta_exp, expanded=expandido):
+        st.caption(
+            "Por defecto se usa **⚡ Forma reciente** (combina la jornada de "
+            "hoy con el acumulado semanal, dando mas peso a lo reciente). "
+            "Puedes elegir una jornada concreta abajo si lo prefieres."
+        )
+        tipo_fr = "primary" if seleccion_actual == "Forma reciente" else "secondary"
+        if st.button("⚡ Forma reciente (recomendado)",
+                     key=f"{key_prefix}_btn_forma", use_container_width=True,
+                     type=tipo_fr):
+            st.session_state[jornada_key] = "Forma reciente"
+            st.session_state[grupo_key] = "Forma reciente"
+            st.rerun()
+        st.markdown("---")
+        _dibujar_botones()
+
     return st.session_state[jornada_key]
 
 def render_value_bets():
     st.title("💰 Value Bets")
     value_bets_list = []
-    fuente = selector_jornada("vb", incluir_resumen=True)
+    fuente = selector_jornada("vb", incluir_resumen=True,
+                              modo_forma_reciente=True)
     st.session_state.vb_fuente = fuente
     with st.spinner(f"Cargando datos de '{fuente}'..."):
         # "Forma reciente" no es una pestana real: es la combinacion
