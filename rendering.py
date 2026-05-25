@@ -1,6 +1,82 @@
 """
 rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
 
+
+Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
+comparativas, heatmaps, radares y la vista completa de Value Bets.
+
+
+Depende de: config, helpers, data_loading, stats_engine.
+"""
+
+
+import streamlit como st
+import pandas como pd
+import numpy como np
+de fecha y hora importar fecha y hora
+
+
+desde config importar URL, CORTES, PESTANAS_CON_ESTADÍSTICAS
+desde helpers importar (
+safe_float, color_volatilidad, calcular_tendencia, sanitize_prob,
+buscar_jugador, calcular_rendimiento, pct, insignia_rendimiento, obtener_bandera,
+)
+desde data_loading importar (
+cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+)
+de stats_engine importar (
+prob_victoria, prob_180s, quién_hace_más_180s, handicaps_legs,
+legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
+_extraer_metricas_jugadores,
+)
+
+
+# El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
+# o alguna de sus dependencias (gspread, google-auth), la app debe seguir
+# funcionando con normalidad y solo se desactiva la seccion de tracking.
+prueba:
+from predicciones import (
+registrar_predicciones, cargar_predicciones, calcular_metricas,
+tracking_disponible, diagnostico_conexion, verificar_resultados,
+)"""
+rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
+
+Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
+comparativas, heatmaps, radares y la vista completa de Value Bets.
+
+Depende de: config, helpers, data_loading, stats_engine.
+"""
+
+import streamlit como st
+import pandas como pd
+import numpy como np
+de fecha y hora importar fecha y hora
+
+desde config importar URL, CORTES, PESTANAS_CON_ESTADÍSTICAS
+desde helpers importar (
+safe_float, color_volatilidad, calcular_tendencia, sanitize_prob,
+buscar_jugador, calcular_rendimiento, pct, insignia_rendimiento, obtener_bandera,
+)
+desde data_loading importar (
+cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+)
+de stats_engine importar (
+prob_victoria, prob_180s, quién_hace_más_180s, handicaps_legs,
+legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
+_extraer_metricas_jugadores,
+)
+
+# El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
+# o alguna de sus dependencias (gspread, google-auth), la app debe seguir
+# funcionando con normalidad y solo se desactiva la seccion de tracking.
+prueba:
+from predicciones import (
+registrar_predicciones, cargar_predicciones, calcular_metricas,
+tracking_disponible, diagnostico_conexion, verificar_resultados,
+)
+"""
+rendering.py - Funciones de renderizado visual de la interfaz Streamlit.
+
 Pentagonos de habilidades, tarjetas de estadisticas de jugador, barras
 comparativas, heatmaps, radares y la vista completa de Value Bets.
 
@@ -19,6 +95,7 @@ from helpers import (
 )
 from data_loading import (
     cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+    cargar_forma_reciente, detectar_jornada_de_hoy,
 )
 from stats_engine import (
     prob_victoria, prob_180s, quien_hace_mas_180s, handicaps_legs,
@@ -480,15 +557,17 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
     st.markdown(cards_html, unsafe_allow_html=True)
 
 def selector_jornada(key_prefix, incluir_resumen=True):
-    """Selector de jornada por grupos con botones.
+    """Selector de fuente de datos.
 
-    Layout:
-        Fila 1: [Grupo A] [Grupo B] [Grupo C]
-        Fila 2: [🏆 Final] [📊 Resumen Semanal]   (Resumen opcional)
-        Fila 3 (solo si grupo activo): [Día 1] [Día 2] [Día 3]
+    Por defecto la fuente es "⚡ Forma reciente": una combinacion de la
+    jornada de hoy con el Resumen Semanal, ponderada para dar mas peso a lo
+    reciente. El usuario no tiene que elegir nada.
 
-    Devuelve el nombre de la jornada seleccionada (clave de URLS).
-    El parámetro key_prefix evita colisiones cuando se usa en varias secciones.
+    El selector manual de grupo/dia sigue disponible, pero PLEGADO dentro de
+    un expander discreto: si no se toca, la app usa "Forma reciente" sola.
+
+    Devuelve el nombre de la fuente seleccionada (clave de URLS, o el valor
+    especial "Forma reciente").
     """
     grupos = {
         "Grupo A": ["Grupo A Lunes", "Grupo A Martes", "Grupo A Miércoles"],
@@ -499,47 +578,79 @@ def selector_jornada(key_prefix, incluir_resumen=True):
     grupo_key = f"{key_prefix}_grupo_sel"
     jornada_key = f"{key_prefix}_jornada_sel"
 
-    if grupo_key not in st.session_state:
-        st.session_state[grupo_key] = "Grupo A"
+    # Por defecto: Forma reciente (no hay nada que el usuario deba elegir).
     if jornada_key not in st.session_state:
-        st.session_state[jornada_key] = "Grupo A Lunes"
+        st.session_state[jornada_key] = "Forma reciente"
+    if grupo_key not in st.session_state:
+        st.session_state[grupo_key] = "Forma reciente"
 
-    # Fila 1: grupos principales
-    cols1 = st.columns(3)
-    for i, g in enumerate(["Grupo A", "Grupo B", "Grupo C"]):
-        with cols1[i]:
-            tipo = "primary" if st.session_state[grupo_key] == g else "secondary"
-            if st.button(g, key=f"{key_prefix}_btn_{g}", use_container_width=True, type=tipo):
-                st.session_state[grupo_key] = g
-                st.session_state[jornada_key] = grupos[g][0]
-                st.rerun()
+    seleccion_actual = st.session_state[jornada_key]
 
-    # Fila 2: Final y opcionalmente Resumen Semanal
-    extras = ["Final"]
-    if incluir_resumen:
-        extras.append("Resumen Semanal")
-    cols2 = st.columns(len(extras))
-    for i, b in enumerate(extras):
-        with cols2[i]:
-            tipo = "primary" if st.session_state[grupo_key] == b else "secondary"
-            etiqueta = "🏆 Final" if b == "Final" else "📊 Resumen Semanal"
-            if st.button(etiqueta, key=f"{key_prefix}_btn_{b}", use_container_width=True, type=tipo):
-                st.session_state[grupo_key] = b
-                st.session_state[jornada_key] = "Final Sábado" if b == "Final" else "Resumen Semanal"
-                st.rerun()
+    # El selector manual va dentro de un expander discreto. Solo se abre
+    # automaticamente si el usuario ya habia elegido una fuente manual.
+    expandido = (seleccion_actual != "Forma reciente")
+    etiqueta_exp = "⚙️ Cambiar fuente de datos"
+    if seleccion_actual != "Forma reciente":
+        etiqueta_exp += f" — usando: {seleccion_actual}"
 
-    # Fila 3: días del grupo activo (solo si es Grupo A/B/C)
-    grupo_actual = st.session_state[grupo_key]
-    if grupo_actual in grupos:
-        dias = grupos[grupo_actual]
-        sub_cols = st.columns(len(dias))
-        for i, dia in enumerate(dias):
-            with sub_cols[i]:
-                etiqueta = dia.replace(grupo_actual + " ", "")
-                tipo = "primary" if st.session_state[jornada_key] == dia else "secondary"
-                if st.button(etiqueta, key=f"{key_prefix}_btn_dia_{dia}", use_container_width=True, type=tipo):
-                    st.session_state[jornada_key] = dia
+    with st.expander(etiqueta_exp, expanded=expandido):
+        st.caption(
+            "Por defecto se usa **⚡ Forma reciente** (combina la jornada de "
+            "hoy con el acumulado semanal, dando mas peso a lo reciente). "
+            "Puedes elegir una jornada concreta abajo si lo prefieres."
+        )
+
+        # Boton para volver a Forma reciente
+        tipo_fr = "primary" if seleccion_actual == "Forma reciente" else "secondary"
+        if st.button("⚡ Forma reciente (recomendado)",
+                     key=f"{key_prefix}_btn_forma", use_container_width=True,
+                     type=tipo_fr):
+            st.session_state[jornada_key] = "Forma reciente"
+            st.session_state[grupo_key] = "Forma reciente"
+            st.rerun()
+
+        st.markdown("---")
+
+        # Fila 1: grupos principales
+        cols1 = st.columns(3)
+        for i, g in enumerate(["Grupo A", "Grupo B", "Grupo C"]):
+            with cols1[i]:
+                tipo = "primary" if st.session_state[grupo_key] == g else "secondary"
+                if st.button(g, key=f"{key_prefix}_btn_{g}",
+                             use_container_width=True, type=tipo):
+                    st.session_state[grupo_key] = g
+                    st.session_state[jornada_key] = grupos[g][0]
                     st.rerun()
+
+        # Fila 2: Final y opcionalmente Resumen Semanal
+        extras = ["Final"]
+        if incluir_resumen:
+            extras.append("Resumen Semanal")
+        cols2 = st.columns(len(extras))
+        for i, b in enumerate(extras):
+            with cols2[i]:
+                tipo = "primary" if st.session_state[grupo_key] == b else "secondary"
+                etiqueta = "🏆 Final" if b == "Final" else "📊 Resumen Semanal"
+                if st.button(etiqueta, key=f"{key_prefix}_btn_{b}",
+                             use_container_width=True, type=tipo):
+                    st.session_state[grupo_key] = b
+                    st.session_state[jornada_key] = (
+                        "Final Sábado" if b == "Final" else "Resumen Semanal")
+                    st.rerun()
+
+        # Fila 3: dias del grupo activo (solo si es Grupo A/B/C)
+        grupo_actual = st.session_state[grupo_key]
+        if grupo_actual in grupos:
+            dias = grupos[grupo_actual]
+            sub_cols = st.columns(len(dias))
+            for i, dia in enumerate(dias):
+                with sub_cols[i]:
+                    etiqueta = dia.replace(grupo_actual + " ", "")
+                    tipo = "primary" if st.session_state[jornada_key] == dia else "secondary"
+                    if st.button(etiqueta, key=f"{key_prefix}_btn_dia_{dia}",
+                                 use_container_width=True, type=tipo):
+                        st.session_state[jornada_key] = dia
+                        st.rerun()
 
     return st.session_state[jornada_key]
 
@@ -551,7 +662,12 @@ def render_value_bets():
         fuente = selector_jornada("vb", incluir_resumen=True)
         st.session_state.vb_fuente = fuente
     with st.spinner(f"Cargando datos de '{fuente}'..."):
-        db_jugadores = cargar_jugadores_desde(fuente)
+        # "Forma reciente" no es una pestana real: es la combinacion
+        # ponderada de la jornada de hoy con el Resumen Semanal.
+        if fuente == "Forma reciente":
+            db_jugadores = cargar_forma_reciente()
+        else:
+            db_jugadores = cargar_jugadores_desde(fuente)
     if not db_jugadores:
         st.warning(f"⚠️ No se encontraron jugadores en '{fuente}'.")
         return
@@ -759,10 +875,16 @@ def render_value_bets():
                     st.error("Elige dos jugadores distintos.")
                 else:
                     semana_vb = datetime.now().strftime("Semana %Y-%m-%d")
+                    # Si la fuente es "Forma reciente", el partido pertenece
+                    # en realidad a la jornada de hoy: guardamos esa jornada
+                    # real para que la verificacion pueda encontrar el
+                    # resultado mas adelante.
+                    jornada_reg = fuente
+                    if fuente == "Forma reciente":
+                        jornada_reg = detectar_jornada_de_hoy() or fuente
                     with st.spinner(f"Registrando {j1_sel} vs {j2_sel}..."):
                         resultado = registrar_predicciones(
-                            URLS.get(fuente, ""), [(jr1, jr2)],
-                            semana_vb, fuente
+                            "", [(jr1, jr2)], semana_vb, jornada_reg
                         )
                     if resultado["ok"]:
                         st.success(
@@ -2042,4 +2164,4 @@ def render_tracking_predicciones():
             lambda v: f"{v:.1f}%")
         df_calib["Ocurrio realmente"] = df_calib["Ocurrio realmente"].map(
             lambda v: f"{v:.1f}%")
-        st.dataframe(df_calib, use_container_width=True, hide_index=True)
+        st.dataframe(df_calib, use_container_width=True, hide_index=True
