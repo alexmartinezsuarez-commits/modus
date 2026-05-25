@@ -76,7 +76,8 @@ st.sidebar.markdown("---")
 
 opcion_principal = st.sidebar.radio(
     "Selecciona sección:",
-    ["🔴 LIVE", "💰 VALUE BETS", "📊 RESULTADOS Y ESTADÍSTICAS"],
+    ["🔴 LIVE", "💰 VALUE BETS", "📊 RESULTADOS Y ESTADÍSTICAS",
+     "📈 SEGUIMIENTO"],
     label_visibility="collapsed"
 )
 
@@ -203,7 +204,6 @@ if "🔴 LIVE" in opcion_principal:
 
 elif "💰 VALUE BETS" in opcion_principal:
     render_value_bets()
-    render_tracking_predicciones()
 
 elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     st.title("📊 RESULTADOS Y ESTADÍSTICAS")
@@ -266,3 +266,7 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
             render_clasificacion_grupo(g)
             st.markdown("")
 
+
+elif "📈 SEGUIMIENTO" in opcion_principal:
+    st.title("📈 Seguimiento del modelo")
+    render_tracking_predicciones()
