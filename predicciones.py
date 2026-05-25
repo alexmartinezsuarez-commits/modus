@@ -1,6 +1,85 @@
 """
 predicciones.py - Registro y seguimiento de predicciones del modelo.
 
+
+Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
+probabilidades que el modelo calcula para los partidos de una jornada, y
+despues medir la calidad del modelo comparando cada prediccion con el
+resultado real del partido.
+
+
+Metricas que calcula (FASE 1, sin yield):
+- Tasa de acierto: % de veces que el favorito del modelo gano.
+- Calibracion: cuando el modelo dice 70%, ¿pasa ~70% de las veces?
+- Brier score: medida agregada de la calidad de las predicciones.
+
+
+Almacenamiento: Google Sheets via gspread + cuenta de servicio. Las
+credenciales se leen de st.secrets["gcp_service_account_json"], que debe
+contener el JSON de la cuenta de servicio entre triples comillas.
+
+
+Depende de: config, stats_engine, data_loading.
+"""
+
+
+import json
+de fecha y hora importar fecha y hora
+
+
+import streamlit como st
+import pandas as pd
+
+
+desde stats_engine importar (
+prob_victoria, prob_180s, quien_hace_mas_180s,
+hándicaps_piernas, piernas_totales,
+)
+desde config importar SHEET_ID_PREDICCIONES
+
+
+# Las librerias de Google son opcionales: si no estan instaladas, el modulo
+# sigue importando y el resto de la app funciona; solo el tracking queda
+# desactivado con un aviso. Esto evita que un fallo de dependencias de
+# Google tumbe toda la aplicacion."""
+predicciones.py - Registro y seguimiento de predicciones del modelo.
+
+Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
+probabilidades que el modelo calcula para los partidos de una jornada, y
+despues medir la calidad del modelo comparando cada prediccion con el
+resultado real del partido.
+
+Metricas que calcula (FASE 1, sin yield):
+- Tasa de acierto: % de veces que el favorito del modelo gano.
+- Calibracion: cuando el modelo dice 70%, ¿pasa ~70% de las veces?
+- Brier score: medida agregada de la calidad de las predicciones.
+
+Almacenamiento: Google Sheets via gspread + cuenta de servicio. Las
+credenciales se leen de st.secrets["gcp_service_account_json"], que debe
+contener el JSON de la cuenta de servicio entre triples comillas.
+
+Depende de: config, stats_engine, data_loading.
+"""
+
+import json
+de fecha y hora importar fecha y hora
+
+import streamlit como st
+import pandas as pd
+
+desde stats_engine importar (
+prob_victoria, prob_180s, quien_hace_mas_180s,
+hándicaps_piernas, piernas_totales,
+)
+desde config importar SHEET_ID_PREDICCIONES
+
+# Las librerias de Google son opcionales: si no estan instaladas, el modulo
+# sigue importando y el resto de la app funciona; solo el tracking queda
+# desactivado con un aviso. Esto evita que un fallo de dependencias de
+# Google tumbe toda la aplicacion.
+"""
+predicciones.py - Registro y seguimiento de predicciones del modelo.
+
 Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
 probabilidades que el modelo calcula para los partidos de una jornada, y
 despues medir la calidad del modelo comparando cada prediccion con el
@@ -321,22 +400,27 @@ def calcular_mercados_partido(j1_data, j2_data):
 
     filas = []
 
-    # 1) Ganador del partido
+    # 1) Ganador del partido -> UNA sola linea.
+    #    "Gana J1" y "Gana J2" son la misma apuesta opuesta; registrar las dos
+    #    contaria cada resultado dos veces. Guardamos una linea con el
+    #    favorito del modelo.
     p1, p2 = prob_victoria(pr1, pr2)
+    if p1 >= p2:
+        favorito_ganador = "Gana J1"
+        prob_ganador = p1
+    else:
+        favorito_ganador = "Gana J2"
+        prob_ganador = p2
     filas.append({
         "mercado": "Ganador",
-        "linea": "Gana J1",
-        "prob": p1,
-        "prediccion": "Gana J1" if p1 >= 0.5 else "Gana J2",
-    })
-    filas.append({
-        "mercado": "Ganador",
-        "linea": "Gana J2",
-        "prob": p2,
-        "prediccion": "Gana J2" if p2 >= 0.5 else "Gana J1",
+        "linea": "Ganador del partido",
+        "prob": prob_ganador,
+        "prediccion": favorito_ganador,
     })
 
-    # 2) Handicaps de legs (8 lineas)
+    # 2) Handicaps de legs (8 lineas).
+    #    Aqui SI son 8 apuestas distintas (J1 -1.5, J1 -2.5, J2 +1.5...),
+    #    no redundantes: cada hándicap es un mercado propio.
     handicaps = handicaps_legs(pr1, pr2)
     for linea, prob in handicaps.items():
         filas.append({
@@ -346,17 +430,25 @@ def calcular_mercados_partido(j1_data, j2_data):
             "prediccion": "Si" if prob >= 0.5 else "No",
         })
 
-    # 3) Total de legs over/under (2 lineas)
+    # 3) Total de legs -> UNA sola linea.
+    #    "Más de 5.5" y "Menos de 5.5" son opuestos: una sola apuesta.
+    #    Guardamos el lado que el modelo considera mas probable.
     totales = legs_totales(pr1, pr2)
-    for linea, prob in totales.items():
-        filas.append({
-            "mercado": "Total legs",
-            "linea": linea,
-            "prob": prob,
-            "prediccion": "Si" if prob >= 0.5 else "No",
-        })
+    p_over = totales.get("Más de 5.5", 0.5)
+    p_under = totales.get("Menos de 5.5", 0.5)
+    if p_over >= p_under:
+        linea_total, prob_total, pred_total = "Más de 5.5", p_over, "Más de 5.5"
+    else:
+        linea_total, prob_total, pred_total = "Menos de 5.5", p_under, "Menos de 5.5"
+    filas.append({
+        "mercado": "Total legs",
+        "linea": "Total de legs",
+        "prob": prob_total,
+        "prediccion": pred_total,
+    })
 
-    # 4) Mercados de 180s (7 lineas)
+    # 4) Mercados de 180s (7 lineas).
+    #    Son 7 apuestas distintas (J1 +0.5, Ambos +2.5...), no redundantes.
     mercados_180 = prob_180s(lam1, lam2, pr1, pr2)
     for linea, prob in mercados_180.items():
         filas.append({
@@ -366,23 +458,20 @@ def calcular_mercados_partido(j1_data, j2_data):
             "prediccion": "Si" if prob >= 0.5 else "No",
         })
 
-    # 5) Quien hace mas 180s (H2H) - 3 resultados
+    # 5) Quien hace mas 180s (H2H) -> UNA sola linea.
+    #    Es un mercado de 3 vias (J1 / Empate / J2). Guardamos una unica
+    #    linea con el favorito del modelo, no las 3.
     p_j1_180, p_emp_180, p_j2_180 = quien_hace_mas_180s(lam1, lam2, pr1, pr2)
-    favorito_180 = max(
-        [("J1 mas 180s", p_j1_180),
-         ("Empate 180s", p_emp_180),
-         ("J2 mas 180s", p_j2_180)],
-        key=lambda x: x[1],
-    )[0]
-    for linea, prob in [("J1 mas 180s", p_j1_180),
-                        ("Empate 180s", p_emp_180),
-                        ("J2 mas 180s", p_j2_180)]:
-        filas.append({
-            "mercado": "Mas 180s (H2H)",
-            "linea": linea,
-            "prob": prob,
-            "prediccion": favorito_180,
-        })
+    opciones_180 = [("J1 mas 180s", p_j1_180),
+                    ("Empate 180s", p_emp_180),
+                    ("J2 mas 180s", p_j2_180)]
+    favorito_180, prob_fav_180 = max(opciones_180, key=lambda x: x[1])
+    filas.append({
+        "mercado": "Mas 180s (H2H)",
+        "linea": "Quien hace mas 180s",
+        "prob": prob_fav_180,
+        "prediccion": favorito_180,
+    })
 
     return filas
 
@@ -800,16 +889,16 @@ def _verificar_mercado(mercado, linea, prediccion, legs_a, legs_b,
 
     # ── Total de legs ────────────────────────────────────────────────────────
     if mercado == "Total legs":
-        # 'linea' es "Más de 5.5" o "Menos de 5.5"
-        l = linea.lower()
-        if "más de" in l or "mas de" in l:
-            se_cumple = total_legs > 5.5
-        elif "menos de" in l:
-            se_cumple = total_legs < 5.5
+        # 'prediccion' es directamente "Más de 5.5" o "Menos de 5.5":
+        # el lado que el modelo considero mas probable.
+        p = prediccion.strip().lower()
+        if "más" in p or "mas" in p:
+            # El modelo predijo "mas de 5.5": acierta si hubo > 5.5 legs
+            return 1 if total_legs > 5.5 else 0
+        elif "menos" in p:
+            return 1 if total_legs < 5.5 else 0
         else:
             return None
-        predijo_si = prediccion.strip().lower() in ("si", "sí")
-        return 1 if (se_cumple == predijo_si) else 0
 
     # ── 180s (lineas +0.5 / +1.5 / +2.5) ─────────────────────────────────────
     if mercado == "180s":
@@ -997,4 +1086,4 @@ def verificar_resultados(url_sheet=None):
         "no_jugado": no_jugado,
         "sin_cambios": sin_cambios,
         "error": "",
-    }
+    
