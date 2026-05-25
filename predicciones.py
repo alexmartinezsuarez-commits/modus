@@ -1,6 +1,108 @@
 """
 predicciones.py - Registro y seguimiento de predicciones del modelo.
 
+
+
+
+Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
+probabilidades que el modelo calcula para los partidos de una jornada, y
+despues medir la calidad del modelo comparando cada prediccion con el
+resultado real del partido.
+
+
+
+
+Metricas que calcula (FASE 1, sin yield):
+- Tasa de acierto: % de veces que el favorito del modelo gano.
+- Calibracion: cuando el modelo dice 70%, ¿pasa ~70% de las veces?
+- Brier score: medida agregada de la calidad de las predicciones.
+
+
+
+
+Almacenamiento: Google Sheets via gspread + cuenta de servicio. Las
+credenciales se leen de st.secrets["gcp_service_account_json"], que debe
+contener el JSON de la cuenta de servicio entre triples comillas.
+
+
+
+
+Depende de: config, stats_engine, data_loading.
+"""
+
+
+
+
+import json
+de fecha y hora importar fecha y hora
+
+
+
+
+import streamlit como st
+import pandas como pd
+
+
+
+
+desde stats_engine importar (
+prob_victoria, prob_180s, quien_hace_mas_180s,
+hándicaps_piernas, piernas_totales,
+)
+desde config importar SHEET_ID_PREDICCIONES
+
+
+
+
+# Las librerias de Google son opcionales: si no estan instaladas, el modulo
+# sigue importando y el resto de la app funciona; solo el tracking queda
+# desactivado con un aviso. Esto evita que un fallo de dependencias de
+# Google tumbe toda la aplicacion."""
+predicciones.py - Registro y seguimiento de predicciones del modelo.
+
+
+Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
+probabilidades que el modelo calcula para los partidos de una jornada, y
+despues medir la calidad del modelo comparando cada prediccion con el
+resultado real del partido.
+
+
+Metricas que calcula (FASE 1, sin yield):
+- Tasa de acierto: % de veces que el favorito del modelo gano.
+- Calibracion: cuando el modelo dice 70%, ¿pasa ~70% de las veces?
+- Brier score: medida agregada de la calidad de las predicciones.
+
+
+Almacenamiento: Google Sheets via gspread + cuenta de servicio. Las
+credenciales se leen de st.secrets["gcp_service_account_json"], que debe
+contener el JSON de la cuenta de servicio entre triples comillas.
+
+
+Depende de: config, stats_engine, data_loading.
+"""
+
+
+import json
+de fecha y hora importar fecha y hora
+
+
+import streamlit como st
+import pandas como pd
+
+
+desde stats_engine importar (
+prob_victoria, prob_180s, quien_hace_mas_180s,
+hándicaps_piernas, piernas_totales,
+)
+desde config importar SHEET_ID_PREDICCIONES
+
+
+# Las librerias de Google son opcionales: si no estan instaladas, el modulo
+# sigue importando y el resto de la app funciona; solo el tracking queda
+# desactivado con un aviso. Esto evita que un fallo de dependencias de
+# Google tumbe toda la aplicacion."""
+predicciones.py - Registro y seguimiento de predicciones del modelo.
+
 Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
 probabilidades que el modelo calcula para los partidos de una jornada, y
 despues medir la calidad del modelo comparando cada prediccion con el
@@ -518,7 +620,8 @@ def calcular_metricas(df):
       }
     """
     vacio = {"evaluadas": 0, "pendientes": 0, "no_jugado": 0, "aciertos": 0,
-             "tasa_acierto": 0.0, "brier": None, "calibracion": []}
+             "tasa_acierto": 0.0, "brier": None, "calibracion": [],
+             "por_mercado": []}
     if df is None or df.empty or "Acierto" not in df.columns:
         return vacio
 
@@ -611,6 +714,24 @@ def calcular_metricas(df):
                 "real": float(grupo["_acierto"].mean()) * 100,
             })
 
+    # Desglose por tipo de mercado: para cada mercado (Ganador, Handicap
+    # legs, Total legs, 180s, Mas 180s (H2H)), cuantas predicciones se
+    # verificaron, cuantas se acertaron y la tasa de acierto. Esto permite
+    # ver en que mercados el modelo funciona bien y en cuales no.
+    por_mercado = []
+    if "Mercado" in evaluadas_df.columns and n_eval > 0:
+        for mercado, grupo in evaluadas_df.groupby("Mercado"):
+            n_m = len(grupo)
+            ac_m = int(grupo["_acierto"].sum())
+            por_mercado.append({
+                "mercado": str(mercado),
+                "verificadas": n_m,
+                "aciertos": ac_m,
+                "tasa": 100.0 * ac_m / n_m if n_m > 0 else 0.0,
+            })
+        # Ordenar de mejor a peor tasa de acierto
+        por_mercado.sort(key=lambda x: x["tasa"], reverse=True)
+
     return {
         "evaluadas": n_eval,
         "pendientes": pendientes,
@@ -619,6 +740,7 @@ def calcular_metricas(df):
         "tasa_acierto": tasa,
         "brier": brier,
         "calibracion": calibracion,
+        "por_mercado": por_mercado,
     }
 
 
@@ -977,4 +1099,4 @@ def verificar_resultados(url_sheet=None):
         "no_jugado": no_jugado,
         "sin_cambios": sin_cambios,
         "error": "",
-    }
+    
