@@ -1992,8 +1992,8 @@ def render_tracking_predicciones():
                     f"✅ Verificacion completada: "
                     f"**{res_ver['aciertos']}** aciertos, "
                     f"**{res_ver['fallos']}** fallos, "
-                    f"{res_ver['no_jugado']} no jugados, "
-                    f"{res_ver['sin_cambios']} ya estaban verificadas."
+                    f"{res_ver['sin_cambios']} ya estaban verificadas. "
+                    f"Los partidos aun sin resultado quedan pendientes."
                 )
                 # Limpiar cache para que el panel de abajo se actualice
                 cargar_predicciones.clear()
@@ -2025,16 +2025,13 @@ def render_tracking_predicciones():
     total_reg = len(df_pred)
     evaluadas = metricas["evaluadas"]
     pendientes = metricas["pendientes"]
-    no_jugado = metricas.get("no_jugado", 0)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Registradas", total_reg)
     c2.metric("Verificadas", evaluadas)
     c3.metric("Pendientes", pendientes,
-              help="Predicciones de partidos que aun no se han verificado.")
-    c4.metric("No jugados", no_jugado,
-              help="Enfrentamientos que nunca llegaron a disputarse. No "
-                   "cuentan para las metricas.")
+              help="Predicciones de partidos cuyo resultado aun no se ha "
+                   "verificado (se verificaran cuando el partido se juegue).")
 
     if evaluadas == 0:
         st.info(

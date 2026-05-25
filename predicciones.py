@@ -1036,9 +1036,10 @@ def verificar_resultados(url_sheet=None):
                     break
 
         if partido is None:
-            # El enfrentamiento no se jugo (pareja hipotetica)
-            actualizaciones.append((fila_hoja, "no jugado", "no jugado"))
-            no_jugado += 1
+            # El partido no aparece en la pestana de la jornada. Puede ser
+            # que aun no se haya jugado: NO lo marcamos. Lo dejamos
+            # PENDIENTE para que una verificacion posterior lo recoja
+            # cuando el resultado ya este disponible.
             continue
 
         # Alinear legs/180s con el orden J1/J2 de la PREDICCION
