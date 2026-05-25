@@ -1,6 +1,85 @@
 """
 predicciones.py - Registro y seguimiento de predicciones del modelo.
 
+
+Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
+probabilidades que el modelo calcula para los partidos de una jornada, y
+despues medir la calidad del modelo comparando cada prediccion con el
+resultado real del partido.
+
+
+Metricas que calcula (FASE 1, sin yield):
+- Tasa de acierto: % de veces que el favorito del modelo gano.
+- Calibracion: cuando el modelo dice 70%, ¿pasa ~70% de las veces?
+- Brier score: medida agregada de la calidad de las predicciones.
+
+
+Almacenamiento: Google Sheets via gspread + cuenta de servicio. Las
+credenciales se leen de st.secrets["gcp_service_account_json"], que debe
+contener el JSON de la cuenta de servicio entre triples comillas.
+
+
+Depende de: config, stats_engine, data_loading.
+"""
+
+
+import json
+de fecha y hora importar fecha y hora
+
+
+import streamlit como st
+import pandas as pd
+
+
+desde stats_engine importar (
+prob_victoria, prob_180s, quien_hace_mas_180s,
+hándicaps_piernas, piernas_totales,
+)
+desde config importar SHEET_ID_PREDICCIONES
+
+
+# Las librerias de Google son opcionales: si no estan instaladas, el modulo
+# sigue importando y el resto de la app funciona; solo el tracking queda
+# desactivado con un aviso. Esto evita que un fallo de dependencias de
+# Google tumbe toda la aplicacion."""
+predicciones.py - Registro y seguimiento de predicciones del modelo.
+
+Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
+probabilidades que el modelo calcula para los partidos de una jornada, y
+despues medir la calidad del modelo comparando cada prediccion con el
+resultado real del partido.
+
+Metricas que calcula (FASE 1, sin yield):
+- Tasa de acierto: % de veces que el favorito del modelo gano.
+- Calibracion: cuando el modelo dice 70%, ¿pasa ~70% de las veces?
+- Brier score: medida agregada de la calidad de las predicciones.
+
+Almacenamiento: Google Sheets via gspread + cuenta de servicio. Las
+credenciales se leen de st.secrets["gcp_service_account_json"], que debe
+contener el JSON de la cuenta de servicio entre triples comillas.
+
+Depende de: config, stats_engine, data_loading.
+"""
+
+import json
+de fecha y hora importar fecha y hora
+
+import streamlit como st
+import pandas as pd
+
+desde stats_engine importar (
+prob_victoria, prob_180s, quien_hace_mas_180s,
+hándicaps_piernas, piernas_totales,
+)
+desde config importar SHEET_ID_PREDICCIONES
+
+# Las librerias de Google son opcionales: si no estan instaladas, el modulo
+# sigue importando y el resto de la app funciona; solo el tracking queda
+# desactivado con un aviso. Esto evita que un fallo de dependencias de
+# Google tumbe toda la aplicacion.
+"""
+predicciones.py - Registro y seguimiento de predicciones del modelo.
+
 Permite registrar en una hoja de Google Sheets ("Predicciones") todas las
 probabilidades que el modelo calcula para los partidos de una jornada, y
 despues medir la calidad del modelo comparando cada prediccion con el
@@ -471,7 +550,7 @@ def registrar_predicciones(url_sheet, enfrentamientos, semana, jornada=""):
     # Escritura en LOTE: una sola llamada a la API con todas las filas.
     if filas_nuevas:
         try:
-            hoja.append_rows(filas_nuevas, value_input_option="USER_ENTERED")
+            hoja.append_rows(filas_nuevas, value_input_option="RAW")
         except Exception as e:
             return {"ok": False, "nuevas": 0, "duplicadas": duplicadas,
                     "total": total,
@@ -559,21 +638,41 @@ def calcular_metricas(df):
     aciertos = int(evaluadas_df["_acierto"].sum())
     tasa = 100.0 * aciertos / n_eval
 
-    # Probabilidad del modelo como numero (0-1)
+    # Probabilidad del modelo como numero entre 0 y 1.
+    # Una probabilidad SOLO puede estar entre 0 y 1. Si un valor llega
+    # corrupto (mal formato de celda, separador de miles, etc.) y queda
+    # fuera de ese rango, lo descartamos: incluirlo dispararia el Brier
+    # score a valores absurdos. Tambien intentamos rescatar valores que
+    # vengan como porcentaje (ej. 58.33 -> 0.5833).
     def _num(v):
         try:
-            return float(str(v).replace(",", "."))
+            x = float(str(v).strip().replace(",", "."))
         except Exception:
             return None
+        # Caso normal: ya esta entre 0 y 1
+        if 0.0 <= x <= 1.0:
+            return x
+        # Caso porcentaje: entre 1 y 100 -> dividir por 100
+        if 1.0 < x <= 100.0:
+            return x / 100.0
+        # Cualquier otro valor es corrupto: se descarta
+        return None
 
     evaluadas_df["_prob"] = evaluadas_df["Probabilidad modelo"].apply(_num)
 
-    # Brier score: media de (prob - resultado)^2 sobre las filas con prob valida
+    # Brier score: media de (prob - resultado)^2 sobre las filas con prob
+    # valida (0-1). Como _num ya garantiza el rango, el Brier siempre saldra
+    # entre 0 y 1. Por seguridad extra, lo recortamos a [0, 1].
     con_prob = evaluadas_df[evaluadas_df["_prob"].notna()]
     brier = None
     if len(con_prob) > 0:
         difs = (con_prob["_prob"] - con_prob["_acierto"]) ** 2
         brier = float(difs.mean())
+        # Salvaguarda: el Brier nunca puede salir de [0, 1]
+        if brier < 0.0:
+            brier = 0.0
+        elif brier > 1.0:
+            brier = 1.0
 
     # Calibracion: agrupar por tramos de probabilidad del 10%
     calibracion = []
@@ -943,7 +1042,7 @@ def verificar_resultados(url_sheet=None):
                 celdas.append(gspread.Cell(fila_hoja, col_acierto, val_acierto))
                 celdas.append(gspread.Cell(fila_hoja, col_resultado,
                                            val_resultado))
-            hoja.update_cells(celdas, value_input_option="USER_ENTERED")
+            hoja.update_cells(celdas, value_input_option="RAW")
         except Exception as e:
             return {"ok": False, "verificadas": 0, "aciertos": 0,
                     "fallos": 0, "no_jugado": 0, "sin_cambios": sin_cambios,
@@ -957,4 +1056,4 @@ def verificar_resultados(url_sheet=None):
         "no_jugado": no_jugado,
         "sin_cambios": sin_cambios,
         "error": "",
-    }
+    
