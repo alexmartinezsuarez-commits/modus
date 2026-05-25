@@ -34,6 +34,7 @@ try:
     from predicciones import (
         registrar_predicciones, cargar_predicciones, calcular_metricas,
         tracking_disponible, diagnostico_conexion, verificar_resultados,
+        listar_partidos_registrados,
     )
     _PREDICCIONES_OK = True
     _PREDICCIONES_ERROR = ""
@@ -46,6 +47,7 @@ except Exception as _e:
     tracking_disponible = None
     diagnostico_conexion = None
     verificar_resultados = None
+    listar_partidos_registrados = None
 
 def render_barras_enfrentadas(j1_nombre, j1_prob, j2_nombre, j2_prob, j1_color="#1f77b4", j2_color="#ff7f0e"):
     total = j1_prob + j2_prob
@@ -2101,3 +2103,34 @@ def render_tracking_predicciones():
         df_calib["Ocurrio realmente"] = df_calib["Ocurrio realmente"].map(
             lambda v: f"{v:.1f}%")
         st.dataframe(df_calib, use_container_width=True, hide_index=True)
+
+    # ── Parte 4: lista de partidos registrados ───────────────────────────────
+    # Una fila por partido (no por mercado), con su estado.
+    if listar_partidos_registrados is not None:
+        st.markdown("---")
+        st.markdown("### 📋 Partidos registrados")
+        lista = listar_partidos_registrados(df_pred)
+        if not lista:
+            st.info("Aun no hay partidos registrados.")
+        else:
+            st.caption(
+                f"{len(lista)} partidos registrados. Cada partido incluye "
+                f"sus mercados. Estado: ✅ verificado, ⏳ pendiente de "
+                f"resultado, 🚫 no jugado."
+            )
+            # Filtro opcional por estado
+            estados_disp = ["Todos", "✅ Verificado", "⏳ Pendiente",
+                            "🚫 No jugado"]
+            filtro = st.selectbox("Filtrar por estado", estados_disp,
+                                  key="trk_filtro_partidos")
+            if filtro != "Todos":
+                lista = [p for p in lista if p["Estado"] == filtro]
+            if not lista:
+                st.info(f"No hay partidos con estado '{filtro}'.")
+            else:
+                df_lista = pd.DataFrame(lista)
+                # Orden de columnas
+                df_lista = df_lista[["Jornada", "Partido", "Semana",
+                                     "Mercados", "Estado"]]
+                st.dataframe(df_lista, use_container_width=True,
+                             hide_index=True)

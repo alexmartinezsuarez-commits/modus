@@ -665,6 +665,86 @@ JORNADAS_VERIFICABLES = [
 ]
 
 
+def listar_partidos_registrados(df):
+    """Agrupa las predicciones por partido y devuelve una lista resumida.
+
+    Cada partido genera ~18 filas en la hoja (una por mercado). Esta
+    funcion las agrupa para mostrar UNA fila por enfrentamiento.
+
+    Recibe el DataFrame de cargar_predicciones. Devuelve una lista de dicts:
+      {jornada, partido, semana, mercados, estado}
+    donde 'estado' es uno de: "Verificado", "Pendiente", "No jugado",
+    "Mixto" (si las filas del partido no coinciden todas en estado).
+
+    La lista se ordena por jornada y luego por partido.
+    """
+    if df is None or df.empty:
+        return []
+
+    # Columnas necesarias
+    cols = df.columns
+    if "Jugador 1" not in cols or "Jugador 2" not in cols:
+        return []
+
+    def _estado_fila(v):
+        s = str(v).strip().lower()
+        if s in ("1", "0", "si", "sí", "no", "true", "false",
+                 "verdadero", "falso", "acierto", "fallo", "ok"):
+            return "verificado"
+        if s in ("no jugado", "no_jugado", "nojugado", "n/a", "na"):
+            return "no_jugado"
+        return "pendiente"  # vacio
+
+    partidos = {}
+    for _, fila in df.iterrows():
+        j1 = str(fila.get("Jugador 1", "")).strip()
+        j2 = str(fila.get("Jugador 2", "")).strip()
+        jornada = str(fila.get("Jornada", "")).strip()
+        semana = str(fila.get("Semana", "")).strip()
+        if not j1 or not j2:
+            continue
+        # Clave unica del partido: jornada + los dos jugadores
+        clave = f"{jornada}|{j1}|{j2}"
+        if clave not in partidos:
+            partidos[clave] = {
+                "jornada": jornada,
+                "partido": f"{j1} vs {j2}",
+                "semana": semana,
+                "mercados": 0,
+                "estados": [],
+            }
+        partidos[clave]["mercados"] += 1
+        partidos[clave]["estados"].append(
+            _estado_fila(fila.get("Acierto", "")))
+
+    # Resolver el estado global de cada partido
+    resultado = []
+    for p in partidos.values():
+        estados = set(p["estados"])
+        if estados == {"verificado"}:
+            estado = "✅ Verificado"
+        elif estados == {"pendiente"}:
+            estado = "⏳ Pendiente"
+        elif estados == {"no_jugado"}:
+            estado = "🚫 No jugado"
+        elif "pendiente" in estados:
+            # Si queda algo pendiente, el partido esta a medias
+            estado = "⏳ Pendiente"
+        else:
+            # Mezcla de verificado y no jugado (raro pero posible)
+            estado = "✅ Verificado"
+        resultado.append({
+            "Jornada": p["jornada"],
+            "Partido": p["partido"],
+            "Semana": p["semana"],
+            "Mercados": p["mercados"],
+            "Estado": estado,
+        })
+
+    resultado.sort(key=lambda x: (x["Jornada"], x["Partido"]))
+    return resultado
+
+
 def _emparejar_nombre_simple(nombre, candidatos):
     """Empareja un nombre con uno de una lista (exacto -> subcadena -> apellido).
     Devuelve el nombre del candidato que coincide, o None.
