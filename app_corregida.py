@@ -1,6 +1,47 @@
 """
 app_corregida.py - Punto de entrada de Modus Super Series App.
 
+
+Configura la pagina, inicializa el estado de sesion y construye la interfaz
+principal (barra lateral + las tres secciones: LIVE, VALUE BETS y RESULTADOS).
+
+
+La lógica se divide en módulos:
+- config.py constantes y configuracion
+- helpers.py utilidades de bajo nivel
+- data_loading.py: carga y análisis de datos desde Google Sheets
+- stats_engine.py: modelo matemático y simulación
+- rendering.py renderizado visual
+- Tablas de clasificación de classification.py
+
+
+Para que Streamlit Cloud lo despliegue, este archivo sigue siendo el main.
+"""
+
+
+import streamlit como st
+import pandas como pd
+import numpy como np
+import solicitudes
+import time
+de datetime import datetime, timedelta
+
+
+st.set_page_config(page_title="Aplicación Modus Super Series", layout="wide", page_icon="🎯")
+
+
+# CSS global: rejilla de estadísticas responsive
+# Desktop/tablet: 4 columnas | Móvil (<=768px): 2 columnas
+st.markdown("""
+<style>
+.stats-grid {
+display: grid;
+grid-template-columns: repeat(4, minmax(0, 1fr));
+espacio: 12 píxeles;
+margen: 10px 0 20px 0;
+}"""
+app_corregida.py - Punto de entrada de Modus Super Series App.
+
 Configura la pagina, inicializa el estado de sesion y construye la interfaz
 principal (barra lateral + las tres secciones: LIVE, VALUE BETS y RESULTADOS).
 
@@ -270,4 +311,4 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
 
 elif "📈 SEGUIMIENTO" in opcion_principal:
     st.title("📈 Seguimiento del modelo")
-    render_tracking_predicciones()
+    render_tracking_predicciones(
