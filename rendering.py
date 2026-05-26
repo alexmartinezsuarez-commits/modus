@@ -2032,10 +2032,10 @@ def render_tracking_predicciones():
     # ── Parte 2: verificacion automatica de resultados ───────────────────────
     with st.expander("✅ Verificar resultados de los partidos", expanded=False):
         st.markdown(
-            "Comprueba automaticamente las predicciones pendientes contra los "
-            "resultados reales de las pestanas de jornada. Cada prediccion se "
-            "marca como **acierto (1)**, **fallo (0)** o **no jugado** (si ese "
-            "enfrentamiento concreto no llego a disputarse)."
+            "Comprueba automaticamente las predicciones pendientes contra "
+            "los resultados reales de las pestanas de jornada. Cada "
+            "prediccion se marca como **acierto (1)** o **fallo (0)**. Los "
+            "partidos que aun no se hayan jugado quedan pendientes."
         )
         if st.button("✅ Verificar resultados ahora", type="primary",
                      key="trk_btn_verificar"):
@@ -2168,11 +2168,10 @@ def render_tracking_predicciones():
             st.caption(
                 f"{len(lista)} partidos registrados. Cada partido incluye "
                 f"sus mercados. Estado: ✅ verificado, ⏳ pendiente de "
-                f"resultado, 🚫 no jugado."
+                f"resultado."
             )
             # Filtro opcional por estado
-            estados_disp = ["Todos", "✅ Verificado", "⏳ Pendiente",
-                            "🚫 No jugado"]
+            estados_disp = ["Todos", "✅ Verificado", "⏳ Pendiente"]
             filtro = st.selectbox("Filtrar por estado", estados_disp,
                                   key="trk_filtro_partidos")
             if filtro != "Todos":

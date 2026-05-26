@@ -563,15 +563,14 @@ def calcular_metricas(df):
         calibracion:    lista de tramos con {rango, n, prob_media, real},
       }
     """
-    vacio = {"evaluadas": 0, "pendientes": 0, "no_jugado": 0, "aciertos": 0,
+    vacio = {"evaluadas": 0, "pendientes": 0, "aciertos": 0,
              "tasa_acierto": 0.0, "brier": None, "calibracion": [],
              "por_mercado": []}
     if df is None or df.empty or "Acierto" not in df.columns:
         return vacio
 
-    # Normalizar la columna Acierto. Tres estados posibles:
+    # Normalizar la columna Acierto. Dos estados posibles:
     #   1 / 0   -> prediccion verificada (acierto / fallo)
-    #   "no jugado" -> el enfrentamiento no se disputo (categoria aparte)
     #   vacio   -> aun pendiente de verificar
     def _norm_acierto(v):
         s = str(v).strip().lower()
@@ -579,8 +578,6 @@ def calcular_metricas(df):
             return 1
         if s in ("0", "false", "falso", "fallo"):
             return 0
-        if s in ("no jugado", "no_jugado", "nojugado", "n/a", "na"):
-            return "no_jugado"
         if s == "no":
             return 0
         return None  # vacio / desconocido -> pendiente
@@ -588,15 +585,13 @@ def calcular_metricas(df):
     df = df.copy()
     df["_acierto"] = df["Acierto"].apply(_norm_acierto)
 
-    # Separar las tres categorias
-    no_jugado = int((df["_acierto"] == "no_jugado").sum())
+    # Separar las dos categorias
     pendientes = int(df["_acierto"].isna().sum())
     # Solo 1 y 0 cuentan como evaluadas
     evaluadas_df = df[df["_acierto"].isin([0, 1])].copy()
     n_eval = len(evaluadas_df)
     if n_eval == 0:
         vacio["pendientes"] = pendientes
-        vacio["no_jugado"] = no_jugado
         return vacio
 
     # En evaluadas_df, _acierto solo tiene 0 y 1: lo forzamos a entero para
@@ -679,7 +674,6 @@ def calcular_metricas(df):
     return {
         "evaluadas": n_eval,
         "pendientes": pendientes,
-        "no_jugado": no_jugado,
         "aciertos": aciertos,
         "tasa_acierto": tasa,
         "brier": brier,
@@ -709,8 +703,7 @@ def listar_partidos_registrados(df):
 
     Recibe el DataFrame de cargar_predicciones. Devuelve una lista de dicts:
       {jornada, partido, semana, mercados, estado}
-    donde 'estado' es uno de: "Verificado", "Pendiente", "No jugado",
-    "Mixto" (si las filas del partido no coinciden todas en estado).
+    donde 'estado' es "Verificado" o "Pendiente".
 
     La lista se ordena por jornada y luego por partido.
     """
@@ -727,8 +720,6 @@ def listar_partidos_registrados(df):
         if s in ("1", "0", "si", "sí", "no", "true", "false",
                  "verdadero", "falso", "acierto", "fallo", "ok"):
             return "verificado"
-        if s in ("no jugado", "no_jugado", "nojugado", "n/a", "na"):
-            return "no_jugado"
         return "pendiente"  # vacio
 
     partidos = {}
@@ -759,16 +750,9 @@ def listar_partidos_registrados(df):
         estados = set(p["estados"])
         if estados == {"verificado"}:
             estado = "✅ Verificado"
-        elif estados == {"pendiente"}:
-            estado = "⏳ Pendiente"
-        elif estados == {"no_jugado"}:
-            estado = "🚫 No jugado"
-        elif "pendiente" in estados:
-            # Si queda algo pendiente, el partido esta a medias
-            estado = "⏳ Pendiente"
         else:
-            # Mezcla de verificado y no jugado (raro pero posible)
-            estado = "✅ Verificado"
+            # Si queda alguna fila sin verificar, el partido esta pendiente
+            estado = "⏳ Pendiente"
         resultado.append({
             "Jornada": p["jornada"],
             "Partido": p["partido"],
@@ -1077,21 +1061,21 @@ def verificar_resultados(url_sheet=None):
     los resultados reales de los partidos en las pestanas de jornada.
 
     Para cada prediccion sin 'Acierto':
-      - Busca si ese enfrentamiento se jugo de verdad en alguna jornada.
+      - Busca si ese enfrentamiento se jugo de verdad en su jornada.
       - Si se jugo: comprueba el mercado y escribe 1 o 0.
-      - Si NO se jugo: escribe "no jugado" (enfrentamiento hipotetico que
-        nunca llego a disputarse).
+      - Si aun NO se ha jugado: lo deja PENDIENTE (no escribe nada), para
+        que una verificacion posterior lo recoja cuando ya este jugado.
 
     Escribe los resultados en LOTE en la columna 'Acierto' (y 'Resultado
     real') de la hoja Predicciones.
 
     Devuelve un dict resumen:
-      {ok, verificadas, aciertos, fallos, no_jugado, sin_cambios, error}
+      {ok, verificadas, aciertos, fallos, sin_cambios, error}
     """
     hoja, err = _abrir_hoja_predicciones(url_sheet)
     if hoja is None:
         return {"ok": False, "verificadas": 0, "aciertos": 0, "fallos": 0,
-                "no_jugado": 0, "sin_cambios": 0,
+                "sin_cambios": 0,
                 "error": err or "No se pudo abrir la hoja."}
 
     # Leer todas las predicciones
@@ -1099,12 +1083,12 @@ def verificar_resultados(url_sheet=None):
         registros = hoja.get_all_records()
     except Exception as e:
         return {"ok": False, "verificadas": 0, "aciertos": 0, "fallos": 0,
-                "no_jugado": 0, "sin_cambios": 0,
+                "sin_cambios": 0,
                 "error": f"No se pudieron leer las predicciones: {e}"}
 
     if not registros:
         return {"ok": True, "verificadas": 0, "aciertos": 0, "fallos": 0,
-                "no_jugado": 0, "sin_cambios": 0, "error": ""}
+                "sin_cambios": 0, "error": ""}
 
     # Cargar los partidos jugados de TODAS las jornadas (una sola vez).
     # partidos_por_jornada[jornada] = lista de dicts de partido.
@@ -1119,13 +1103,13 @@ def verificar_resultados(url_sheet=None):
         col_resultado = columnas.index("Resultado real") + 1
     except ValueError:
         return {"ok": False, "verificadas": 0, "aciertos": 0, "fallos": 0,
-                "no_jugado": 0, "sin_cambios": 0,
+                "sin_cambios": 0,
                 "error": "La hoja no tiene las columnas 'Acierto' / "
                          "'Resultado real'. ¿Es la hoja correcta?"}
 
     # Recorrer predicciones y preparar las actualizaciones
     actualizaciones = []   # lista de (fila_hoja, valor_acierto, valor_resultado)
-    aciertos = fallos = no_jugado = sin_cambios = 0
+    aciertos = fallos = sin_cambios = 0
 
     for idx, reg in enumerate(registros):
         fila_hoja = idx + 2   # +1 cabecera, +1 base-1
@@ -1212,7 +1196,7 @@ def verificar_resultados(url_sheet=None):
             hoja.update_cells(celdas, value_input_option="RAW")
         except Exception as e:
             return {"ok": False, "verificadas": 0, "aciertos": 0,
-                    "fallos": 0, "no_jugado": 0, "sin_cambios": sin_cambios,
+                    "fallos": 0, "sin_cambios": sin_cambios,
                     "error": f"Error escribiendo los resultados: {e}"}
 
     return {
@@ -1220,7 +1204,6 @@ def verificar_resultados(url_sheet=None):
         "verificadas": aciertos + fallos,
         "aciertos": aciertos,
         "fallos": fallos,
-        "no_jugado": no_jugado,
         "sin_cambios": sin_cambios,
         "error": "",
     }
