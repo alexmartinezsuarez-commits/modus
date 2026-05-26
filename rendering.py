@@ -24,7 +24,7 @@ from data_loading import (
 from stats_engine import (
     prob_victoria, prob_180s, quien_hace_mas_180s, handicaps_legs,
     legs_totales, prob_a_cuota, extraer_h2h_semanal, obtener_ultimos_partidos,
-    _extraer_metricas_jugadores,
+    _extraer_metricas_jugadores, simular_match,
 )
 
 # El modulo de seguimiento de predicciones es OPCIONAL: si falta el archivo
@@ -1169,7 +1169,7 @@ def render_value_bets():
     legs_total_dict = legs_totales(pr1, pr2)
     st.markdown("---")
     st.markdown("### 🎲 Mercados Disponibles")
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Victoria", "🎯 180s", "🥇 ¿Quién hace más 180?", "📐 Hándicaps", "📊 Total Legs"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏆 Victoria", "🎯 180s", "🥇 ¿Quién hace más 180?", "📐 Hándicaps", "📊 Total Legs", "🎯 Resultado exacto"])
     with tab1:
         st.markdown("#### 🏆 Mercado de Victoria")
         render_barras_enfrentadas(j1['nombre_original'], v1, j2['nombre_original'], v2, j1_color="#1f77b4", j2_color="#ff7f0e")
@@ -1574,6 +1574,63 @@ def render_value_bets():
                 st.metric("Yield", f"{yield_color} {'+' if y > 0 else ''}{y*100:.1f}%")
                 if y > 0:
                     value_bets_list.append({"Mercado": "Menos de 5.5 Legs", "Probabilidad": legs_total_dict["Menos de 5.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
+    with tab6:
+        st.markdown("#### 🎯 Resultado exacto (First to 4)")
+        st.caption(
+            "Probabilidad de cada marcador final del partido. Acertar el "
+            "marcador exacto es dificil, por eso las cuotas son altas."
+        )
+        # Probabilidad de cada marcador, de la simulacion del modelo.
+        finales = simular_match(pr1, pr2)
+        nom1 = j1["nombre_original"]
+        nom2 = j2["nombre_original"]
+        # Los 8 marcadores posibles del Bo7, ordenados
+        marcadores = [
+            (4, 0), (4, 1), (4, 2), (4, 3),
+            (3, 4), (2, 4), (1, 4), (0, 4),
+        ]
+        # Ordenar de mas a menos probable
+        marc_prob = []
+        for (l1, l2) in marcadores:
+            p = finales.get((l1, l2), 0.0)
+            marc_prob.append(((l1, l2), p))
+        marc_prob.sort(key=lambda x: x[1], reverse=True)
+
+        for idx, ((l1, l2), p) in enumerate(marc_prob):
+            etiqueta = f"{nom1} {l1}-{l2} {nom2}"
+            cuota_justa = prob_a_cuota(p)
+            cols = st.columns([2, 1, 1, 1])
+            with cols[0]:
+                st.markdown(f"**{etiqueta}**")
+                st.caption(f"{p*100:.1f}% probabilidad")
+            with cols[1]:
+                st.caption("Cuota justa")
+                st.markdown(f"**{cuota_justa:.2f}**")
+            with cols[2]:
+                c = st.number_input(
+                    "Tu cuota", min_value=1.01, max_value=999.0,
+                    value=None, step=0.1,
+                    key=f"exacto_{l1}_{l2}",
+                    label_visibility="collapsed",
+                    placeholder="Cuota")
+            with cols[3]:
+                if c and c > 0:
+                    y = calcular_yield(p, c)
+                    yc = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
+                    st.metric("Yield", f"{yc} {'+' if y > 0 else ''}"
+                                       f"{y*100:.1f}%")
+                    if y > 0:
+                        value_bets_list.append({
+                            "Mercado": f"Resultado {l1}-{l2} "
+                                       f"({nom1}-{nom2})",
+                            "Probabilidad": p,
+                            "Cuota Justa": cuota_justa,
+                            "Cuota Bookie": c,
+                            "Yield": y,
+                        })
+            if idx < len(marc_prob) - 1:
+                st.markdown("")
+
     if value_bets_list:
         st.markdown("---")
         st.markdown("### 💎 Resumen de Value Bets Encontradas")
