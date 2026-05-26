@@ -932,9 +932,16 @@ def comprobar_partidos_anteriores(jornada, nombre_j1, nombre_j2):
             return True
         return False
 
-    avisos = []
-    partidos_encontrados = []
-    nombres_vistos = set()
+    def _tiene_dato(fila, idx):
+        if len(fila) <= idx:
+            return False
+        v = str(fila[idx]).strip().lower()
+        return v not in ("", "nan", "none", "0", "0.0")
+
+    # Primera pasada: recorrer la tabla y construir la lista de partidos,
+    # cada uno con su posicion (indice), nombres, jugadores implicados y
+    # estado. La tabla esta en orden cronologico (arriba = antes).
+    partidos = []
     i = 0
     while i + 1 < len(filas):
         f1 = filas[i]
@@ -947,43 +954,87 @@ def comprobar_partidos_anteriores(jornada, nombre_j1, nombre_j2):
             i += 1
             continue
 
-        nombres_vistos.add(nombre1)
-        nombres_vistos.add(nombre2)
-
         legs1 = _num(f1[1]) if len(f1) > 1 else None
         legs2 = _num(f2[1]) if len(f2) > 1 else None
+        otros1 = any(_tiene_dato(f1, idx) for idx in (2, 3, 4))
+        otros2 = any(_tiene_dato(f2, idx) for idx in (2, 3, 4))
 
-        afecta = False
-        for nom in (nombre1, nombre2):
-            if (_es_el_jugador(nom, objetivo_j1) or
-                    _es_el_jugador(nom, objetivo_j2)):
-                afecta = True
-                break
+        # Clasificacion del estado:
+        #  - TERMINADO: alguno alcanzo 4 legs.
+        #  - SIN EMPEZAR: ninguna columna tiene datos.
+        #  - EN CURSO: tiene datos pero nadie llego a 4 legs.
+        if (legs1 is not None and legs2 is not None and
+                (legs1 >= 4 or legs2 >= 4)):
+            estado = "terminado"
+        elif (legs1 is None and legs2 is None and
+              not otros1 and not otros2):
+            estado = "sin_empezar"
+        else:
+            estado = "en_curso"
 
-        if afecta:
-            if legs1 is None or legs2 is None:
-                estado = "sin_empezar"
-            elif legs1 >= 4 or legs2 >= 4:
-                estado = "terminado"
-            else:
-                estado = "en_curso"
-            partidos_encontrados.append(
-                f"{nombre1} {legs1}-{legs2} {nombre2} [{estado}]")
-            if estado == "en_curso":
-                avisos.append(
-                    f"{nombre1} {legs1}-{legs2} {nombre2} "
-                    f"(partido sin terminar)")
+        partidos.append({
+            "orden": len(partidos),
+            "nombre1": nombre1, "nombre2": nombre2,
+            "legs1": legs1, "legs2": legs2,
+            "estado": estado,
+        })
         i += 2
 
-    # Diagnostico final
-    if partidos_encontrados:
-        diag.append("Partidos de estos jugadores encontrados:")
-        for p in partidos_encontrados:
-            diag.append(f"  - {p}")
-    else:
-        diag.append("⚠️ NO se encontro ningun partido de estos jugadores "
-                     "en la tabla.")
-        diag.append(f"Nombres en la tabla: {sorted(nombres_vistos)}")
+    diag.append(f"Partidos en la tabla: {len(partidos)}")
+
+    # Localizar el partido que se va a registrar (el de nombre_j1 vs
+    # nombre_j2). Puede aparecer en cualquier orden de jugadores.
+    idx_objetivo = None
+    for p in partidos:
+        n1, n2 = p["nombre1"], p["nombre2"]
+        empareja = (
+            (_es_el_jugador(n1, objetivo_j1) and _es_el_jugador(n2, objetivo_j2))
+            or
+            (_es_el_jugador(n1, objetivo_j2) and _es_el_jugador(n2, objetivo_j1))
+        )
+        if empareja:
+            idx_objetivo = p["orden"]
+            diag.append(f"Partido a registrar encontrado en posicion "
+                        f"{idx_objetivo}: {n1} vs {n2}")
+            break
+
+    if idx_objetivo is None:
+        # El partido a registrar no aparece en la tabla. Segun lo acordado
+        # (Opcion 1), no se puede comprobar el orden -> avisar.
+        diag.append("⚠️ El partido a registrar NO aparece en la tabla. "
+                     "No se puede determinar que partidos son anteriores.")
+        diag.append(f"Nombres en la tabla: "
+                     f"{sorted({p['nombre1'] for p in partidos} | {p['nombre2'] for p in partidos})}")
+        return {"ok": True, "pudo_comprobar": False,
+                "avisos": [], "diagnostico": "\n".join(diag)}
+
+    # Revisar los partidos ANTERIORES (los que estan por encima en la tabla,
+    # es decir orden < idx_objetivo) que involucren a alguno de los dos
+    # jugadores. Si alguno NO esta terminado -> aviso.
+    avisos = []
+    for p in partidos:
+        if p["orden"] >= idx_objetivo:
+            continue  # este partido es el objetivo o uno posterior
+        afecta = (
+            _es_el_jugador(p["nombre1"], objetivo_j1) or
+            _es_el_jugador(p["nombre1"], objetivo_j2) or
+            _es_el_jugador(p["nombre2"], objetivo_j1) or
+            _es_el_jugador(p["nombre2"], objetivo_j2)
+        )
+        if not afecta:
+            continue
+        if p["estado"] != "terminado":
+            etiqueta = ("en curso" if p["estado"] == "en_curso"
+                        else "sin jugar")
+            avisos.append(
+                f"{p['nombre1']} {p['legs1']}-{p['legs2']} {p['nombre2']} "
+                f"({etiqueta})")
+            diag.append(f"  ⚠️ Anterior sin terminar: {p['nombre1']} vs "
+                        f"{p['nombre2']} [{p['estado']}]")
+
+    if not avisos:
+        diag.append("✅ Todos los partidos anteriores de estos jugadores "
+                     "estan terminados.")
 
     return {
         "ok": len(avisos) == 0,
@@ -1245,3 +1296,4 @@ def verificar_resultados(url_sheet=None):
         "sin_cambios": sin_cambios,
         "error": "",
     }
+   
