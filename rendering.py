@@ -34,7 +34,7 @@ try:
     from predicciones import (
         registrar_predicciones, cargar_predicciones, calcular_metricas,
         tracking_disponible, diagnostico_conexion, verificar_resultados,
-        listar_partidos_registrados,
+        listar_partidos_registrados, comprobar_partidos_anteriores,
     )
     _PREDICCIONES_OK = True
     _PREDICCIONES_ERROR = ""
@@ -48,6 +48,7 @@ except Exception as _e:
     diagnostico_conexion = None
     verificar_resultados = None
     listar_partidos_registrados = None
+    comprobar_partidos_anteriores = None
 
 def render_barras_enfrentadas(j1_nombre, j1_prob, j2_nombre, j2_prob, j1_color="#1f77b4", j2_color="#ff7f0e"):
     total = j1_prob + j2_prob
@@ -796,9 +797,45 @@ def render_value_bets():
         if st.button("🔢 Calcular", type="primary", use_container_width=True, help="Calcular probabilidades"):
             st.session_state.vb_calcular = True
         # Boton pequeño para registrar este partido en el seguimiento del
-        # modelo. Va justo debajo de Calcular. Solo aparece si el modulo de
-        # predicciones esta disponible.
+        # modelo. Va justo debajo de Calcular. Antes de registrar, comprueba
+        # que los jugadores no tengan partidos anteriores sin terminar.
         if _PREDICCIONES_OK and registrar_predicciones is not None:
+
+            def _hacer_registro(jr1, jr2, j1_sel, j2_sel, fuente):
+                """Registra el partido y muestra el mensaje de resultado."""
+                semana_vb = datetime.now().strftime("Semana %Y-%m-%d")
+                jornada_reg = fuente
+                if fuente == "Forma reciente":
+                    jornada_reg = detectar_jornada_de_hoy() or fuente
+                with st.spinner(f"Registrando {j1_sel} vs {j2_sel}..."):
+                    resultado = registrar_predicciones(
+                        "", [(jr1, jr2)], semana_vb, jornada_reg
+                    )
+                if resultado["ok"]:
+                    nuevas = resultado.get("nuevas", 0)
+                    actualizadas = resultado.get("actualizadas", 0)
+                    if actualizadas > 0 and nuevas == 0:
+                        st.success(
+                            f"♻️ {j1_sel} vs {j2_sel} ya estaba "
+                            f"registrado — actualizado con los datos "
+                            f"actuales ({actualizadas} mercados)."
+                        )
+                    elif actualizadas > 0:
+                        st.success(
+                            f"✅ Registrado: {j1_sel} vs {j2_sel} "
+                            f"({nuevas} nuevos, {actualizadas} "
+                            f"actualizados)."
+                        )
+                    else:
+                        st.success(
+                            f"✅ Registrado: {j1_sel} vs {j2_sel} "
+                            f"({nuevas} mercados)."
+                        )
+                    if cargar_predicciones is not None:
+                        cargar_predicciones.clear()
+                else:
+                    st.error(f"❌ {resultado['error']}")
+
             if st.button("📝 Registrar", use_container_width=True,
                          key="vb_btn_registrar",
                          help="Registra este partido en el seguimiento del "
@@ -812,27 +849,45 @@ def render_value_bets():
                 elif j1_sel == j2_sel:
                     st.error("Elige dos jugadores distintos.")
                 else:
-                    semana_vb = datetime.now().strftime("Semana %Y-%m-%d")
-                    # Si la fuente es "Forma reciente", el partido pertenece
-                    # en realidad a la jornada de hoy: guardamos esa jornada
-                    # real para que la verificacion pueda encontrar el
-                    # resultado mas adelante.
-                    jornada_reg = fuente
+                    # Comprobar partidos anteriores sin terminar
+                    jornada_chk = fuente
                     if fuente == "Forma reciente":
-                        jornada_reg = detectar_jornada_de_hoy() or fuente
-                    with st.spinner(f"Registrando {j1_sel} vs {j2_sel}..."):
-                        resultado = registrar_predicciones(
-                            "", [(jr1, jr2)], semana_vb, jornada_reg
-                        )
-                    if resultado["ok"]:
-                        st.success(
-                            f"✅ Registrado: {j1_sel} vs {j2_sel} "
-                            f"({resultado['nuevas']} nuevas)."
-                        )
-                        if cargar_predicciones is not None:
-                            cargar_predicciones.clear()
+                        jornada_chk = detectar_jornada_de_hoy() or fuente
+                    chequeo = {"ok": True, "avisos": []}
+                    if comprobar_partidos_anteriores is not None:
+                        with st.spinner("Comprobando partidos anteriores..."):
+                            chequeo = comprobar_partidos_anteriores(
+                                jornada_chk, j1_sel, j2_sel)
+                    if chequeo["ok"]:
+                        # Todo terminado: registrar directamente
+                        _hacer_registro(jr1, jr2, j1_sel, j2_sel, fuente)
                     else:
-                        st.error(f"❌ {resultado['error']}")
+                        # Hay partidos a medias: guardar estado y avisar
+                        st.session_state["vb_aviso_registro"] = {
+                            "j1": j1_sel, "j2": j2_sel,
+                            "avisos": chequeo["avisos"],
+                        }
+
+            # Si hay un aviso pendiente para ESTE partido, mostrarlo y
+            # ofrecer registrar de todas formas.
+            aviso = st.session_state.get("vb_aviso_registro")
+            if (aviso and aviso.get("j1") == j1_sel
+                    and aviso.get("j2") == j2_sel):
+                st.warning(
+                    "⚠️ Hay partidos sin terminar de estos jugadores:\n\n"
+                    + "\n".join(f"• {a}" for a in aviso["avisos"])
+                    + "\n\nLos datos pueden no estar completos."
+                )
+                if st.button("📝 Registrar de todas formas",
+                             use_container_width=True,
+                             key="vb_btn_registrar_forzar"):
+                    jr1 = (buscar_jugador(j1_sel, db_jugadores)
+                           or buscar_jugador(j1_sel, db_jugadores_completa))
+                    jr2 = (buscar_jugador(j2_sel, db_jugadores)
+                           or buscar_jugador(j2_sel, db_jugadores_completa))
+                    if jr1 and jr2:
+                        _hacer_registro(jr1, jr2, j1_sel, j2_sel, fuente)
+                    st.session_state["vb_aviso_registro"] = None
     if not st.session_state.vb_calcular:
         st.info("👆 Selecciona los jugadores y pulsa **Calcular**")
         return

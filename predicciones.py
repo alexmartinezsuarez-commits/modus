@@ -410,41 +410,61 @@ def _id_prediccion(semana, j1, j2, mercado, linea):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def registrar_predicciones(url_sheet, enfrentamientos, semana, jornada=""):
-    """Registra en la hoja 'Predicciones' todos los mercados de todos los
-    enfrentamientos de una jornada. Escribe en LOTE (una sola operacion).
+    """Registra en la hoja 'Predicciones' todos los mercados de los
+    enfrentamientos indicados.
+
+    Si un mercado de un partido YA estaba registrado, se SOBRESCRIBE con
+    los datos nuevos (probabilidad, cuota, prediccion y fecha). Asi, si
+    registras un partido pronto y luego lo vuelves a registrar con datos
+    mas frescos, se queda la version mas reciente. Las columnas de
+    resultado (Resultado real, Acierto) NO se tocan al sobrescribir.
 
     Parametros:
-      url_sheet:        URL del Google Sheet.
+      url_sheet:        URL del Google Sheet (puede ir vacio).
       enfrentamientos:  lista de tuplas (j1_data, j2_data) con los dicts de
                         jugador de cada partido.
       semana:           identificador de la semana/jornada (string).
-      jornada:          texto descriptivo opcional (ej. "Grupo A Lunes").
+      jornada:          texto descriptivo (ej. "Grupo A Lunes").
 
     Devuelve un dict con el resumen:
-      {ok, nuevas, duplicadas, total, error}
-        - ok:          True si la operacion se completo.
-        - nuevas:      cuantas filas se escribieron.
-        - duplicadas:  cuantas se omitieron por ya existir.
-        - total:       total de lineas de mercado procesadas.
-        - error:       mensaje de error si ok es False.
+      {ok, nuevas, actualizadas, total, error}
+        - nuevas:        cuantas filas se escribieron por primera vez.
+        - actualizadas:  cuantas filas existentes se sobrescribieron.
+        - total:         total de lineas de mercado procesadas.
     """
     hoja, err = _abrir_hoja_predicciones(url_sheet)
     if hoja is None:
-        return {"ok": False, "nuevas": 0, "duplicadas": 0, "total": 0,
+        return {"ok": False, "nuevas": 0, "actualizadas": 0, "total": 0,
                 "error": err or "No se pudo conectar con la hoja de Google "
                                  "Sheets."}
 
-    # IDs ya presentes en la hoja, para no duplicar
+    # Mapa {ID -> numero de fila en la hoja} para saber que sobrescribir.
+    # La fila 1 es la cabecera, asi que los datos empiezan en la fila 2.
     try:
         registros = hoja.get_all_records()
-        ids_existentes = {str(r.get("ID", "")).strip() for r in registros}
+        filas_por_id = {}
+        for idx, r in enumerate(registros):
+            id_r = str(r.get("ID", "")).strip()
+            if id_r:
+                filas_por_id[id_r] = idx + 2  # +1 cabecera, +1 base-1
     except Exception:
-        ids_existentes = set()
+        filas_por_id = {}
+
+    # Indice de columnas (para las actualizaciones de filas existentes)
+    try:
+        columnas = hoja.row_values(1)
+        col_fecha = columnas.index("Fecha registro") + 1
+        col_prob = columnas.index("Probabilidad modelo") + 1
+        col_cuota = columnas.index("Cuota justa") + 1
+        col_pred = columnas.index("Prediccion") + 1
+    except (ValueError, Exception):
+        col_fecha = col_prob = col_cuota = col_pred = None
 
     fecha_reg = datetime.now().strftime("%Y-%m-%d %H:%M")
     filas_nuevas = []
+    celdas_actualizar = []
     total = 0
-    duplicadas = 0
+    actualizadas = 0
 
     for j1_data, j2_data in enfrentamientos:
         nombre_j1 = j1_data.get("nombre_original", "?")
@@ -455,40 +475,56 @@ def registrar_predicciones(url_sheet, enfrentamientos, semana, jornada=""):
             total += 1
             id_pred = _id_prediccion(semana, nombre_j1, nombre_j2,
                                      m["mercado"], m["linea"])
-            if id_pred in ids_existentes:
-                duplicadas += 1
-                continue
-            ids_existentes.add(id_pred)
-
             prob = m["prob"]
             cuota = round(1.0 / prob, 2) if prob > 0 else ""
-            filas_nuevas.append([
-                id_pred,
-                str(semana),
-                fecha_reg,
-                jornada,
-                nombre_j1,
-                nombre_j2,
-                m["mercado"],
-                m["linea"],
-                round(prob, 4),
-                cuota,
-                m["prediccion"],
-                "",   # Resultado real: se rellena cuando el partido termine
-                "",   # Acierto: idem
-            ])
 
-    # Escritura en LOTE: una sola llamada a la API con todas las filas.
-    if filas_nuevas:
-        try:
+            if id_pred in filas_por_id and col_prob is not None:
+                # Ya existe: SOBRESCRIBIR los datos de la prediccion.
+                # No se tocan Resultado real ni Acierto.
+                fila = filas_por_id[id_pred]
+                celdas_actualizar.append(
+                    gspread.Cell(fila, col_fecha, fecha_reg))
+                celdas_actualizar.append(
+                    gspread.Cell(fila, col_prob, round(prob, 4)))
+                celdas_actualizar.append(
+                    gspread.Cell(fila, col_cuota, cuota))
+                celdas_actualizar.append(
+                    gspread.Cell(fila, col_pred, m["prediccion"]))
+                actualizadas += 1
+            else:
+                # Nuevo: se anade como fila nueva.
+                filas_nuevas.append([
+                    id_pred,
+                    str(semana),
+                    fecha_reg,
+                    jornada,
+                    nombre_j1,
+                    nombre_j2,
+                    m["mercado"],
+                    m["linea"],
+                    round(prob, 4),
+                    cuota,
+                    m["prediccion"],
+                    "",   # Resultado real
+                    "",   # Acierto
+                ])
+                # Lo registramos como existente por si se repite en el lote
+                filas_por_id[id_pred] = -1
+
+    # Escritura: primero las filas nuevas, luego las actualizaciones.
+    try:
+        if filas_nuevas:
+            # Quitar los marcadores -1 (filas nuevas aun sin numero real)
             hoja.append_rows(filas_nuevas, value_input_option="RAW")
-        except Exception as e:
-            return {"ok": False, "nuevas": 0, "duplicadas": duplicadas,
-                    "total": total,
-                    "error": f"Error escribiendo en la hoja: {e}"}
+        if celdas_actualizar:
+            hoja.update_cells(celdas_actualizar, value_input_option="RAW")
+    except Exception as e:
+        return {"ok": False, "nuevas": len(filas_nuevas),
+                "actualizadas": actualizadas, "total": total,
+                "error": f"Error escribiendo en la hoja: {e}"}
 
     return {"ok": True, "nuevas": len(filas_nuevas),
-            "duplicadas": duplicadas, "total": total, "error": ""}
+            "actualizadas": actualizadas, "total": total, "error": ""}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -834,6 +870,105 @@ def _extraer_partidos_jugados(jornada):
         i += 2
 
     return partidos
+
+
+def comprobar_partidos_anteriores(jornada, nombre_j1, nombre_j2):
+    """Comprueba si los dos jugadores tienen algun partido SIN TERMINAR en
+    la jornada indicada.
+
+    Lee la tabla de la jornada (la misma de LIVE). Cada partido son dos
+    filas. Un partido se considera:
+      - SIN EMPEZAR: alguna fila no tiene legs (vacio / None).
+      - TERMINADO:   alguno de los dos jugadores ha alcanzado 4 legs.
+      - EN CURSO:    tiene legs pero ninguno llega a 4 todavia.
+
+    Para cada uno de los dos jugadores que se van a registrar, busca todos
+    sus partidos ya presentes en la tabla y mira si alguno esta EN CURSO.
+    Un partido sin empezar no cuenta (es uno futuro, no un anterior a medias).
+
+    Devuelve un dict:
+      {ok, avisos}
+        - ok:     True si ningun jugador tiene partidos a medias.
+        - avisos: lista de textos describiendo los partidos sin terminar.
+    """
+    from data_loading import cargar_todo
+    from config import URLS, CORTES
+
+    url = URLS.get(jornada, "")
+    cortes = CORTES.get(jornada, {})
+    if not url or not cortes:
+        # No se puede comprobar: no bloqueamos, devolvemos ok.
+        return {"ok": True, "avisos": []}
+
+    try:
+        df_izq, _ = cargar_todo(url, jornada, cortes)
+    except Exception:
+        return {"ok": True, "avisos": []}
+    if df_izq is None or len(df_izq) < 2:
+        return {"ok": True, "avisos": []}
+
+    filas = df_izq.values.tolist()
+
+    def _num(v):
+        try:
+            return int(float(str(v).replace(",", ".").strip()))
+        except Exception:
+            return None
+
+    objetivo_j1 = str(nombre_j1).lower().strip()
+    objetivo_j2 = str(nombre_j2).lower().strip()
+
+    def _es_el_jugador(nombre, objetivo):
+        n = str(nombre).lower().strip()
+        if n == objetivo:
+            return True
+        if n in objetivo or objetivo in n:
+            return True
+        ape = objetivo.split()[-1] if objetivo.split() else objetivo
+        return bool(ape) and ape in n
+
+    avisos = []
+    i = 0
+    while i + 1 < len(filas):
+        f1 = filas[i]
+        f2 = filas[i + 1]
+        nombre1 = str(f1[0]).strip() if len(f1) > 0 else ""
+        nombre2 = str(f2[0]).strip() if len(f2) > 0 else ""
+        if (not nombre1 or not nombre2 or
+                nombre1.lower() in ("nan", "") or
+                nombre2.lower() in ("nan", "")):
+            i += 1
+            continue
+
+        legs1 = _num(f1[1]) if len(f1) > 1 else None
+        legs2 = _num(f2[1]) if len(f2) > 1 else None
+
+        # ¿Este partido involucra a alguno de los dos jugadores a registrar?
+        afecta = False
+        for nom in (nombre1, nombre2):
+            if (_es_el_jugador(nom, objetivo_j1) or
+                    _es_el_jugador(nom, objetivo_j2)):
+                afecta = True
+                break
+
+        if afecta:
+            # Clasificar el estado del partido
+            if legs1 is None or legs2 is None:
+                estado = "sin_empezar"
+            elif legs1 >= 4 or legs2 >= 4:
+                estado = "terminado"
+            else:
+                estado = "en_curso"
+
+            # Solo nos importan los partidos EN CURSO (a medias).
+            if estado == "en_curso":
+                avisos.append(
+                    f"{nombre1} {legs1}-{legs2} {nombre2} "
+                    f"(partido sin terminar)"
+                )
+        i += 2
+
+    return {"ok": len(avisos) == 0, "avisos": avisos}
 
 
 def _verificar_mercado(mercado, linea, prediccion, legs_a, legs_b,
