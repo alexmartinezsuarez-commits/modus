@@ -1169,7 +1169,7 @@ def render_value_bets():
     legs_total_dict = legs_totales(pr1, pr2)
     st.markdown("---")
     st.markdown("### 🎲 Mercados Disponibles")
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏆 Victoria", "🎯 180s", "🥇 ¿Quién hace más 180?", "📐 Hándicaps", "📊 Total Legs", "🎯 Resultado exacto"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏆 Victoria", "🎯 180s", "🥇 ¿Quién hace más 180?", "📐 Hándicaps", "📊 Total Legs", "🔢 Resultado exacto"])
     with tab1:
         st.markdown("#### 🏆 Mercado de Victoria")
         render_barras_enfrentadas(j1['nombre_original'], v1, j2['nombre_original'], v2, j1_color="#1f77b4", j2_color="#ff7f0e")
@@ -1575,7 +1575,7 @@ def render_value_bets():
                 if y > 0:
                     value_bets_list.append({"Mercado": "Menos de 5.5 Legs", "Probabilidad": legs_total_dict["Menos de 5.5"], "Cuota Justa": cuota_justa, "Cuota Bookie": c, "Yield": y})
     with tab6:
-        st.markdown("#### 🎯 Resultado exacto (First to 4)")
+        st.markdown("#### 🔢 Resultado exacto (First to 4)")
         st.caption(
             "Probabilidad de cada marcador final del partido. Acertar el "
             "marcador exacto es dificil, por eso las cuotas son altas."
@@ -1597,11 +1597,16 @@ def render_value_bets():
         marc_prob.sort(key=lambda x: x[1], reverse=True)
 
         for idx, ((l1, l2), p) in enumerate(marc_prob):
-            etiqueta = f"{nom1} {l1}-{l2} {nom2}"
+            # J1 en azul, J2 en naranja (mismos colores que la comparativa).
+            etiqueta = (
+                f"<b><span style='color:#1f77b4'>{nom1}</span> "
+                f"{l1}-{l2} "
+                f"<span style='color:#ff7f0e'>{nom2}</span></b>"
+            )
             cuota_justa = prob_a_cuota(p)
             cols = st.columns([2, 1, 1, 1])
             with cols[0]:
-                st.markdown(f"**{etiqueta}**")
+                st.markdown(etiqueta, unsafe_allow_html=True)
                 st.caption(f"{p*100:.1f}% probabilidad")
             with cols[1]:
                 st.caption("Cuota justa")
