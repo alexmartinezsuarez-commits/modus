@@ -866,32 +866,48 @@ def comprobar_partidos_anteriores(jornada, nombre_j1, nombre_j2):
       - TERMINADO:   alguno de los dos jugadores ha alcanzado 4 legs.
       - EN CURSO:    tiene legs pero ninguno llega a 4 todavia.
 
-    Para cada uno de los dos jugadores que se van a registrar, busca todos
-    sus partidos ya presentes en la tabla y mira si alguno esta EN CURSO.
-    Un partido sin empezar no cuenta (es uno futuro, no un anterior a medias).
-
     Devuelve un dict:
-      {ok, avisos}
-        - ok:     True si ningun jugador tiene partidos a medias.
-        - avisos: lista de textos describiendo los partidos sin terminar.
+      {ok, pudo_comprobar, avisos, diagnostico}
+        - ok:            True si ningun jugador tiene partidos a medias.
+        - pudo_comprobar: True si la comprobacion se hizo de verdad. Si es
+                          False, la app NO debe dar por buena la
+                          comprobacion (no se pudo leer la tabla, etc.).
+        - avisos:        lista de partidos sin terminar.
+        - diagnostico:   texto con lo que la funcion ha detectado, para
+                         depurar por que no encuentra partidos.
     """
     from data_loading import cargar_todo
     from config import URLS, CORTES
 
+    diag = []
+    diag.append(f"Jornada recibida: '{jornada}'")
+
     url = URLS.get(jornada, "")
     cortes = CORTES.get(jornada, {})
-    if not url or not cortes:
-        # No se puede comprobar: no bloqueamos, devolvemos ok.
-        return {"ok": True, "avisos": []}
+    if not url:
+        diag.append(f"❌ '{jornada}' no esta en URLS. "
+                    f"Claves disponibles: {list(URLS.keys())}")
+        return {"ok": True, "pudo_comprobar": False,
+                "avisos": [], "diagnostico": "\n".join(diag)}
+    if not cortes:
+        diag.append(f"❌ '{jornada}' no esta en CORTES.")
+        return {"ok": True, "pudo_comprobar": False,
+                "avisos": [], "diagnostico": "\n".join(diag)}
 
     try:
         df_izq, _ = cargar_todo(url, jornada, cortes)
-    except Exception:
-        return {"ok": True, "avisos": []}
+    except Exception as e:
+        diag.append(f"❌ Error cargando la tabla: {e}")
+        return {"ok": True, "pudo_comprobar": False,
+                "avisos": [], "diagnostico": "\n".join(diag)}
+
     if df_izq is None or len(df_izq) < 2:
-        return {"ok": True, "avisos": []}
+        diag.append("❌ La tabla esta vacia o tiene menos de 2 filas.")
+        return {"ok": True, "pudo_comprobar": False,
+                "avisos": [], "diagnostico": "\n".join(diag)}
 
     filas = df_izq.values.tolist()
+    diag.append(f"Tabla leida: {len(filas)} filas.")
 
     def _num(v):
         try:
@@ -901,6 +917,7 @@ def comprobar_partidos_anteriores(jornada, nombre_j1, nombre_j2):
 
     objetivo_j1 = str(nombre_j1).lower().strip()
     objetivo_j2 = str(nombre_j2).lower().strip()
+    diag.append(f"Buscando a: '{nombre_j1}' y '{nombre_j2}'")
 
     def _es_el_jugador(nombre, objetivo):
         n = str(nombre).lower().strip()
@@ -908,10 +925,16 @@ def comprobar_partidos_anteriores(jornada, nombre_j1, nombre_j2):
             return True
         if n in objetivo or objetivo in n:
             return True
-        ape = objetivo.split()[-1] if objetivo.split() else objetivo
-        return bool(ape) and ape in n
+        # Coincidencia por apellido (ultima palabra de cada nombre)
+        ape_obj = objetivo.split()[-1] if objetivo.split() else objetivo
+        ape_n = n.split()[-1] if n.split() else n
+        if ape_obj and ape_n and ape_obj == ape_n:
+            return True
+        return False
 
     avisos = []
+    partidos_encontrados = []
+    nombres_vistos = set()
     i = 0
     while i + 1 < len(filas):
         f1 = filas[i]
@@ -924,10 +947,12 @@ def comprobar_partidos_anteriores(jornada, nombre_j1, nombre_j2):
             i += 1
             continue
 
+        nombres_vistos.add(nombre1)
+        nombres_vistos.add(nombre2)
+
         legs1 = _num(f1[1]) if len(f1) > 1 else None
         legs2 = _num(f2[1]) if len(f2) > 1 else None
 
-        # ¿Este partido involucra a alguno de los dos jugadores a registrar?
         afecta = False
         for nom in (nombre1, nombre2):
             if (_es_el_jugador(nom, objetivo_j1) or
@@ -936,23 +961,36 @@ def comprobar_partidos_anteriores(jornada, nombre_j1, nombre_j2):
                 break
 
         if afecta:
-            # Clasificar el estado del partido
             if legs1 is None or legs2 is None:
                 estado = "sin_empezar"
             elif legs1 >= 4 or legs2 >= 4:
                 estado = "terminado"
             else:
                 estado = "en_curso"
-
-            # Solo nos importan los partidos EN CURSO (a medias).
+            partidos_encontrados.append(
+                f"{nombre1} {legs1}-{legs2} {nombre2} [{estado}]")
             if estado == "en_curso":
                 avisos.append(
                     f"{nombre1} {legs1}-{legs2} {nombre2} "
-                    f"(partido sin terminar)"
-                )
+                    f"(partido sin terminar)")
         i += 2
 
-    return {"ok": len(avisos) == 0, "avisos": avisos}
+    # Diagnostico final
+    if partidos_encontrados:
+        diag.append("Partidos de estos jugadores encontrados:")
+        for p in partidos_encontrados:
+            diag.append(f"  - {p}")
+    else:
+        diag.append("⚠️ NO se encontro ningun partido de estos jugadores "
+                     "en la tabla.")
+        diag.append(f"Nombres en la tabla: {sorted(nombres_vistos)}")
+
+    return {
+        "ok": len(avisos) == 0,
+        "pudo_comprobar": True,
+        "avisos": avisos,
+        "diagnostico": "\n".join(diag),
+    }
 
 
 def _verificar_mercado(mercado, linea, prediccion, legs_a, legs_b,

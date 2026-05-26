@@ -853,19 +853,32 @@ def render_value_bets():
                     jornada_chk = fuente
                     if fuente == "Forma reciente":
                         jornada_chk = detectar_jornada_de_hoy() or fuente
-                    chequeo = {"ok": True, "avisos": []}
+                    chequeo = {"ok": True, "pudo_comprobar": False,
+                               "avisos": [], "diagnostico": ""}
                     if comprobar_partidos_anteriores is not None:
                         with st.spinner("Comprobando partidos anteriores..."):
                             chequeo = comprobar_partidos_anteriores(
                                 jornada_chk, j1_sel, j2_sel)
-                    if chequeo["ok"]:
-                        # Todo terminado: registrar directamente
-                        _hacer_registro(jr1, jr2, j1_sel, j2_sel, fuente)
-                    else:
-                        # Hay partidos a medias: guardar estado y avisar
+
+                    if not chequeo.get("pudo_comprobar", False):
+                        # No se pudo comprobar: NO registramos en silencio.
+                        # Avisamos y mostramos el diagnostico.
                         st.session_state["vb_aviso_registro"] = {
                             "j1": j1_sel, "j2": j2_sel,
+                            "tipo": "no_comprobado",
+                            "avisos": [],
+                            "diagnostico": chequeo.get("diagnostico", ""),
+                        }
+                    elif chequeo["ok"]:
+                        # Comprobado y todo terminado: registrar directo.
+                        _hacer_registro(jr1, jr2, j1_sel, j2_sel, fuente)
+                    else:
+                        # Hay partidos a medias: avisar.
+                        st.session_state["vb_aviso_registro"] = {
+                            "j1": j1_sel, "j2": j2_sel,
+                            "tipo": "a_medias",
                             "avisos": chequeo["avisos"],
+                            "diagnostico": chequeo.get("diagnostico", ""),
                         }
 
             # Si hay un aviso pendiente para ESTE partido, mostrarlo y
@@ -873,11 +886,22 @@ def render_value_bets():
             aviso = st.session_state.get("vb_aviso_registro")
             if (aviso and aviso.get("j1") == j1_sel
                     and aviso.get("j2") == j2_sel):
-                st.warning(
-                    "⚠️ Hay partidos sin terminar de estos jugadores:\n\n"
-                    + "\n".join(f"• {a}" for a in aviso["avisos"])
-                    + "\n\nLos datos pueden no estar completos."
-                )
+                if aviso.get("tipo") == "no_comprobado":
+                    st.warning(
+                        "⚠️ No se ha podido comprobar si los jugadores "
+                        "tienen partidos sin terminar. Revisa el "
+                        "diagnostico antes de registrar."
+                    )
+                else:
+                    st.warning(
+                        "⚠️ Hay partidos sin terminar de estos jugadores:\n\n"
+                        + "\n".join(f"• {a}" for a in aviso["avisos"])
+                        + "\n\nLos datos pueden no estar completos."
+                    )
+                # Mostrar el diagnostico para depurar
+                if aviso.get("diagnostico"):
+                    with st.expander("🔍 Ver diagnostico de la comprobacion"):
+                        st.code(aviso["diagnostico"], language="text")
                 if st.button("📝 Registrar de todas formas",
                              use_container_width=True,
                              key="vb_btn_registrar_forzar"):
