@@ -1577,64 +1577,64 @@ def render_value_bets():
     with tab6:
         st.markdown("#### 🔢 Resultado exacto (First to 4)")
         st.caption(
-            "Probabilidad de cada marcador final del partido. Acertar el "
-            "marcador exacto es dificil, por eso las cuotas son altas."
+            "Probabilidad de cada marcador final. Cada burbuja muestra el "
+            "marcador y su cuota justa; la barra indica la probabilidad."
         )
-        # Probabilidad de cada marcador, de la simulacion del modelo.
         finales = simular_match(pr1, pr2)
         nom1 = j1["nombre_original"]
         nom2 = j2["nombre_original"]
-        # Los 8 marcadores posibles del Bo7, ordenados
-        marcadores = [
-            (4, 0), (4, 1), (4, 2), (4, 3),
-            (3, 4), (2, 4), (1, 4), (0, 4),
-        ]
-        # Ordenar de mas a menos probable
-        marc_prob = []
-        for (l1, l2) in marcadores:
-            p = finales.get((l1, l2), 0.0)
-            marc_prob.append(((l1, l2), p))
-        marc_prob.sort(key=lambda x: x[1], reverse=True)
 
-        for idx, ((l1, l2), p) in enumerate(marc_prob):
-            # J1 en azul, J2 en naranja (mismos colores que la comparativa).
-            etiqueta = (
-                f"<b><span style='color:#1f77b4'>{nom1}</span> "
-                f"{l1}-{l2} "
-                f"<span style='color:#ff7f0e'>{nom2}</span></b>"
+        # Cabecera con los dos jugadores y su color
+        st.markdown(
+            f"<div style='display:flex;justify-content:space-between;"
+            f"font-weight:700;font-size:1.05rem;margin-bottom:8px;'>"
+            f"<span style='color:#1f77b4'>{nom1}</span>"
+            f"<span style='color:#ff7f0e'>{nom2}</span></div>",
+            unsafe_allow_html=True,
+        )
+
+        # Marcadores: a la izquierda los que gana J1, a la derecha los de J2.
+        # Cada fila enfrenta un marcador de J1 con su espejo de J2.
+        filas_marc = [
+            ((4, 0), (0, 4)),
+            ((4, 1), (1, 4)),
+            ((4, 2), (2, 4)),
+            ((4, 3), (3, 4)),
+        ]
+
+        def _burbuja(l1, l2, p, color):
+            """Devuelve el HTML de una burbuja de marcador."""
+            cuota = prob_a_cuota(p)
+            pct = p * 100
+            ancho = max(2, min(100, pct * 3))  # escala visual de la barra
+            return (
+                f"<div style='border:2px solid {color};border-radius:14px;"
+                f"padding:10px 14px;margin:6px 0;background:#ffffff;'>"
+                f"<div style='display:flex;justify-content:space-between;"
+                f"align-items:center;'>"
+                f"<span style='font-size:1.25rem;font-weight:800;"
+                f"color:#222;'>{l1} - {l2}</span>"
+                f"<span style='font-size:1.1rem;font-weight:700;"
+                f"color:{color};'>{cuota:.2f}</span></div>"
+                f"<div style='background:#eee;border-radius:6px;height:8px;"
+                f"margin-top:8px;overflow:hidden;'>"
+                f"<div style='width:{ancho}%;height:8px;"
+                f"background:{color};'></div></div>"
+                f"<div style='font-size:0.8rem;color:#666;margin-top:4px;'>"
+                f"{pct:.1f}% probabilidad</div>"
+                f"</div>"
             )
-            cuota_justa = prob_a_cuota(p)
-            cols = st.columns([2, 1, 1, 1])
-            with cols[0]:
-                st.markdown(etiqueta, unsafe_allow_html=True)
-                st.caption(f"{p*100:.1f}% probabilidad")
-            with cols[1]:
-                st.caption("Cuota justa")
-                st.markdown(f"**{cuota_justa:.2f}**")
-            with cols[2]:
-                c = st.number_input(
-                    "Tu cuota", min_value=1.01, max_value=999.0,
-                    value=None, step=0.1,
-                    key=f"exacto_{l1}_{l2}",
-                    label_visibility="collapsed",
-                    placeholder="Cuota")
-            with cols[3]:
-                if c and c > 0:
-                    y = calcular_yield(p, c)
-                    yc = "🟢" if y > 0 else ("🔴" if y < -0.05 else "⚪")
-                    st.metric("Yield", f"{yc} {'+' if y > 0 else ''}"
-                                       f"{y*100:.1f}%")
-                    if y > 0:
-                        value_bets_list.append({
-                            "Mercado": f"Resultado {l1}-{l2} "
-                                       f"({nom1}-{nom2})",
-                            "Probabilidad": p,
-                            "Cuota Justa": cuota_justa,
-                            "Cuota Bookie": c,
-                            "Yield": y,
-                        })
-            if idx < len(marc_prob) - 1:
-                st.markdown("")
+
+        for (m_izq, m_der) in filas_marc:
+            cizq, cder = st.columns(2)
+            with cizq:
+                p = finales.get(m_izq, 0.0)
+                st.markdown(_burbuja(m_izq[0], m_izq[1], p, "#1f77b4"),
+                            unsafe_allow_html=True)
+            with cder:
+                p = finales.get(m_der, 0.0)
+                st.markdown(_burbuja(m_der[0], m_der[1], p, "#ff7f0e"),
+                            unsafe_allow_html=True)
 
     if value_bets_list:
         st.markdown("---")
