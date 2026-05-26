@@ -119,7 +119,7 @@ PALETA_JUGADORES = [
 
 # Cambiar estos valores recalibra TODO el modelo de victoria, hándicaps y legs.
 
-ELO_S = 60.0     # Sensibilidad: a menor S, el favorito tiene más peso
+ELO_S = 90.0     # Sensibilidad: a menor S, el favorito tiene más peso
 ELO_B = 10.0      # Bonus de saque (Throw First Advantage), en puntos de PG
 
 # Referencia para escalar lambda de 180s. Si E[legs] del partido > 5.7,
