@@ -659,41 +659,54 @@ def calcular_metricas(df):
         elif brier > 1.0:
             brier = 1.0
 
-    # Calibracion: agrupar por tramos de probabilidad de la APUESTA del
-    # modelo (siempre >= 50% por la conversion de arriba).
-    calibracion = []
-    if len(con_prob) > 0:
-        tramos = [(0.5, 0.6), (0.6, 0.7), (0.7, 0.8), (0.8, 0.9), (0.9, 1.01)]
-        for lo, hi in tramos:
-            grupo = con_prob[(con_prob["_prob"] >= lo) & (con_prob["_prob"] < hi)]
-            n_grupo = len(grupo)
-            if n_grupo == 0:
+    # Calibracion GLOBAL: agrupar por tramos de confianza de la apuesta
+    # del modelo. Seis tramos desde 50%: 50-60 (el mas informativo, donde
+    # el modelo esta al limite), 60-70, 70-80, 80-90, 90-95, 95-100.
+    TRAMOS = [(0.50, 0.60), (0.60, 0.70), (0.70, 0.80), (0.80, 0.90),
+              (0.90, 0.95), (0.95, 1.01)]
+    UMBRAL_FIABLE = 15  # menos de 15 predicciones -> tramo no fiable
+
+    def _calibracion_de(sub_df):
+        """Calcula la calibracion sobre un subconjunto (DataFrame).
+
+        Devuelve una lista con un dict por tramo (solo tramos no vacios).
+        """
+        out = []
+        for lo, hi in TRAMOS:
+            g = sub_df[(sub_df["_prob"] >= lo) & (sub_df["_prob"] < hi)]
+            n_g = len(g)
+            if n_g == 0:
                 continue
-            # Un tramo con pocos datos no es fiable: la tasa real es ruido.
-            # Se marca para que el usuario no saque conclusiones de el.
-            fiable = n_grupo >= 20
-            calibracion.append({
+            out.append({
                 "rango": f"{int(lo*100)}-{int(hi*100)}%",
-                "n": n_grupo,
-                "prob_media": float(grupo["_prob"].mean()) * 100,
-                "real": float(grupo["_acierto"].mean()) * 100,
-                "fiable": fiable,
+                "n": n_g,
+                "prob_media": float(g["_prob"].mean()) * 100,
+                "real": float(g["_acierto"].mean()) * 100,
+                "fiable": n_g >= UMBRAL_FIABLE,
             })
+        return out
+
+    calibracion = _calibracion_de(con_prob) if len(con_prob) > 0 else []
 
     # Desglose por tipo de mercado: para cada mercado (Ganador, Handicap
     # legs, Total legs, 180s, Mas 180s (H2H)), cuantas predicciones se
-    # verificaron, cuantas se acertaron y la tasa de acierto. Esto permite
-    # ver en que mercados el modelo funciona bien y en cuales no.
+    # verificaron, cuantas se acertaron, la tasa de acierto Y la
+    # calibracion propia de ese mercado.
     por_mercado = []
     if "Mercado" in evaluadas_df.columns and n_eval > 0:
         for mercado, grupo in evaluadas_df.groupby("Mercado"):
             n_m = len(grupo)
             ac_m = int(grupo["_acierto"].sum())
+            # Calibracion propia de este mercado
+            grupo_con_prob = grupo[grupo["_prob"].notna()]
+            calib_m = (_calibracion_de(grupo_con_prob)
+                       if len(grupo_con_prob) > 0 else [])
             por_mercado.append({
                 "mercado": str(mercado),
                 "verificadas": n_m,
                 "aciertos": ac_m,
                 "tasa": 100.0 * ac_m / n_m if n_m > 0 else 0.0,
+                "calibracion": calib_m,
             })
         # Ordenar de mejor a peor tasa de acierto
         por_mercado.sort(key=lambda x: x["tasa"], reverse=True)
