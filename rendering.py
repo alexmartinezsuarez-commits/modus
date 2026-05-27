@@ -2201,15 +2201,19 @@ def render_tracking_predicciones():
             "mas fiables son sus predicciones en ese mercado."
         )
 
-        def _color_tasa(tasa, n):
-            """Color semaforo segun tasa de acierto y muestra."""
+        def _color_tasa(tasa, n, azar):
+            """Color semaforo segun cuanto supera la tasa de acierto al
+            azar (50% binario, 33% H2H). El umbral verde/amarillo/rojo se
+            calcula relativo a ese azar para que H2H se evalue justo.
+            """
             if n < 15:
                 return "#9aa0a6"  # gris: muestra insuficiente
-            if tasa >= 70:
-                return "#28a745"  # verde
-            if tasa >= 55:
-                return "#f4b400"  # amarillo
-            return "#d93025"      # rojo
+            margen = tasa - azar  # cuanto supera al azar
+            if margen >= 20:
+                return "#28a745"  # verde: claramente mejor que azar
+            if margen >= 5:
+                return "#f4b400"  # amarillo: algo mejor que azar
+            return "#d93025"      # rojo: cerca o por debajo del azar
 
         # Mostrar las tarjetas en 2 columnas
         for i in range(0, len(por_merc), 2):
@@ -2221,9 +2225,13 @@ def render_tracking_predicciones():
                 tasa = m["tasa"]
                 n = m["verificadas"]
                 ac = m["aciertos"]
-                color = _color_tasa(tasa, n)
+                azar = m.get("azar", 50.0)
+                color = _color_tasa(tasa, n, azar)
                 nota = "Muestra insuficiente" if n < 15 else ""
                 ancho = max(2, min(100, tasa))
+                # Linea de azar para contexto
+                ref = (f" · azar {azar:.0f}%"
+                       if abs(azar - 50.0) > 0.1 else "")
                 with col:
                     st.markdown(
                         f"<div style='border:1px solid #ddd;"
@@ -2238,7 +2246,7 @@ def render_tracking_predicciones():
                         f"<div style='width:{ancho}%;height:8px;"
                         f"background:{color};'></div></div>"
                         f"<div style='font-size:0.8rem;color:#666;"
-                        f"margin-top:6px;'>{ac} de {n} verificadas"
+                        f"margin-top:6px;'>{ac} de {n} verificadas{ref}"
                         + (f" · <span style='color:#9aa0a6;'>{nota}"
                            f"</span>" if nota else "")
                         + "</div></div>",
@@ -2322,17 +2330,6 @@ def render_tracking_predicciones():
                     "</tbody></table>"
                 )
                 st.markdown(tabla, unsafe_allow_html=True)
-
-                # Grafico de barras: barra clara (predijo) vs intensa (real)
-                df_chart = pd.DataFrame({
-                    "Tramo": [t["rango"] for t in calib],
-                    "Modelo predijo (media)": [t["prob_media"]
-                                               for t in calib],
-                    "Ocurrio realmente": [t["real"] for t in calib],
-                })
-                df_chart = df_chart.set_index("Tramo")
-                st.bar_chart(df_chart, height=260,
-                             color=["#a8c7fa", "#1a73e8"])
 
     # ── Parte 4: lista de partidos registrados ───────────────────────────────
     # Una fila por partido (no por mercado), con su estado.
