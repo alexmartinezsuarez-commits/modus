@@ -612,13 +612,23 @@ def calcular_metricas(df):
             x = float(str(v).strip().replace(",", "."))
         except Exception:
             return None
-        # Caso normal: ya esta entre 0 y 1
+        # Una probabilidad real esta entre 0 y 1. Si llega algo distinto,
+        # intentamos recuperarlo asumiendo que se perdio la coma decimal
+        # (residuo de un bug viejo en el que Google Sheets corrompia el
+        # formato al escribir con USER_ENTERED). Reglas:
+        #   0   < x <= 1     -> valor correcto (0.692)
+        #   1   < x <= 100   -> es porcentaje (69.2) -> /100
+        #   100 < x <= 1000  -> coma perdida (692)   -> /1000
+        #   1000< x <= 10000 -> coma perdida (1713)  -> /10000
+        # Cualquier otro valor se descarta.
         if 0.0 <= x <= 1.0:
             return x
-        # Caso porcentaje: entre 1 y 100 -> dividir por 100
         if 1.0 < x <= 100.0:
             return x / 100.0
-        # Cualquier otro valor es corrupto: se descarta
+        if 100.0 < x <= 1000.0:
+            return x / 1000.0
+        if 1000.0 < x <= 10000.0:
+            return x / 10000.0
         return None
 
     evaluadas_df["_prob"] = evaluadas_df["Probabilidad modelo"].apply(_num)
@@ -644,13 +654,18 @@ def calcular_metricas(df):
                   (0.5, 0.6), (0.6, 0.7), (0.7, 0.8), (0.8, 0.9), (0.9, 1.01)]
         for lo, hi in tramos:
             grupo = con_prob[(con_prob["_prob"] >= lo) & (con_prob["_prob"] < hi)]
-            if len(grupo) == 0:
+            n_grupo = len(grupo)
+            if n_grupo == 0:
                 continue
+            # Un tramo con pocos datos no es fiable: la tasa real es ruido.
+            # Se marca para que el usuario no saque conclusiones de el.
+            fiable = n_grupo >= 20
             calibracion.append({
                 "rango": f"{int(lo*100)}-{int(hi*100)}%",
-                "n": len(grupo),
+                "n": n_grupo,
                 "prob_media": float(grupo["_prob"].mean()) * 100,
                 "real": float(grupo["_acierto"].mean()) * 100,
+                "fiable": fiable,
             })
 
     # Desglose por tipo de mercado: para cada mercado (Ganador, Handicap
@@ -1296,4 +1311,3 @@ def verificar_resultados(url_sheet=None):
         "sin_cambios": sin_cambios,
         "error": "",
     }
-   

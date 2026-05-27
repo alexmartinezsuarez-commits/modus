@@ -2276,6 +2276,10 @@ def render_tracking_predicciones():
                         return x
                     if 1.0 < x <= 100.0:
                         return x / 100.0
+                    if 100.0 < x <= 1000.0:
+                        return x / 1000.0
+                    if 1000.0 < x <= 10000.0:
+                        return x / 10000.0
                     return None
                 df_diag["_p"] = df_diag["Probabilidad modelo"].apply(_np)
 
