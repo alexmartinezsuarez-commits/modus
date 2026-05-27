@@ -633,17 +633,28 @@ def calcular_metricas(df):
 
     evaluadas_df["_prob_evento"] = evaluadas_df["Probabilidad modelo"].apply(_num)
 
-    # IMPORTANTE: la columna "Probabilidad modelo" guarda la prob del
-    # EVENTO BRUTO (p.ej. "J1 hace +1.5 180s" = 15%). Pero el modelo
-    # solo apuesta cuando esa prob > 50%; si la prob bruta es 15%, en
-    # realidad esta apostando por el COMPLEMENTO ("no pasa", 85%).
-    # Para la calibracion y el Brier hay que usar la confianza del
-    # modelo en su prediccion, no la prob del evento.
-    def _prob_apuesta(p):
+    # IMPORTANTE: para mercados BINARIOS (Ganador, Handicap, Total, 180s
+    # individuales), la columna "Probabilidad modelo" guarda la prob del
+    # evento bruto. Si esa prob es <50%, el modelo en realidad apuesta por
+    # el complemento (1-p). Hay que invertir para obtener la confianza
+    # real de la apuesta.
+    #
+    # EXCEPCION: el mercado "Mas 180s (H2H)" es de 3 OPCIONES (J1/empate/J2)
+    # y ya guarda la prob del favorito del modelo. Su 1-p NO seria la
+    # apuesta complementaria coherente, asi que NO se invierte.
+    MERCADO_H2H = "Mas 180s (H2H)"
+
+    def _prob_apuesta(row):
+        p = row["_prob_evento"]
         if p is None:
             return None
+        mercado = str(row.get("Mercado", "")).strip()
+        if mercado == MERCADO_H2H:
+            # H2H: prob ya es la del favorito del modelo, no invertir.
+            return p
+        # Binario: si <50%, el modelo apuesta por el complemento.
         return p if p >= 0.5 else 1.0 - p
-    evaluadas_df["_prob"] = evaluadas_df["_prob_evento"].apply(_prob_apuesta)
+    evaluadas_df["_prob"] = evaluadas_df.apply(_prob_apuesta, axis=1)
 
     # Brier score: media de (prob - resultado)^2 sobre las filas con prob
     # valida (0-1). Como _num ya garantiza el rango, el Brier siempre saldra
@@ -660,19 +671,23 @@ def calcular_metricas(df):
             brier = 1.0
 
     # Calibracion GLOBAL: agrupar por tramos de confianza de la apuesta
-    # del modelo. Seis tramos desde 50%: 50-60 (el mas informativo, donde
-    # el modelo esta al limite), 60-70, 70-80, 80-90, 90-95, 95-100.
-    TRAMOS = [(0.50, 0.60), (0.60, 0.70), (0.70, 0.80), (0.80, 0.90),
-              (0.90, 0.95), (0.95, 1.01)]
+    # del modelo. Seis tramos desde 50% para mercados binarios.
+    TRAMOS_BIN = [(0.50, 0.60), (0.60, 0.70), (0.70, 0.80), (0.80, 0.90),
+                  (0.90, 0.95), (0.95, 1.01)]
+    # Para "Mas 180s (H2H)" — mercado de 3 opciones — la prob del favorito
+    # del modelo suele rondar 30-50%. Usamos tramos bajos.
+    TRAMOS_H2H = [(0.30, 0.40), (0.40, 0.50), (0.50, 0.60),
+                  (0.60, 0.70), (0.70, 1.01)]
     UMBRAL_FIABLE = 15  # menos de 15 predicciones -> tramo no fiable
 
-    def _calibracion_de(sub_df):
-        """Calcula la calibracion sobre un subconjunto (DataFrame).
+    def _calibracion_de(sub_df, tramos):
+        """Calcula la calibracion sobre un subconjunto (DataFrame) usando
+        los tramos indicados.
 
         Devuelve una lista con un dict por tramo (solo tramos no vacios).
         """
         out = []
-        for lo, hi in TRAMOS:
+        for lo, hi in tramos:
             g = sub_df[(sub_df["_prob"] >= lo) & (sub_df["_prob"] < hi)]
             n_g = len(g)
             if n_g == 0:
@@ -686,27 +701,36 @@ def calcular_metricas(df):
             })
         return out
 
-    calibracion = _calibracion_de(con_prob) if len(con_prob) > 0 else []
+    # La calibracion GLOBAL mezcla mercados binarios y H2H, asi que no
+    # tiene mucho sentido un unico set de tramos. La construimos a partir
+    # de los binarios solamente (la del H2H se ve en su tarjeta).
+    con_prob_bin = con_prob[con_prob["Mercado"] != MERCADO_H2H] if "Mercado" in con_prob.columns else con_prob
+    calibracion = (_calibracion_de(con_prob_bin, TRAMOS_BIN)
+                   if len(con_prob_bin) > 0 else [])
 
-    # Desglose por tipo de mercado: para cada mercado (Ganador, Handicap
-    # legs, Total legs, 180s, Mas 180s (H2H)), cuantas predicciones se
-    # verificaron, cuantas se acertaron, la tasa de acierto Y la
-    # calibracion propia de ese mercado.
+    # Desglose por tipo de mercado: para cada mercado, cuantas predicciones
+    # se verificaron, cuantas se acertaron, la tasa Y la calibracion propia
+    # de ese mercado (con tramos adaptados: H2H usa rangos bajos).
     por_mercado = []
     if "Mercado" in evaluadas_df.columns and n_eval > 0:
         for mercado, grupo in evaluadas_df.groupby("Mercado"):
             n_m = len(grupo)
             ac_m = int(grupo["_acierto"].sum())
-            # Calibracion propia de este mercado
+            tramos_m = (TRAMOS_H2H if str(mercado) == MERCADO_H2H
+                        else TRAMOS_BIN)
             grupo_con_prob = grupo[grupo["_prob"].notna()]
-            calib_m = (_calibracion_de(grupo_con_prob)
+            calib_m = (_calibracion_de(grupo_con_prob, tramos_m)
                        if len(grupo_con_prob) > 0 else [])
+            # Tasa del azar para el semaforo de la tarjeta: 33% para H2H
+            # (3 opciones), 50% para binarios.
+            azar = 33.33 if str(mercado) == MERCADO_H2H else 50.0
             por_mercado.append({
                 "mercado": str(mercado),
                 "verificadas": n_m,
                 "aciertos": ac_m,
                 "tasa": 100.0 * ac_m / n_m if n_m > 0 else 0.0,
                 "calibracion": calib_m,
+                "azar": azar,
             })
         # Ordenar de mejor a peor tasa de acierto
         por_mercado.sort(key=lambda x: x["tasa"], reverse=True)
