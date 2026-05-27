@@ -2224,20 +2224,17 @@ def render_tracking_predicciones():
     if metricas["calibracion"]:
         st.markdown("#### 📊 Calibracion del modelo")
         st.caption(
-            "Para cada tramo de probabilidad: lo que el modelo predijo de "
-            "media frente a lo que realmente paso. Si ambas columnas se "
-            "parecen, el modelo esta bien calibrado. Los tramos marcados "
-            "con ⚠️ tienen pocos datos (menos de 20) y NO son fiables: su "
-            "porcentaje real es ruido hasta acumular mas predicciones."
+            "Para cada tramo de confianza del modelo (la probabilidad con "
+            "que el modelo apoyo su prediccion): media de la confianza "
+            "frente a la tasa real de acierto. Si ambas columnas se parecen, "
+            "el modelo esta bien calibrado."
         )
         df_calib = pd.DataFrame(metricas["calibracion"])
-        # Columna de fiabilidad segun el tamaño de muestra del tramo
+        # Quitamos la columna interna 'fiable' si esta presente
         if "fiable" in df_calib.columns:
-            df_calib["Fiabilidad"] = df_calib["fiable"].map(
-                lambda f: "✅ Fiable" if f else "⚠️ Pocos datos")
             df_calib = df_calib.drop(columns=["fiable"])
         df_calib = df_calib.rename(columns={
-            "rango": "Rango de probabilidad",
+            "rango": "Rango de confianza",
             "n": "Nº predicciones",
             "prob_media": "Modelo predijo (media)",
             "real": "Ocurrio realmente",
@@ -2247,85 +2244,6 @@ def render_tracking_predicciones():
         df_calib["Ocurrio realmente"] = df_calib["Ocurrio realmente"].map(
             lambda v: f"{v:.1f}%")
         st.dataframe(df_calib, use_container_width=True, hide_index=True)
-
-        # ── Diagnostico de calibracion ────────────────────────────────────
-        # Muestra los datos crudos para entender por que la tabla sale como
-        # sale. Util si los numeros no cuadran (ej. "real" siempre 100%).
-        with st.expander("🔍 Diagnostico de la calibracion (datos crudos)"):
-            try:
-                df_diag = df_pred.copy()
-                # Filtrar solo las verificadas
-                def _na(v):
-                    s = str(v).strip().lower()
-                    if s in ("1", "si", "sí", "true", "verdadero",
-                             "acierto", "ok"):
-                        return 1
-                    if s in ("0", "false", "falso", "fallo", "no"):
-                        return 0
-                    return None
-                df_diag["_a"] = df_diag["Acierto"].apply(_na)
-                df_diag = df_diag[df_diag["_a"].isin([0, 1])].copy()
-
-                # Limpiar la probabilidad
-                def _np(v):
-                    try:
-                        x = float(str(v).strip().replace(",", "."))
-                    except Exception:
-                        return None
-                    if 0.0 <= x <= 1.0:
-                        return x
-                    if 1.0 < x <= 100.0:
-                        return x / 100.0
-                    if 100.0 < x <= 1000.0:
-                        return x / 1000.0
-                    if 1000.0 < x <= 10000.0:
-                        return x / 10000.0
-                    return None
-                df_diag["_p"] = df_diag["Probabilidad modelo"].apply(_np)
-
-                st.write(f"**Verificadas con probabilidad valida:** "
-                         f"{int(df_diag['_p'].notna().sum())} de "
-                         f"{len(df_diag)} verificadas")
-                st.write(f"**Verificadas SIN probabilidad valida** "
-                         f"(descartadas de la calibracion): "
-                         f"{int(df_diag['_p'].isna().sum())}")
-
-                # Distribucion por tramos: cuantas predicciones hay en cada
-                # rango, su prob media y la tasa real
-                df_v = df_diag[df_diag["_p"].notna()].copy()
-                if len(df_v) > 0:
-                    st.write("**Distribucion por tramos:**")
-                    tramos = [(0.0,0.1),(0.1,0.2),(0.2,0.3),(0.3,0.4),
-                              (0.4,0.5),(0.5,0.6),(0.6,0.7),(0.7,0.8),
-                              (0.8,0.9),(0.9,1.01)]
-                    rows = []
-                    for lo, hi in tramos:
-                        g = df_v[(df_v["_p"] >= lo) & (df_v["_p"] < hi)]
-                        if len(g) == 0:
-                            continue
-                        rows.append({
-                            "Tramo": f"{int(lo*100)}-{int(hi*100)}%",
-                            "N": len(g),
-                            "Prob media": f"{g['_p'].mean()*100:.1f}%",
-                            "Aciertos": int(g["_a"].sum()),
-                            "Fallos": int((g["_a"]==0).sum()),
-                            "Tasa real": f"{g['_a'].mean()*100:.1f}%",
-                        })
-                    if rows:
-                        st.dataframe(pd.DataFrame(rows),
-                                     use_container_width=True,
-                                     hide_index=True)
-
-                # Si hay valores raros en Probabilidad modelo
-                df_raw = df_diag.copy()
-                df_raw["Prob_raw"] = df_raw["Probabilidad modelo"].astype(str)
-                muestras = df_raw[["Mercado","Prob_raw","Acierto"]].head(20)
-                st.write("**Muestra de 20 filas verificadas (datos "
-                         "como estan en la hoja):**")
-                st.dataframe(muestras, use_container_width=True,
-                             hide_index=True)
-            except Exception as e:
-                st.error(f"Error en diagnostico: {e}")
 
     # ── Parte 4: lista de partidos registrados ───────────────────────────────
     # Una fila por partido (no por mercado), con su estado.
