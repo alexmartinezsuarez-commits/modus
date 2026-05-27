@@ -631,7 +631,19 @@ def calcular_metricas(df):
             return x / 10000.0
         return None
 
-    evaluadas_df["_prob"] = evaluadas_df["Probabilidad modelo"].apply(_num)
+    evaluadas_df["_prob_evento"] = evaluadas_df["Probabilidad modelo"].apply(_num)
+
+    # IMPORTANTE: la columna "Probabilidad modelo" guarda la prob del
+    # EVENTO BRUTO (p.ej. "J1 hace +1.5 180s" = 15%). Pero el modelo
+    # solo apuesta cuando esa prob > 50%; si la prob bruta es 15%, en
+    # realidad esta apostando por el COMPLEMENTO ("no pasa", 85%).
+    # Para la calibracion y el Brier hay que usar la confianza del
+    # modelo en su prediccion, no la prob del evento.
+    def _prob_apuesta(p):
+        if p is None:
+            return None
+        return p if p >= 0.5 else 1.0 - p
+    evaluadas_df["_prob"] = evaluadas_df["_prob_evento"].apply(_prob_apuesta)
 
     # Brier score: media de (prob - resultado)^2 sobre las filas con prob
     # valida (0-1). Como _num ya garantiza el rango, el Brier siempre saldra
@@ -647,11 +659,11 @@ def calcular_metricas(df):
         elif brier > 1.0:
             brier = 1.0
 
-    # Calibracion: agrupar por tramos de probabilidad del 10%
+    # Calibracion: agrupar por tramos de probabilidad de la APUESTA del
+    # modelo (siempre >= 50% por la conversion de arriba).
     calibracion = []
     if len(con_prob) > 0:
-        tramos = [(0.0, 0.1), (0.1, 0.2), (0.2, 0.3), (0.3, 0.4), (0.4, 0.5),
-                  (0.5, 0.6), (0.6, 0.7), (0.7, 0.8), (0.8, 0.9), (0.9, 1.01)]
+        tramos = [(0.5, 0.6), (0.6, 0.7), (0.7, 0.8), (0.8, 0.9), (0.9, 1.01)]
         for lo, hi in tramos:
             grupo = con_prob[(con_prob["_prob"] >= lo) & (con_prob["_prob"] < hi)]
             n_grupo = len(grupo)
