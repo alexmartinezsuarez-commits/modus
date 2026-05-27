@@ -2182,68 +2182,157 @@ def render_tracking_predicciones():
         )
         return
 
-    # Metricas principales
-    m1, m2 = st.columns(2)
-    m1.metric("Tasa de acierto", f"{metricas['tasa_acierto']:.1f}%",
-              help="% de predicciones acertadas sobre las verificadas.")
-    if metricas["brier"] is not None:
-        m2.metric("Brier score", f"{metricas['brier']:.3f}",
-                  help="Calidad de las probabilidades. 0 = perfecto, "
-                       "0.25 = azar. Cuanto menor, mejor.")
-
     # Aviso de muestra pequena
     if evaluadas < 30:
         st.warning(
-            f"⚠️ Solo hay {evaluadas} predicciones verificadas. Con tan pocas, "
-            f"estas cifras son muy ruidosas: tomalas como orientativas hasta "
-            f"acumular bastantes mas."
+            f"⚠️ Solo hay {evaluadas} predicciones verificadas. Con tan "
+            f"pocas, las cifras son muy ruidosas: tomalas como orientativas "
+            f"hasta acumular bastantes mas."
         )
 
-    # Tabla de acierto por tipo de mercado: en que mercados acierta mas el
-    # modelo y en cuales menos. Es lo mas accionable para saber que
-    # predicciones del modelo son fiables.
-    if metricas.get("por_mercado"):
+    # ── TARJETAS POR MERCADO ─────────────────────────────────────────────
+    # Una tarjeta visual por mercado: nombre, tasa de acierto grande con
+    # color semaforo, barra de progreso, "X de Y verificadas".
+    por_merc = metricas.get("por_mercado", [])
+    if por_merc:
         st.markdown("#### 🎯 Acierto por tipo de mercado")
         st.caption(
-            "Tasa de acierto del modelo en cada tipo de mercado. Te dice "
-            "que predicciones son fiables y cuales no: una tasa cercana al "
-            "50% significa que ese mercado no se predice mejor que el azar."
+            "Tasa de acierto del modelo en cada mercado. Cuanto mas alta, "
+            "mas fiables son sus predicciones en ese mercado."
         )
-        df_merc = pd.DataFrame(metricas["por_mercado"])
-        df_merc = df_merc.rename(columns={
-            "mercado": "Mercado",
-            "verificadas": "Verificadas",
-            "aciertos": "Aciertos",
-            "tasa": "Tasa de acierto",
-        })
-        df_merc["Tasa de acierto"] = df_merc["Tasa de acierto"].map(
-            lambda v: f"{v:.1f}%")
-        st.dataframe(df_merc, use_container_width=True, hide_index=True)
 
-    # Tabla de calibracion
-    if metricas["calibracion"]:
-        st.markdown("#### 📊 Calibracion del modelo")
+        def _color_tasa(tasa, n):
+            """Color semaforo segun tasa de acierto y muestra."""
+            if n < 15:
+                return "#9aa0a6"  # gris: muestra insuficiente
+            if tasa >= 70:
+                return "#28a745"  # verde
+            if tasa >= 55:
+                return "#f4b400"  # amarillo
+            return "#d93025"      # rojo
+
+        # Mostrar las tarjetas en 2 columnas
+        for i in range(0, len(por_merc), 2):
+            cols = st.columns(2)
+            for j, col in enumerate(cols):
+                if i + j >= len(por_merc):
+                    continue
+                m = por_merc[i + j]
+                tasa = m["tasa"]
+                n = m["verificadas"]
+                ac = m["aciertos"]
+                color = _color_tasa(tasa, n)
+                nota = "Muestra insuficiente" if n < 15 else ""
+                ancho = max(2, min(100, tasa))
+                with col:
+                    st.markdown(
+                        f"<div style='border:1px solid #ddd;"
+                        f"border-left:6px solid {color};border-radius:10px;"
+                        f"padding:14px 16px;margin:6px 0;background:#fff;'>"
+                        f"<div style='font-weight:700;font-size:0.95rem;"
+                        f"color:#222;'>{m['mercado']}</div>"
+                        f"<div style='font-size:2rem;font-weight:800;"
+                        f"color:{color};margin-top:4px;'>{tasa:.1f}%</div>"
+                        f"<div style='background:#eee;border-radius:6px;"
+                        f"height:8px;margin-top:6px;overflow:hidden;'>"
+                        f"<div style='width:{ancho}%;height:8px;"
+                        f"background:{color};'></div></div>"
+                        f"<div style='font-size:0.8rem;color:#666;"
+                        f"margin-top:6px;'>{ac} de {n} verificadas"
+                        + (f" · <span style='color:#9aa0a6;'>{nota}"
+                           f"</span>" if nota else "")
+                        + "</div></div>",
+                        unsafe_allow_html=True,
+                    )
+
+    # ── CALIBRACION POR MERCADO ──────────────────────────────────────────
+    # Una tabla coloreada + un grafico de barras por mercado.
+    if por_merc and any(m.get("calibracion") for m in por_merc):
+        st.markdown("---")
+        st.markdown("#### 📊 Calibracion del modelo por mercado")
         st.caption(
-            "Para cada tramo de confianza del modelo (la probabilidad con "
-            "que el modelo apoyo su prediccion): media de la confianza "
-            "frente a la tasa real de acierto. Si ambas columnas se parecen, "
-            "el modelo esta bien calibrado."
+            "Para cada mercado: la confianza media del modelo frente a la "
+            "tasa real de acierto, agrupada por tramos. Si las dos barras "
+            "se parecen, el modelo esta bien calibrado en ese tramo. "
+            "Colores: 🟢 desviacion <5% · 🟡 5-15% · 🔴 >15% · ⬜ pocos datos."
         )
-        df_calib = pd.DataFrame(metricas["calibracion"])
-        # Quitamos la columna interna 'fiable' si esta presente
-        if "fiable" in df_calib.columns:
-            df_calib = df_calib.drop(columns=["fiable"])
-        df_calib = df_calib.rename(columns={
-            "rango": "Rango de confianza",
-            "n": "Nº predicciones",
-            "prob_media": "Modelo predijo (media)",
-            "real": "Ocurrio realmente",
-        })
-        df_calib["Modelo predijo (media)"] = df_calib["Modelo predijo (media)"].map(
-            lambda v: f"{v:.1f}%")
-        df_calib["Ocurrio realmente"] = df_calib["Ocurrio realmente"].map(
-            lambda v: f"{v:.1f}%")
-        st.dataframe(df_calib, use_container_width=True, hide_index=True)
+
+        def _color_calib(prob, real, n):
+            """Color de fila segun desviacion entre prob predicha y real."""
+            if n < 15:
+                return "#9aa0a6"  # gris
+            dif = abs(real - prob)
+            if dif < 5:
+                return "#28a745"
+            if dif < 15:
+                return "#f4b400"
+            return "#d93025"
+
+        for m in por_merc:
+            calib = m.get("calibracion", [])
+            if not calib:
+                continue
+            with st.expander(f"📈 {m['mercado']}  ·  {m['verificadas']} "
+                             f"predicciones", expanded=False):
+                # Tabla coloreada como HTML
+                filas_html = []
+                for t in calib:
+                    color = _color_calib(t["prob_media"], t["real"], t["n"])
+                    dif = abs(t["real"] - t["prob_media"])
+                    nota = ""
+                    if t["n"] < 15:
+                        nota = "muestra insuficiente"
+                    elif dif < 5:
+                        nota = "bien calibrado"
+                    elif dif < 15:
+                        nota = "desviacion media"
+                    else:
+                        nota = "desviacion alta"
+                    filas_html.append(
+                        f"<tr>"
+                        f"<td style='padding:8px 12px;border-left:5px solid "
+                        f"{color};'>{t['rango']}</td>"
+                        f"<td style='padding:8px 12px;text-align:right;'>"
+                        f"{t['n']}</td>"
+                        f"<td style='padding:8px 12px;text-align:right;'>"
+                        f"{t['prob_media']:.1f}%</td>"
+                        f"<td style='padding:8px 12px;text-align:right;'>"
+                        f"{t['real']:.1f}%</td>"
+                        f"<td style='padding:8px 12px;color:{color};"
+                        f"font-weight:600;'>{nota}</td>"
+                        f"</tr>"
+                    )
+                tabla = (
+                    "<table style='width:100%;border-collapse:collapse;"
+                    "font-size:0.9rem;background:#fff;border-radius:8px;"
+                    "overflow:hidden;margin-bottom:14px;'>"
+                    "<thead><tr style='background:#f1f3f4;'>"
+                    "<th style='padding:8px 12px;text-align:left;'>"
+                    "Tramo</th>"
+                    "<th style='padding:8px 12px;text-align:right;'>"
+                    "Predicciones</th>"
+                    "<th style='padding:8px 12px;text-align:right;'>"
+                    "Modelo predijo</th>"
+                    "<th style='padding:8px 12px;text-align:right;'>"
+                    "Ocurrio realmente</th>"
+                    "<th style='padding:8px 12px;text-align:left;'>"
+                    "Calidad</th>"
+                    "</tr></thead><tbody>"
+                    + "".join(filas_html) +
+                    "</tbody></table>"
+                )
+                st.markdown(tabla, unsafe_allow_html=True)
+
+                # Grafico de barras: barra clara (predijo) vs intensa (real)
+                df_chart = pd.DataFrame({
+                    "Tramo": [t["rango"] for t in calib],
+                    "Modelo predijo (media)": [t["prob_media"]
+                                               for t in calib],
+                    "Ocurrio realmente": [t["real"] for t in calib],
+                })
+                df_chart = df_chart.set_index("Tramo")
+                st.bar_chart(df_chart, height=260,
+                             color=["#a8c7fa", "#1a73e8"])
 
     # ── Parte 4: lista de partidos registrados ───────────────────────────────
     # Una fila por partido (no por mercado), con su estado.
