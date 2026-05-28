@@ -1520,6 +1520,11 @@ def cargar_historico():
     Devuelve un DataFrame de pandas con todas las filas guardadas (una por
     jugador y semana). DataFrame vacio si no hay datos o falla la conexion.
     Cacheado 2 minutos.
+
+    Aplica logica de RESCATE de la coma decimal por columna: si gspread
+    devuelve un numero sin coma (residuo del bug de USER_ENTERED), lo
+    divide entre 10/100/1000 segun cual sea el rango esperado de esa
+    metrica. Asi 805 -> 80.5 (PR), 9736 -> 97.36 (promedio dardos), etc.
     """
     hoja, err = _abrir_hoja_historico()
     if hoja is None:
@@ -1532,10 +1537,43 @@ def cargar_historico():
         return pd.DataFrame()
     df = pd.DataFrame(registros)
 
-    # Convertir columnas numericas (vienen como texto o numero)
-    cols_num = ["PR", "Media 180s", "Promedio dardos", "Checkout %",
-                "% Victorias", "Volatilidad", "Partidos jugados"]
-    for c in cols_num:
-        if c in df.columns:
-            df[c] = df[c].apply(safe_float)
+    def _rescatar(valor, maximo_razonable):
+        """Convierte un valor a float aplicando rescate de coma decimal.
+
+        Si el valor numerico supera el maximo razonable de esa metrica,
+        se divide por 10, 100, 1000... hasta caer dentro del rango. Si
+        no se puede convertir, devuelve 0.0.
+        """
+        try:
+            x = float(str(valor).strip().replace(",", "."))
+        except Exception:
+            return 0.0
+        # Si ya esta en rango razonable, no tocar
+        if abs(x) <= maximo_razonable:
+            return x
+        # Dividir progresivamente hasta caer en rango
+        for divisor in (10.0, 100.0, 1000.0, 10000.0):
+            candidato = x / divisor
+            if abs(candidato) <= maximo_razonable:
+                return candidato
+        return 0.0
+
+    # Rangos maximos razonables de cada metrica (con margen).
+    # Si el numero leido excede el maximo, se asume coma perdida.
+    rangos = {
+        "PR": 100.0,              # PR real: 50-80
+        "Media 180s": 5.0,        # por partido: 0-3
+        "Promedio dardos": 120.0, # 70-110
+        "Checkout %": 100.0,      # 0-100
+        "% Victorias": 100.0,     # 0-100
+        "Volatilidad": 50.0,      # 5-20
+    }
+    for col, maximo in rangos.items():
+        if col in df.columns:
+            df[col] = df[col].apply(lambda v: _rescatar(v, maximo))
+
+    # Partidos jugados: entero, no tiene coma, se queda como esta
+    if "Partidos jugados" in df.columns:
+        df["Partidos jugados"] = df["Partidos jugados"].apply(safe_float)
+
     return df
