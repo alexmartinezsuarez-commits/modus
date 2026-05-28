@@ -72,14 +72,78 @@ if "last_update" not in st.session_state:
 
 
 st.sidebar.title("🎯 MODUS SUPER SERIES")
+
+# ── Estado de la jornada actual ─────────────────────────────────────────
+# Mostramos un indicador del estado del torneo en este momento, para tener
+# contexto sin necesidad de cambiar de seccion. Si la deteccion falla, no
+# mostramos nada — no rompemos el sidebar por un error de carga.
+try:
+    from data_loading import detectar_jornada_de_hoy as _det_jornada
+    _jornada_hoy = _det_jornada()
+    if _jornada_hoy:
+        st.sidebar.success(f"📅 Hoy: **{_jornada_hoy}**")
+    else:
+        st.sidebar.info("📅 Sin jornada activa hoy")
+except Exception:
+    pass
+
 st.sidebar.markdown("---")
 
-opcion_principal = st.sidebar.radio(
-    "Selecciona sección:",
-    ["🔴 LIVE", "💰 VALUE BETS", "📊 RESULTADOS Y ESTADÍSTICAS",
-     "📈 SEGUIMIENTO", "📚 HISTÓRICO"],
-    label_visibility="collapsed"
+# ── Menu de secciones, dividido en dos grupos visualmente ───────────────
+# Streamlit no deja meter un separador dentro de un st.radio, asi que
+# usamos dos radios distintos: PRINCIPAL (las que usas a diario) y
+# ANALISIS (lectura mas tranquila). Para que solo haya una opcion activa
+# a la vez, sincronizamos los dos via session_state con callbacks: al
+# pulsar uno, el otro se borra.
+OPCIONES_PRINCIPAL = ["🔴 LIVE", "💰 VALUE BETS",
+                       "📊 RESULTADOS Y ESTADÍSTICAS"]
+OPCIONES_ANALISIS = ["📈 SEGUIMIENTO", "📚 HISTÓRICO"]
+
+# Inicializar la seleccion (por defecto LIVE)
+if "menu_seleccion" not in st.session_state:
+    st.session_state.menu_seleccion = "🔴 LIVE"
+
+def _on_principal_change():
+    val = st.session_state.get("menu_radio_principal")
+    if val:
+        st.session_state.menu_seleccion = val
+        # Borrar la seleccion del otro radio
+        st.session_state.menu_radio_analisis = None
+
+def _on_analisis_change():
+    val = st.session_state.get("menu_radio_analisis")
+    if val:
+        st.session_state.menu_seleccion = val
+        st.session_state.menu_radio_principal = None
+
+# Indice activo en cada radio (None si la seleccion actual no esta en el)
+sel = st.session_state.menu_seleccion
+idx_principal = (OPCIONES_PRINCIPAL.index(sel)
+                 if sel in OPCIONES_PRINCIPAL else None)
+idx_analisis = (OPCIONES_ANALISIS.index(sel)
+                if sel in OPCIONES_ANALISIS else None)
+
+st.sidebar.markdown("**PRINCIPAL**")
+st.sidebar.radio(
+    "Principal", OPCIONES_PRINCIPAL,
+    index=idx_principal,
+    key="menu_radio_principal",
+    on_change=_on_principal_change,
+    label_visibility="collapsed",
 )
+
+st.sidebar.markdown("---")
+
+st.sidebar.markdown("**ANÁLISIS**")
+st.sidebar.radio(
+    "Análisis", OPCIONES_ANALISIS,
+    index=idx_analisis,
+    key="menu_radio_analisis",
+    on_change=_on_analisis_change,
+    label_visibility="collapsed",
+)
+
+opcion_principal = st.session_state.menu_seleccion
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔄 Actualización")
