@@ -35,6 +35,7 @@ try:
         registrar_predicciones, cargar_predicciones, calcular_metricas,
         tracking_disponible, diagnostico_conexion, verificar_resultados,
         listar_partidos_registrados, comprobar_partidos_anteriores,
+        guardar_historico_semana, cargar_historico,
     )
     _PREDICCIONES_OK = True
     _PREDICCIONES_ERROR = ""
@@ -49,6 +50,8 @@ except Exception as _e:
     verificar_resultados = None
     listar_partidos_registrados = None
     comprobar_partidos_anteriores = None
+    guardar_historico_semana = None
+    cargar_historico = None
 
 def render_barras_enfrentadas(j1_nombre, j1_prob, j2_nombre, j2_prob, j1_color="#1f77b4", j2_color="#ff7f0e"):
     total = j1_prob + j2_prob
@@ -2060,14 +2063,19 @@ def render_comparativa_completa(stats_dict, key_prefix="comp", tipo="radar"):
         render_small_multiples(stats_dict, titulo="📊 Ranking por Métrica")
 
 
-def render_tracking_predicciones():
+def render_tracking_predicciones(jugadores_resumen=None):
     """Renderiza la seccion de seguimiento de predicciones del modelo.
 
-    Tiene dos partes:
-      1) Boton para registrar todas las predicciones de una jornada en la
-         hoja 'Predicciones' del Google Sheet.
-      2) Panel de metricas: tasa de acierto, Brier score y tabla de
-         calibracion, calculadas sobre las predicciones ya verificadas.
+    Tiene varias partes:
+      1) Boton para guardar el historico semanal de los jugadores.
+      2) Boton/expander para verificar resultados de las predicciones.
+      3) Panel de metricas por mercado (tasa de acierto y calibracion).
+      4) Lista de partidos registrados.
+
+    Parametros:
+      jugadores_resumen: dict de jugadores del Resumen Semanal (para el
+                         boton de guardar historico). Si es None, ese boton
+                         avisa de que no hay datos.
 
     Pensada para usarse como seccion propia ('SEGUIMIENTO').
     """
@@ -2360,3 +2368,162 @@ def render_tracking_predicciones():
                                      "Mercados", "Estado"]]
                 st.dataframe(df_lista, use_container_width=True,
                              hide_index=True)
+
+
+def render_historico(df_hist, jugadores_resumen=None):
+    """Renderiza la seccion de historico: lista de jugadores acumulados por
+    semanas, con buscador y graficos de evolucion. Incluye el boton para
+    guardar la semana actual en el historico.
+
+    Parametros:
+      df_hist:           DataFrame devuelto por cargar_historico().
+      jugadores_resumen: dict de jugadores del Resumen Semanal, para el
+                         boton de guardar la semana.
+    """
+    st.caption(
+        "Datos guardados al final de cada jornada. Aqui se acumulan semana "
+        "a semana para ver la evolucion de cada jugador."
+    )
+
+    # ── Boton: guardar la semana actual en el historico ───────────────────
+    with st.expander("💾 Guardar historico de la semana", expanded=False):
+        st.markdown(
+            "Guarda una *foto* de las estadisticas actuales de todos los "
+            "jugadores (del Resumen Semanal). Hazlo al final de cada jornada "
+            "para tener un registro que consultar en el futuro. Si ya "
+            "guardaste esta semana, se sobrescribe con los datos actuales."
+        )
+        if guardar_historico_semana is None:
+            st.info("La funcion de historico no esta disponible.")
+        elif not jugadores_resumen:
+            st.warning(
+                "No hay datos de jugadores del Resumen Semanal para guardar."
+            )
+        else:
+            st.caption(f"Se guardarian {len(jugadores_resumen)} jugadores.")
+            if st.button("💾 Guardar historico ahora", type="primary",
+                         key="hist_btn_guardar"):
+                with st.spinner("Guardando historico..."):
+                    res = guardar_historico_semana(jugadores_resumen)
+                if res["ok"]:
+                    if res["sobrescrita"]:
+                        st.success(
+                            f"♻️ Semana del {res['fecha']} actualizada: "
+                            f"{res['guardados']} jugadores guardados "
+                            f"(se sobrescribio la version anterior)."
+                        )
+                    else:
+                        st.success(
+                            f"✅ Guardado el historico de la semana del "
+                            f"{res['fecha']}: {res['guardados']} jugadores."
+                        )
+                    # Refrescar la cache para que la tabla muestre lo nuevo
+                    try:
+                        cargar_historico.clear()
+                    except Exception:
+                        pass
+                else:
+                    st.error(f"❌ {res['error']}")
+
+    if df_hist is None or df_hist.empty:
+        st.info(
+            "Todavia no hay datos en el historico. Usa el boton **💾 Guardar "
+            "historico de la semana** de arriba al final de una jornada "
+            "para empezar a acumular datos aqui."
+        )
+        return
+
+    # Semanas y jugadores disponibles
+    semanas = sorted(df_hist["Fecha sabado"].astype(str).unique())
+    jugadores = sorted(df_hist["Jugador"].astype(str).unique())
+    st.markdown(
+        f"**{len(jugadores)} jugadores** · **{len(semanas)} semanas** "
+        f"guardadas ({semanas[0]} → {semanas[-1]})"
+    )
+
+    # ── Buscador de jugador ───────────────────────────────────────────────
+    st.markdown("### 🔎 Buscar jugador")
+    texto = st.text_input(
+        "Escribe el nombre del jugador",
+        key="hist_buscar",
+        placeholder="Ej: Morris",
+        label_visibility="collapsed",
+    )
+
+    if texto and texto.strip():
+        t = texto.strip().lower()
+        coincidencias = [j for j in jugadores if t in j.lower()]
+        if not coincidencias:
+            st.warning(f"Ningun jugador coincide con '{texto}'.")
+        else:
+            # Si hay varias coincidencias, dejar elegir
+            if len(coincidencias) > 1:
+                jugador_sel = st.selectbox(
+                    "Varios jugadores coinciden, elige uno:",
+                    coincidencias, key="hist_sel_jug")
+            else:
+                jugador_sel = coincidencias[0]
+
+            _render_evolucion_jugador(df_hist, jugador_sel)
+    else:
+        st.caption("Escribe un nombre arriba para ver la evolucion de un "
+                   "jugador, o consulta la tabla completa mas abajo.")
+
+    # ── Tabla completa ────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 📋 Todos los datos")
+    # Filtro opcional por semana
+    semana_filtro = st.selectbox(
+        "Filtrar por semana (o todas)",
+        ["Todas"] + semanas,
+        key="hist_filtro_semana",
+    )
+    df_mostrar = df_hist.copy()
+    if semana_filtro != "Todas":
+        df_mostrar = df_mostrar[
+            df_mostrar["Fecha sabado"].astype(str) == semana_filtro]
+    # Ordenar por semana y luego por PR descendente
+    if "PR" in df_mostrar.columns:
+        df_mostrar = df_mostrar.sort_values(
+            ["Fecha sabado", "PR"], ascending=[True, False])
+    st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+
+
+def _render_evolucion_jugador(df_hist, jugador):
+    """Muestra la evolucion semana a semana de un jugador, con graficos."""
+    df_j = df_hist[df_hist["Jugador"].astype(str) == jugador].copy()
+    if df_j.empty:
+        st.warning(f"No hay datos de {jugador}.")
+        return
+
+    df_j = df_j.sort_values("Fecha sabado")
+    st.markdown(f"### 📈 Evolucion de {jugador}")
+    st.caption(f"{len(df_j)} semanas registradas.")
+
+    # Metricas a graficar (las que existan en el df)
+    metricas = [
+        ("PR", "PR (Power Ranking)"),
+        ("Media 180s", "Media de 180s por partido"),
+        ("Promedio dardos", "Promedio de puntos"),
+        ("Checkout %", "Checkout %"),
+        ("% Victorias", "% de victorias"),
+        ("Volatilidad", "Indice de volatilidad"),
+    ]
+
+    # Indexar por semana para los graficos de linea
+    df_idx = df_j.set_index("Fecha sabado")
+
+    for col, etiqueta in metricas:
+        if col not in df_j.columns:
+            continue
+        st.markdown(f"**{etiqueta}**")
+        # Si solo hay 1 semana, el line_chart se ve vacio: mostrar el valor
+        if len(df_j) == 1:
+            valor = df_j.iloc[0][col]
+            st.metric(etiqueta, f"{valor:.2f}")
+        else:
+            st.line_chart(df_idx[[col]], height=200)
+
+    # Tabla con los datos del jugador
+    st.markdown("**Datos por semana**")
+    st.dataframe(df_j, use_container_width=True, hide_index=True)

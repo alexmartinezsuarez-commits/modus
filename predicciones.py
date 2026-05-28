@@ -29,6 +29,7 @@ from stats_engine import (
     handicaps_legs, legs_totales,
 )
 from config import SHEET_ID_PREDICCIONES
+from helpers import safe_float
 
 # Las librerias de Google son opcionales: si no estan instaladas, el modulo
 # sigue importando y el resto de la app funciona; solo el tracking queda
@@ -1360,3 +1361,181 @@ def verificar_resultados(url_sheet=None):
         "sin_cambios": sin_cambios,
         "error": "",
     }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HISTORICO SEMANAL DE JUGADORES
+# ─────────────────────────────────────────────────────────────────────────────
+
+NOMBRE_HOJA_HISTORICO = "Historico"
+
+# Cabecera de la pestana de historico. Una fila por jugador y semana.
+CABECERA_HISTORICO = [
+    "Fecha sabado", "Jugador", "PR", "Media 180s", "Promedio dardos",
+    "Checkout %", "% Victorias", "Volatilidad", "Partidos jugados",
+]
+
+
+def _fecha_sabado_de_la_semana(hoy=None):
+    """Devuelve la fecha (YYYY-MM-DD) del sabado de la semana actual.
+
+    El torneo termina en sabado, asi que esa es la etiqueta de la semana.
+    Si hoy ya es sabado, devuelve hoy. Si es domingo, devuelve el sabado
+    siguiente (la semana que empieza). Para el resto de dias, el sabado
+    de esa misma semana.
+    """
+    from datetime import datetime, timedelta
+    if hoy is None:
+        hoy = datetime.now()
+    # weekday(): lunes=0 ... sabado=5, domingo=6
+    wd = hoy.weekday()
+    if wd == 6:  # domingo -> sabado siguiente (dentro de 6 dias)
+        delta = 6
+    else:        # lunes..sabado -> sabado de esta semana
+        delta = 5 - wd
+    sabado = hoy + timedelta(days=delta)
+    return sabado.strftime("%Y-%m-%d")
+
+
+def _abrir_hoja_historico():
+    """Abre (o crea) la pestana 'Historico' del Sheet de predicciones.
+
+    Devuelve (worksheet, error). Mismo patron que _abrir_hoja_predicciones.
+    """
+    cliente, err = _conectar_gsheets()
+    if cliente is None:
+        return None, err
+    try:
+        libro = cliente.open_by_key(SHEET_ID_PREDICCIONES)
+    except Exception as e:
+        return None, f"No se pudo abrir el Sheet ({type(e).__name__}: {e})."
+    try:
+        hoja = libro.worksheet(NOMBRE_HOJA_HISTORICO)
+    except Exception:
+        # No existe: la creamos con su cabecera.
+        try:
+            hoja = libro.add_worksheet(
+                title=NOMBRE_HOJA_HISTORICO,
+                rows=5000,
+                cols=len(CABECERA_HISTORICO),
+            )
+            hoja.append_row(CABECERA_HISTORICO)
+        except Exception as e:
+            return None, (
+                f"No se pudo crear la pestana '{NOMBRE_HOJA_HISTORICO}' "
+                f"({e}). Comprueba que la cuenta de servicio tiene permiso "
+                f"de Editor sobre el Sheet."
+            )
+    # Garantizar cabecera
+    try:
+        if not hoja.row_values(1):
+            hoja.append_row(CABECERA_HISTORICO)
+    except Exception:
+        pass
+    return hoja, ""
+
+
+def guardar_historico_semana(jugadores, fecha_sabado=None):
+    """Guarda una 'foto' de las stats de todos los jugadores de la semana
+    en la pestana 'Historico'.
+
+    Parametros:
+      jugadores:     dict {nombre_lower: datos_jugador} tal como lo
+                     devuelve cargar_jugadores (del Resumen Semanal).
+      fecha_sabado:  etiqueta de la semana (YYYY-MM-DD). Si es None, se
+                     calcula el sabado de la semana actual.
+
+    Comportamiento: si ya existen filas con esa misma fecha de sabado, se
+    BORRAN y se reescriben con los datos actuales (sobrescritura), para que
+    no se dupliquen semanas.
+
+    Devuelve un dict: {ok, fecha, guardados, sobrescrita, error}.
+    """
+    if fecha_sabado is None:
+        fecha_sabado = _fecha_sabado_de_la_semana()
+
+    hoja, err = _abrir_hoja_historico()
+    if hoja is None:
+        return {"ok": False, "fecha": fecha_sabado, "guardados": 0,
+                "sobrescrita": False, "error": err}
+
+    if not jugadores:
+        return {"ok": False, "fecha": fecha_sabado, "guardados": 0,
+                "sobrescrita": False,
+                "error": "No hay jugadores que guardar."}
+
+    # 1) Comprobar si esa semana ya estaba guardada (sobrescritura)
+    sobrescrita = False
+    try:
+        registros = hoja.get_all_records()
+        filas_misma_fecha = [
+            i + 2 for i, r in enumerate(registros)
+            if str(r.get("Fecha sabado", "")).strip() == fecha_sabado
+        ]
+    except Exception:
+        filas_misma_fecha = []
+
+    # Borramos de abajo hacia arriba para no descuadrar los indices
+    if filas_misma_fecha:
+        sobrescrita = True
+        try:
+            for fila in sorted(filas_misma_fecha, reverse=True):
+                hoja.delete_rows(fila)
+        except Exception as e:
+            return {"ok": False, "fecha": fecha_sabado, "guardados": 0,
+                    "sobrescrita": False,
+                    "error": f"No se pudieron borrar las filas previas "
+                             f"de esa semana: {e}"}
+
+    # 2) Construir las filas nuevas (una por jugador)
+    filas = []
+    for datos in jugadores.values():
+        filas.append([
+            fecha_sabado,
+            datos.get("nombre_original", "?"),
+            round(safe_float(datos.get("PR", 0)), 2),
+            round(safe_float(datos.get("lam_180", 0)), 3),
+            round(safe_float(datos.get("promedio_dardos", 0)), 2),
+            round(safe_float(datos.get("checkouts", 0)), 2),
+            round(safe_float(datos.get("pct_victorias", 0)), 2),
+            round(safe_float(datos.get("volatilidad", 0)), 2),
+            int(safe_float(datos.get("n_partidos", 0))),
+        ])
+
+    # 3) Escribir en lote
+    try:
+        hoja.append_rows(filas, value_input_option="RAW")
+    except Exception as e:
+        return {"ok": False, "fecha": fecha_sabado, "guardados": 0,
+                "sobrescrita": sobrescrita,
+                "error": f"Error escribiendo el historico: {e}"}
+
+    return {"ok": True, "fecha": fecha_sabado, "guardados": len(filas),
+            "sobrescrita": sobrescrita, "error": ""}
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def cargar_historico():
+    """Lee la pestana 'Historico' del Sheet de predicciones.
+
+    Devuelve un DataFrame de pandas con todas las filas guardadas (una por
+    jugador y semana). DataFrame vacio si no hay datos o falla la conexion.
+    Cacheado 2 minutos.
+    """
+    hoja, err = _abrir_hoja_historico()
+    if hoja is None:
+        return pd.DataFrame()
+    try:
+        registros = hoja.get_all_records()
+    except Exception:
+        return pd.DataFrame()
+    if not registros:
+        return pd.DataFrame()
+    df = pd.DataFrame(registros)
+
+    # Convertir columnas numericas (vienen como texto o numero)
+    cols_num = ["PR", "Media 180s", "Promedio dardos", "Checkout %",
+                "% Victorias", "Volatilidad", "Partidos jugados"]
+    for c in cols_num:
+        if c in df.columns:
+            df[c] = df[c].apply(safe_float)
+    return df

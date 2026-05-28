@@ -50,7 +50,7 @@ from data_loading import cargar_todo, get_jornada_actual, get_proxima_jornada
 from helpers import pintar_partidos
 from rendering import (
     render_jugador_visual, render_value_bets, render_small_multiples,
-    selector_jornada, render_tracking_predicciones,
+    selector_jornada, render_tracking_predicciones, render_historico,
 )
 from clasificacion import (
     detectar_grupo, construir_grupos_final,
@@ -77,7 +77,7 @@ st.sidebar.markdown("---")
 opcion_principal = st.sidebar.radio(
     "Selecciona sección:",
     ["🔴 LIVE", "💰 VALUE BETS", "📊 RESULTADOS Y ESTADÍSTICAS",
-     "📈 SEGUIMIENTO"],
+     "📈 SEGUIMIENTO", "📚 HISTÓRICO"],
     label_visibility="collapsed"
 )
 
@@ -271,3 +271,19 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
 elif "📈 SEGUIMIENTO" in opcion_principal:
     st.title("📈 Seguimiento del modelo")
     render_tracking_predicciones()
+
+elif "📚 HISTÓRICO" in opcion_principal:
+    st.title("📚 Histórico de jugadores")
+    # Jugadores del Resumen Semanal para el boton de guardar la semana.
+    try:
+        from data_loading import cargar_jugadores_desde
+        jugadores_resumen_hist = cargar_jugadores_desde("Resumen Semanal")
+    except Exception:
+        jugadores_resumen_hist = None
+    try:
+        from predicciones import cargar_historico
+        df_hist = cargar_historico()
+    except Exception as e:
+        df_hist = None
+        st.error(f"No se pudo cargar el histórico: {e}")
+    render_historico(df_hist, jugadores_resumen_hist)
