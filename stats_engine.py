@@ -101,8 +101,12 @@ def prob_180s(lam1, lam2, pr1=None, pr2=None, j1_saca_primero=True):
         if E_legs > 0:
             factor = E_legs / LEGS_PROMEDIO_REFERENCIA
 
-    lam1_aj = lam1 * factor
-    lam2_aj = lam2 * factor
+    # Suelo minimo de lambda: aunque un jugador no haya hecho ningun 180
+    # en los datos, siempre tiene alguna probabilidad de hacerlo. Sin este
+    # suelo, lambda=0 daria 0% exacto, lo cual es irreal.
+    LAMBDA_MIN = 0.1
+    lam1_aj = max(lam1 * factor, LAMBDA_MIN)
+    lam2_aj = max(lam2 * factor, LAMBDA_MIN)
     lam_total = lam1_aj + lam2_aj
     ambos_05 = sanitize_prob((1 - poisson.cdf(0, lam1_aj)) * (1 - poisson.cdf(0, lam2_aj)))
     return {
@@ -132,8 +136,10 @@ def quien_hace_mas_180s(lam1, lam2, pr1=None, pr2=None, j1_saca_primero=True, k_
         E_legs = legs_esperados_desde_finales(finales)
         if E_legs > 0:
             factor = E_legs / LEGS_PROMEDIO_REFERENCIA
-    lam1_aj = lam1 * factor
-    lam2_aj = lam2 * factor
+    # Suelo minimo de lambda (coherente con prob_180s).
+    LAMBDA_MIN = 0.1
+    lam1_aj = max(lam1 * factor, LAMBDA_MIN)
+    lam2_aj = max(lam2 * factor, LAMBDA_MIN)
 
     if lam1_aj <= 0 and lam2_aj <= 0:
         return 1/3, 1/3, 1/3
