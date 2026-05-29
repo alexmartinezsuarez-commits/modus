@@ -425,22 +425,67 @@ _JORNADAS_ORDEN = [
 
 
 def detectar_jornada_de_hoy():
-    """Detecta cual es la jornada mas reciente con datos.
+    """Detecta cual es la jornada activa AHORA segun el dia de la semana y
+    la hora del dia. Reglas del torneo MODUS:
 
-    Recorre las pestanas de jornada en orden cronologico y devuelve la
-    ULTIMA que tenga jugadores cargados. Si ninguna tiene datos, devuelve
-    None. Esto permite que 'Forma reciente' sepa que dia usar sin que el
-    usuario lo indique.
+      Lun/Mar/Mie 10:00 - 23:59  -> Grupo A de ese dia
+      Jue/Vie     14:00 - 22:59  -> Grupo C de ese dia
+      Jue/Vie     23:00 - 23:59  -> Grupo B de ese dia
+      Vie/Sab     00:00 - 03:00  -> Grupo B del dia ANTERIOR
+                                    (la sesion de la noche se prolonga)
+      Sab         14:00 - 23:59  -> Final Sabado
+
+    Fuera de esos rangos -> None ("sin jornada activa").
+
+    Despues de aplicar la regla horaria, comprueba que la pestana
+    correspondiente tenga datos cargados. Si no los tiene, devuelve None
+    (la app la considera no disponible todavia).
     """
-    ultima = None
-    for jornada in _JORNADAS_ORDEN:
-        try:
-            jug = cargar_jugadores_desde(jornada)
-        except Exception:
-            jug = {}
-        if jug:
-            ultima = jornada
-    return ultima
+    from datetime import datetime
+    ahora = datetime.now()
+    wd = ahora.weekday()  # 0=lunes, 1=martes ... 5=sabado, 6=domingo
+    h = ahora.hour
+
+    DIAS_A = {0: "Grupo A Lunes", 1: "Grupo A Martes", 2: "Grupo A Miércoles"}
+    DIAS_C = {3: "Grupo C Jueves", 4: "Grupo C Viernes"}
+    DIAS_B = {3: "Grupo B Jueves", 4: "Grupo B Viernes"}
+
+    jornada = None
+
+    # Madrugada (00:00 - 03:00): se prolonga la sesion de la noche anterior.
+    # Si es viernes 00-03 -> B Jueves. Si es sabado 00-03 -> B Viernes.
+    if h < 3 or (h == 3 and ahora.minute == 0):
+        if wd == 4:        # viernes madrugada
+            jornada = DIAS_B[3]   # Grupo B Jueves
+        elif wd == 5:      # sabado madrugada
+            jornada = DIAS_B[4]   # Grupo B Viernes
+    else:
+        # Resto del dia: la jornada depende del dia y la hora actual.
+        if wd in DIAS_A:
+            # Lun/Mar/Mie: Grupo A desde las 10:00
+            if h >= 10:
+                jornada = DIAS_A[wd]
+        elif wd in DIAS_C:  # jue/vie
+            if 14 <= h < 23:
+                jornada = DIAS_C[wd]   # Grupo C
+            elif h >= 23:
+                jornada = DIAS_B[wd]   # Grupo B (noche)
+        elif wd == 5:  # sabado
+            if h >= 14:
+                jornada = "Final Sábado"
+
+    if jornada is None:
+        return None
+
+    # Comprobar que la pestana tenga datos cargados. Si todavia no, la
+    # consideramos no disponible.
+    try:
+        jug = cargar_jugadores_desde(jornada)
+    except Exception:
+        jug = {}
+    if not jug:
+        return None
+    return jornada
 
 
 def cargar_forma_reciente():
