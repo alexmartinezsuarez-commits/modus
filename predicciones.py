@@ -947,27 +947,65 @@ def comprobar_partidos_anteriores(jornada, nombre_j1, nombre_j2):
     diag = []
     diag.append(f"Jornada recibida: '{jornada}'")
 
-    url = URLS.get(jornada, "")
-    cortes = CORTES.get(jornada, {})
-    if not url:
-        diag.append(f"❌ '{jornada}' no esta en URLS. "
-                    f"Claves disponibles: {list(URLS.keys())}")
-        return {"ok": True, "pudo_comprobar": False,
-                "avisos": [], "diagnostico": "\n".join(diag)}
-    if not cortes:
-        diag.append(f"❌ '{jornada}' no esta en CORTES.")
-        return {"ok": True, "pudo_comprobar": False,
-                "avisos": [], "diagnostico": "\n".join(diag)}
+    # Jornadas a probar: si la jornada recibida es de jueves o viernes,
+    # probamos AMBAS jornadas de ese dia (Grupo C por la manana, Grupo B
+    # por la noche), porque puede que el partido este en la otra.
+    jornadas_a_probar = [jornada]
+    PARES_MISMO_DIA = {
+        "Grupo B Jueves":  "Grupo C Jueves",
+        "Grupo C Jueves":  "Grupo B Jueves",
+        "Grupo B Viernes": "Grupo C Viernes",
+        "Grupo C Viernes": "Grupo B Viernes",
+    }
+    if jornada in PARES_MISMO_DIA:
+        jornadas_a_probar.append(PARES_MISMO_DIA[jornada])
+        diag.append(f"Tambien probaremos: '{PARES_MISMO_DIA[jornada]}' "
+                    f"(misma fecha)")
 
-    try:
-        df_izq, _ = cargar_todo(url, jornada, cortes)
-    except Exception as e:
-        diag.append(f"❌ Error cargando la tabla: {e}")
-        return {"ok": True, "pudo_comprobar": False,
-                "avisos": [], "diagnostico": "\n".join(diag)}
+    # Probar cada jornada hasta encontrar una donde aparezca el partido
+    df_izq = None
+    jornada_usada = None
+    for jor in jornadas_a_probar:
+        url = URLS.get(jor, "")
+        cortes = CORTES.get(jor, {})
+        if not url or not cortes:
+            diag.append(f"❌ '{jor}' no esta en URLS/CORTES.")
+            continue
+        try:
+            df_tmp, _ = cargar_todo(url, jor, cortes)
+        except Exception as e:
+            diag.append(f"❌ Error cargando '{jor}': {e}")
+            continue
+        if df_tmp is None or len(df_tmp) < 2:
+            diag.append(f"❌ Tabla vacia en '{jor}'.")
+            continue
+        # Comprobar si el partido a registrar aparece en esta tabla
+        nombres_tabla = []
+        for fila in df_tmp.values.tolist():
+            if len(fila) > 0 and str(fila[0]).strip().lower() not in ("", "nan"):
+                nombres_tabla.append(str(fila[0]).strip())
+        o1 = str(nombre_j1).lower().strip()
+        o2 = str(nombre_j2).lower().strip()
+        def _aparece(obj, lista):
+            for n in lista:
+                nl = n.lower().strip()
+                if nl == obj or nl in obj or obj in nl:
+                    return True
+                ape = obj.split()[-1] if obj.split() else obj
+                if ape and ape in nl:
+                    return True
+            return False
+        if _aparece(o1, nombres_tabla) and _aparece(o2, nombres_tabla):
+            df_izq = df_tmp
+            jornada_usada = jor
+            diag.append(f"✅ Partido encontrado en '{jor}'.")
+            break
+        else:
+            diag.append(f"Partido no aparece en '{jor}'.")
 
-    if df_izq is None or len(df_izq) < 2:
-        diag.append("❌ La tabla esta vacia o tiene menos de 2 filas.")
+    if df_izq is None:
+        diag.append("❌ El partido no aparece en ninguna de las jornadas "
+                     "probadas. No se puede comprobar.")
         return {"ok": True, "pudo_comprobar": False,
                 "avisos": [], "diagnostico": "\n".join(diag)}
 
