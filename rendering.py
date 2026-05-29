@@ -2143,6 +2143,24 @@ def render_tracking_predicciones(jugadores_resumen=None):
                     f"{res_ver['sin_cambios']} ya estaban verificadas. "
                     f"Los partidos aun sin resultado quedan pendientes."
                 )
+                # Si quedaron partidos pendientes con motivo, mostrarlos
+                # en un expander — muy util para detectar nombres mal
+                # escritos a mano que impiden la verificacion.
+                pdiag = res_ver.get("pendientes_diag") or {}
+                if pdiag:
+                    with st.expander(
+                        f"⚠️ {len(pdiag)} partido(s) sin verificar — "
+                        f"ver motivos"):
+                        st.caption(
+                            "Si un partido SI se jugo pero no se verifica, "
+                            "suele ser porque el nombre del jugador "
+                            "registrado no coincide con el de la pestana "
+                            "de la jornada (casing, espacios, tildes). "
+                            "Reregistralo desde Value Bets para que use "
+                            "el nombre correcto."
+                        )
+                        for clave, motivo in sorted(pdiag.items()):
+                            st.markdown(f"- **{clave}** → {motivo}")
                 # Limpiar cache para que el panel de abajo se actualice
                 cargar_predicciones.clear()
             else:
