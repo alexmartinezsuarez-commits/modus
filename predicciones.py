@@ -830,24 +830,70 @@ def listar_partidos_registrados(df):
     return resultado
 
 
+def _normalizar_nombre(nombre):
+    """Normaliza un nombre para emparejar de forma fiable:
+    - quita tildes,
+    - todo a minusculas,
+    - colapsa espacios multiples,
+    - quita signos de puntuacion comunes (puntos, comas).
+
+    Esto permite emparejar 'García López', 'garcia lopez' y 'GARCIA  LOPEZ'
+    como el mismo nombre. Es lo que distingue partidos puestos a mano
+    (que pueden tener distinto casing/espacios) de los del buscador.
+    """
+    import unicodedata
+    if not nombre:
+        return ""
+    s = str(nombre).strip().lower()
+    # Quitar tildes
+    s = "".join(c for c in unicodedata.normalize("NFD", s)
+                if unicodedata.category(c) != "Mn")
+    # Quitar puntuacion comun
+    for ch in (".", ",", "'", "`", "´"):
+        s = s.replace(ch, "")
+    # Colapsar espacios
+    s = " ".join(s.split())
+    return s
+
+
 def _emparejar_nombre_simple(nombre, candidatos):
-    """Empareja un nombre con uno de una lista (exacto -> subcadena -> apellido).
-    Devuelve el nombre del candidato que coincide, o None.
+    """Empareja un nombre con uno de una lista. Estrategia (mas a menos
+    estricta):
+      1) Coincidencia exacta tras normalizar (tildes, casing, espacios).
+      2) Coincidencia por subcadena (uno contiene al otro tras normalizar).
+      3) Coincidencia por apellido (ultima palabra normalizada).
+
+    Si en la etapa 3 hay AMBIGUEDAD (varios candidatos con el mismo
+    apellido), devuelve None — es mejor dejar pendiente que verificar mal.
+
+    Devuelve el nombre ORIGINAL del candidato que coincide, o None.
     """
     if not nombre:
         return None
-    n = str(nombre).lower().strip()
-    for c in candidatos:
-        if str(c).lower().strip() == n:
+    n = _normalizar_nombre(nombre)
+    # Pre-normalizar todos los candidatos una sola vez
+    cands_norm = [(_normalizar_nombre(c), c) for c in candidatos]
+
+    # 1) Coincidencia exacta normalizada
+    for cn, c in cands_norm:
+        if cn == n:
             return c
-    for c in candidatos:
-        cl = str(c).lower().strip()
-        if n in cl or cl in n:
-            return c
+    # 2) Subcadena normalizada (uno contiene al otro), con control de
+    # ambigüedad: si varios candidatos hacen match, no emparejar.
+    candidatos_sub = [c for cn, c in cands_norm
+                      if cn and (n in cn or cn in n)]
+    if len(candidatos_sub) == 1:
+        return candidatos_sub[0]
+    if len(candidatos_sub) > 1:
+        return None  # ambiguo, mejor pendiente que mal verificado
+    # 3) Apellido normalizado, con control de ambigüedad
     ape = n.split()[-1] if n.split() else n
-    for c in candidatos:
-        if ape and ape in str(c).lower():
-            return c
+    if not ape:
+        return None
+    coincidencias = [c for cn, c in cands_norm if ape in cn.split()]
+    if len(coincidencias) == 1:
+        return coincidencias[0]
+    # 0 coincidencias o ambigüedad (>=2) -> no emparejar
     return None
 
 
@@ -1302,6 +1348,10 @@ def verificar_resultados(url_sheet=None):
     # Recorrer predicciones y preparar las actualizaciones
     actualizaciones = []   # lista de (fila_hoja, valor_acierto, valor_resultado)
     aciertos = fallos = sin_cambios = 0
+    # Diagnostico: para partidos que quedan pendientes, registramos el motivo
+    # (sin duplicar — usamos clave partido+jornada para deduplicar entre
+    # los 18 mercados del mismo partido).
+    pendientes_diag = {}  # {clave: motivo}
 
     for idx, reg in enumerate(registros):
         fila_hoja = idx + 2   # +1 cabecera, +1 base-1
@@ -1319,38 +1369,52 @@ def verificar_resultados(url_sheet=None):
         linea = str(reg.get("Linea", "")).strip()
         prediccion = str(reg.get("Prediccion", "")).strip()
 
+        clave_partido = f"{jornada}|{j1_pred} vs {j2_pred}"
+
         partidos = partidos_por_jornada.get(jornada, [])
         if not partidos:
-            # Jornada desconocida o sin partidos cargados: lo dejamos pendiente
+            pendientes_diag[clave_partido] = (
+                f"Jornada '{jornada}' sin partidos cargados")
             continue
 
         # Buscar el partido real entre estos dos jugadores
         nombres_jornada = []
         for p in partidos:
             nombres_jornada.extend([p["j1"], p["j2"]])
-        nombres_jornada = list(set(nombres_jornada))
+        nombres_jornada = sorted(set(nombres_jornada))
 
         j1_real = _emparejar_nombre_simple(j1_pred, nombres_jornada)
         j2_real = _emparejar_nombre_simple(j2_pred, nombres_jornada)
 
+        if not j1_real or not j2_real:
+            falta = []
+            if not j1_real: falta.append(j1_pred)
+            if not j2_real: falta.append(j2_pred)
+            pendientes_diag[clave_partido] = (
+                f"Nombres no encontrados en la jornada: "
+                f"{', '.join(falta)}")
+            continue
+
         partido = None
         orden_invertido = False
-        if j1_real and j2_real:
-            for p in partidos:
-                if p["j1"] == j1_real and p["j2"] == j2_real:
-                    partido = p
-                    orden_invertido = False
-                    break
-                if p["j1"] == j2_real and p["j2"] == j1_real:
-                    partido = p
-                    orden_invertido = True
-                    break
+        for p in partidos:
+            if p["j1"] == j1_real and p["j2"] == j2_real:
+                partido = p
+                orden_invertido = False
+                break
+            if p["j1"] == j2_real and p["j2"] == j1_real:
+                partido = p
+                orden_invertido = True
+                break
 
         if partido is None:
             # El partido no aparece en la pestana de la jornada. Puede ser
             # que aun no se haya jugado: NO lo marcamos. Lo dejamos
             # PENDIENTE para que una verificacion posterior lo recoja
             # cuando el resultado ya este disponible.
+            pendientes_diag[clave_partido] = (
+                "Jugadores encontrados pero el partido no aparece "
+                "(¿aun no jugado?)")
             continue
 
         # Alinear legs/180s con el orden J1/J2 de la PREDICCION
@@ -1397,6 +1461,7 @@ def verificar_resultados(url_sheet=None):
         "aciertos": aciertos,
         "fallos": fallos,
         "sin_cambios": sin_cambios,
+        "pendientes_diag": pendientes_diag,
         "error": "",
     }
 
