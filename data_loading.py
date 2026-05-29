@@ -296,6 +296,8 @@ def cargar_jugadores_desde(pestana: str):
                     "checkouts": checkouts, "pct_victorias": pct_vic,
                     "volatilidad": volatilidad,
                     "n_partidos": n_partidos,
+                    "victorias": int(n_vic),
+                    "derrotas": int(n_der),
                 }
             return jugadores
         

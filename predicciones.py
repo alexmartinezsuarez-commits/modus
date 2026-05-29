@@ -1370,8 +1370,9 @@ NOMBRE_HOJA_HISTORICO = "Historico"
 
 # Cabecera de la pestana de historico. Una fila por jugador y semana.
 CABECERA_HISTORICO = [
-    "Fecha sabado", "Jugador", "PR", "Media 180s", "Promedio dardos",
-    "Checkout %", "% Victorias", "Volatilidad", "Partidos jugados",
+    "Fecha sabado", "Jugador", "PR", "Media 180s", "Legs por partido",
+    "Promedio dardos", "Checkout %", "% Victorias", "Volatilidad",
+    "Victorias", "Derrotas", "Partidos jugados",
 ]
 
 
@@ -1486,7 +1487,8 @@ def guardar_historico_semana(jugadores, fecha_sabado=None):
                     "error": f"No se pudieron borrar las filas previas "
                              f"de esa semana: {e}"}
 
-    # 2) Construir las filas nuevas (una por jugador)
+    # 2) Construir las filas nuevas (una por jugador). Orden DEBE coincidir
+    #    con CABECERA_HISTORICO.
     filas = []
     for datos in jugadores.values():
         filas.append([
@@ -1494,10 +1496,13 @@ def guardar_historico_semana(jugadores, fecha_sabado=None):
             datos.get("nombre_original", "?"),
             round(safe_float(datos.get("PR", 0)), 2),
             round(safe_float(datos.get("lam_180", 0)), 3),
+            round(safe_float(datos.get("lam_legs", 0)), 3),
             round(safe_float(datos.get("promedio_dardos", 0)), 2),
             round(safe_float(datos.get("checkouts", 0)), 2),
             round(safe_float(datos.get("pct_victorias", 0)), 2),
             round(safe_float(datos.get("volatilidad", 0)), 2),
+            int(safe_float(datos.get("victorias", 0))),
+            int(safe_float(datos.get("derrotas", 0))),
             int(safe_float(datos.get("n_partidos", 0))),
         ])
 
@@ -1563,6 +1568,7 @@ def cargar_historico():
     rangos = {
         "PR": 100.0,              # PR real: 50-80
         "Media 180s": 5.0,        # por partido: 0-3
+        "Legs por partido": 10.0, # por partido: 4-7 normalmente
         "Promedio dardos": 120.0, # 70-110
         "Checkout %": 100.0,      # 0-100
         "% Victorias": 100.0,     # 0-100
@@ -1572,8 +1578,9 @@ def cargar_historico():
         if col in df.columns:
             df[col] = df[col].apply(lambda v: _rescatar(v, maximo))
 
-    # Partidos jugados: entero, no tiene coma, se queda como esta
-    if "Partidos jugados" in df.columns:
-        df["Partidos jugados"] = df["Partidos jugados"].apply(safe_float)
+    # Enteros (no tienen coma decimal): victorias, derrotas, partidos
+    for col in ("Victorias", "Derrotas", "Partidos jugados"):
+        if col in df.columns:
+            df[col] = df[col].apply(safe_float)
 
     return df

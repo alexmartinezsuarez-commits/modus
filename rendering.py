@@ -2490,7 +2490,14 @@ def render_historico(df_hist, jugadores_resumen=None):
 
 
 def _render_evolucion_jugador(df_hist, jugador):
-    """Muestra la evolucion semana a semana de un jugador, con graficos."""
+    """Muestra la evolucion semana a semana de un jugador.
+
+    Estructura:
+      1) Selector de semana → vista detallada de esa semana usando el
+         mismo layout que 'Resultados y Estadisticas' (sin flechas).
+      2) Graficos de evolucion semana a semana.
+      3) Tabla con todos los datos del jugador.
+    """
     df_j = df_hist[df_hist["Jugador"].astype(str) == jugador].copy()
     if df_j.empty:
         st.warning(f"No hay datos de {jugador}.")
@@ -2500,30 +2507,64 @@ def _render_evolucion_jugador(df_hist, jugador):
     st.markdown(f"### 📈 Evolucion de {jugador}")
     st.caption(f"{len(df_j)} semanas registradas.")
 
-    # Metricas a graficar (las que existan en el df)
-    metricas = [
-        ("PR", "PR (Power Ranking)"),
-        ("Media 180s", "Media de 180s por partido"),
-        ("Promedio dardos", "Promedio de puntos"),
-        ("Checkout %", "Checkout %"),
-        ("% Victorias", "% de victorias"),
-        ("Volatilidad", "Indice de volatilidad"),
-    ]
+    # ── 1) Vista detallada de UNA semana, estilo 'Resultados' ─────────────
+    semanas = df_j["Fecha sabado"].astype(str).tolist()
+    semana_sel = st.selectbox(
+        "📅 Ver semana",
+        semanas,
+        index=len(semanas) - 1,  # por defecto, la mas reciente
+        key=f"hist_sem_jug_{jugador}",
+    )
+    fila = df_j[df_j["Fecha sabado"].astype(str) == semana_sel].iloc[0]
 
-    # Indexar por semana para los graficos de linea
-    df_idx = df_j.set_index("Fecha sabado")
+    # Construimos un dict con las claves que render_jugador_visual espera
+    # (sinonimos del Sheet de jornadas). Aprovechamos los campos del
+    # historico que ya estan rescatados a su escala correcta.
+    stats_para_render = {
+        "puntuación global":     fila.get("PR", 0),
+        "media 180 por partida": fila.get("Media 180s", 0),
+        "promedio puntos total": fila.get("Promedio dardos", 0),
+        "legs por partido":      fila.get("Legs por partido", 0),
+        "promedio checkouts":    fila.get("Checkout %", 0),
+        "número victorias":      fila.get("Victorias", 0),
+        "número derrotas":       fila.get("Derrotas", 0),
+        "porcentaje victoria":   fila.get("% Victorias", 0),
+        "índice volatilidad":    fila.get("Volatilidad", 0),
+    }
 
-    for col, etiqueta in metricas:
-        if col not in df_j.columns:
-            continue
-        st.markdown(f"**{etiqueta}**")
-        # Si solo hay 1 semana, el line_chart se ve vacio: mostrar el valor
-        if len(df_j) == 1:
-            valor = df_j.iloc[0][col]
-            st.metric(etiqueta, f"{valor:.2f}")
-        else:
+    st.markdown(f"#### Datos de la semana del **{semana_sel}**")
+    # mostrar_tendencias=False para que NO salgan flechas (no aplican aqui)
+    render_jugador_visual(
+        jugador.lower(),
+        stats_para_render,
+        stats_resumen=None,
+        selected="Historico",
+        mostrar_tendencias=False,
+    )
+
+    # ── 2) Graficos de evolucion semana a semana ──────────────────────────
+    st.markdown("---")
+    st.markdown("#### 📊 Evolucion entre semanas")
+    if len(df_j) < 2:
+        st.info("Solo hay una semana registrada. Los graficos de evolucion "
+                "apareceran cuando haya al menos dos semanas.")
+    else:
+        metricas = [
+            ("PR", "PR (Puntuacion Global)"),
+            ("Media 180s", "Media de 180s por partido"),
+            ("Promedio dardos", "Promedio de puntos"),
+            ("Checkout %", "Checkout %"),
+            ("% Victorias", "% de victorias"),
+            ("Volatilidad", "Indice de volatilidad"),
+        ]
+        df_idx = df_j.set_index("Fecha sabado")
+        for col, etiqueta in metricas:
+            if col not in df_j.columns:
+                continue
+            st.markdown(f"**{etiqueta}**")
             st.line_chart(df_idx[[col]], height=200)
 
-    # Tabla con los datos del jugador
-    st.markdown("**Datos por semana**")
+    # ── 3) Tabla con todos los datos del jugador ──────────────────────────
+    st.markdown("---")
+    st.markdown("#### 📋 Datos por semana")
     st.dataframe(df_j, use_container_width=True, hide_index=True)
