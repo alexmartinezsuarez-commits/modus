@@ -1153,10 +1153,36 @@ def comprobar_partidos_anteriores(jornada, nombre_j1, nombre_j2):
             break
 
     if idx_objetivo is None:
-        # El partido a registrar no aparece en la tabla. Segun lo acordado
-        # (Opcion 1), no se puede comprobar el orden -> avisar.
-        diag.append("⚠️ El partido a registrar NO aparece en la tabla. "
-                     "No se puede determinar que partidos son anteriores.")
+        # El partido a registrar no aparece en la tabla. Antes esto era
+        # siempre "no se puede comprobar", pero hay un caso comun y legitimo:
+        # es el PRIMER partido de esos jugadores en la jornada (aun no se
+        # ha jugado y por tanto no aparece). Comprobamos si en la tabla
+        # hay algun partido anterior que involucre a alguno de los dos
+        # jugadores:
+        #   - Si NO hay ninguno -> es el primer partido de estos jugadores.
+        #     No hay nada que comprobar, dejamos registrar.
+        #   - Si SI hay -> situacion rara (tiene anteriores pero el partido
+        #     a registrar no aparece): mantenemos el aviso para no
+        #     verificar mal.
+        tiene_anteriores = False
+        for p in partidos:
+            if (_es_el_jugador(p["nombre1"], objetivo_j1) or
+                    _es_el_jugador(p["nombre1"], objetivo_j2) or
+                    _es_el_jugador(p["nombre2"], objetivo_j1) or
+                    _es_el_jugador(p["nombre2"], objetivo_j2)):
+                tiene_anteriores = True
+                break
+
+        if not tiene_anteriores:
+            diag.append("✅ El partido a registrar no aparece todavia y los "
+                         "jugadores no tienen partidos anteriores en la "
+                         "tabla. Es el primer partido — todo OK.")
+            return {"ok": True, "pudo_comprobar": True,
+                    "avisos": [], "diagnostico": "\n".join(diag)}
+
+        diag.append("⚠️ El partido a registrar NO aparece en la tabla, pero "
+                     "los jugadores SI tienen partidos anteriores ahi. "
+                     "Mejor revisar antes de registrar.")
         diag.append(f"Nombres en la tabla: "
                      f"{sorted({p['nombre1'] for p in partidos} | {p['nombre2'] for p in partidos})}")
         return {"ok": True, "pudo_comprobar": False,
