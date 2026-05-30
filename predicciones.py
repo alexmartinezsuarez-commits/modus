@@ -439,6 +439,20 @@ def registrar_predicciones(url_sheet, enfrentamientos, semana, jornada=""):
                 "error": err or "No se pudo conectar con la hoja de Google "
                                  "Sheets."}
 
+    # Si la jornada que llega no es una pestana real del Sheet (caso tipico:
+    # 'Forma reciente', que es una fuente sintetica para calcular probas,
+    # no una pestana), la sustituimos por la jornada activa real del
+    # momento. Asi al verificar despues encontraremos el partido en su
+    # pestana correcta.
+    if jornada and jornada not in JORNADAS_VERIFICABLES:
+        try:
+            from data_loading import detectar_jornada_de_hoy
+            jornada_real = detectar_jornada_de_hoy()
+            if jornada_real:
+                jornada = jornada_real
+        except Exception:
+            pass
+
     # Mapa {ID -> numero de fila en la hoja} para saber que sobrescribir.
     # La fila 1 es la cabecera, asi que los datos empiezan en la fila 2.
     try:
@@ -1401,6 +1415,30 @@ def verificar_resultados(url_sheet=None):
         prediccion = str(reg.get("Prediccion", "")).strip()
 
         clave_partido = f"{jornada}|{j1_pred} vs {j2_pred}"
+
+        # Si la jornada registrada NO es una pestana real del Sheet (caso
+        # tipico: "Forma reciente", que es una fuente sintetica), probamos
+        # en TODAS las jornadas reales hasta encontrar a los dos jugadores.
+        jornada_es_real = jornada in JORNADAS_VERIFICABLES
+        if not jornada_es_real:
+            partidos = []
+            for jor_real in JORNADAS_VERIFICABLES:
+                partidos = partidos_por_jornada.get(jor_real, [])
+                if not partidos:
+                    continue
+                nombres_jr = sorted(set(
+                    n for p in partidos for n in (p["j1"], p["j2"])))
+                j1_pr = _emparejar_nombre_simple(j1_pred, nombres_jr)
+                j2_pr = _emparejar_nombre_simple(j2_pred, nombres_jr)
+                if j1_pr and j2_pr:
+                    # Esta es la jornada real — la usamos
+                    jornada = jor_real
+                    break
+            else:
+                pendientes_diag[clave_partido] = (
+                    f"Jornada '{jornada}' no es real. Buscando en todas "
+                    f"las jornadas, no aparecen ambos jugadores en ninguna.")
+                continue
 
         partidos = partidos_por_jornada.get(jornada, [])
         if not partidos:
