@@ -1622,26 +1622,35 @@ def guardar_historico_semana(jugadores, fecha_sabado=None):
 
     # 2) Construir las filas nuevas (una por jugador). Orden DEBE coincidir
     #    con CABECERA_HISTORICO.
+    # Los numericos los enviamos como string con COMA decimal (locale ES)
+    # para que el Sheet (que esta en espanol) los interprete sin ambiguedad.
+    # Si los enviamos como float con punto, hemos visto que el Sheet los
+    # guarda como enteros mal (0.48 -> 48). Asi se evita ese fallo.
+    def _num_es(valor, decimales):
+        v = round(safe_float(valor), decimales)
+        return f"{v:.{decimales}f}".replace(".", ",")
+
     filas = []
     for datos in jugadores.values():
         filas.append([
             fecha_sabado,
             datos.get("nombre_original", "?"),
-            round(safe_float(datos.get("PR", 0)), 2),
-            round(safe_float(datos.get("lam_180", 0)), 3),
-            round(safe_float(datos.get("lam_legs", 0)), 3),
-            round(safe_float(datos.get("promedio_dardos", 0)), 2),
-            round(safe_float(datos.get("checkouts", 0)), 2),
-            round(safe_float(datos.get("pct_victorias", 0)), 2),
-            round(safe_float(datos.get("volatilidad", 0)), 2),
+            _num_es(datos.get("PR", 0), 2),
+            _num_es(datos.get("lam_180", 0), 3),
+            _num_es(datos.get("lam_legs", 0), 3),
+            _num_es(datos.get("promedio_dardos", 0), 2),
+            _num_es(datos.get("checkouts", 0), 2),
+            _num_es(datos.get("pct_victorias", 0), 2),
+            _num_es(datos.get("volatilidad", 0), 2),
             int(safe_float(datos.get("victorias", 0))),
             int(safe_float(datos.get("derrotas", 0))),
             int(safe_float(datos.get("n_partidos", 0))),
         ])
 
-    # 3) Escribir en lote
+    # 3) Escribir en lote — USER_ENTERED para que el Sheet interprete las
+    # comas decimales correctamente segun su locale.
     try:
-        hoja.append_rows(filas, value_input_option="RAW")
+        hoja.append_rows(filas, value_input_option="USER_ENTERED")
     except Exception as e:
         return {"ok": False, "fecha": fecha_sabado, "guardados": 0,
                 "sobrescrita": sobrescrita,
