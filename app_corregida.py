@@ -78,12 +78,26 @@ st.sidebar.title("🎯 MODUS SUPER SERIES")
 # contexto sin necesidad de cambiar de seccion. Si la deteccion falla, no
 # mostramos nada — no rompemos el sidebar por un error de carga.
 try:
-    from data_loading import detectar_jornada_de_hoy as _det_jornada
+    from data_loading import (
+        detectar_jornada_de_hoy as _det_jornada,
+        proxima_jornada as _prox_jornada,
+    )
     _jornada_hoy = _det_jornada()
     if _jornada_hoy:
         st.sidebar.success(f"📅 Hoy: **{_jornada_hoy}**")
     else:
-        st.sidebar.info("📅 Sin jornada activa hoy")
+        try:
+            _nom, _hora, _dia = _prox_jornada()
+        except Exception:
+            _nom = None
+        if _nom:
+            st.sidebar.info(
+                f"📅 Sin jornada activa\n\n"
+                f"⏭️ Próxima: **{_nom}**\n\n"
+                f"🕒 {_dia} a las {_hora}"
+            )
+        else:
+            st.sidebar.info("📅 Sin jornada activa")
 except Exception:
     pass
 
