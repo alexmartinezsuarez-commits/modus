@@ -2691,7 +2691,13 @@ def render_empty_state_live(titulo_principal=None,
         </div>
     </div>
     """
-    st.markdown(html, unsafe_allow_html=True)
+    # IMPORTANTE: st.markdown con unsafe_allow_html interpreta lineas con
+    # 4+ espacios iniciales como bloque de codigo Markdown, mostrando el
+    # HTML literal en pantalla. Compactamos el HTML a una sola linea para
+    # evitarlo completamente.
+    html_compacto = " ".join(line.strip() for line in html.splitlines()
+                              if line.strip())
+    st.markdown(html_compacto, unsafe_allow_html=True)
 
 
 def calcular_tiempo_restante(proxima_dia, proxima_hora):
