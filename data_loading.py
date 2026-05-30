@@ -993,59 +993,29 @@ def obtener_proximos_partidos_api(limite=3):
 
 
 def get_jornada_actual():
-    ahora = datetime.now()
-    hora_actual = ahora.hour + ahora.minute / 60
-    dia_semana = ahora.weekday()
-    if dia_semana in [0, 1, 2]:
-        if 10.0 <= hora_actual < 16.0:
-            jornadas_grupo_a = {
-                0: ("Grupo A Lunes", URLS["Grupo A Lunes"]),
-                1: ("Grupo A Martes", URLS["Grupo A Martes"]),
-                2: ("Grupo A Miércoles", URLS["Grupo A Miércoles"])
-            }
-            nombre, url = jornadas_grupo_a[dia_semana]
-            return nombre, url, True
-    if dia_semana in [3, 4]:
-        if 13.0 <= hora_actual < 19.0:
-            jornadas_grupo_c = {
-                3: ("Grupo C Jueves", URLS["Grupo C Jueves"]),
-                4: ("Grupo C Viernes", URLS["Grupo C Viernes"])
-            }
-            nombre, url = jornadas_grupo_c[dia_semana]
-            return nombre, url, True
-    if hora_actual >= 22.0:
-        if dia_semana == 3:
-            return "Grupo B Jueves", URLS["Grupo B Jueves"], True
-        elif dia_semana == 4:
-            return "Grupo B Viernes", URLS["Grupo B Viernes"], True
-    if dia_semana == 5 and hora_actual >= 20.0:
-        return "Final Sábado", URLS["Final Sábado"], True
-    elif hora_actual < 3.0:
-        ayer = ahora - timedelta(days=1)
-        dia_ayer = ayer.weekday()
-        if dia_ayer == 3:
-            return "Grupo B Jueves", URLS["Grupo B Jueves"], True
-        elif dia_ayer == 4:
-            return "Grupo B Viernes", URLS["Grupo B Viernes"], True
-        elif dia_ayer == 5:
-            return "Final Sábado", URLS["Final Sábado"], True
-    return None, None, False
+    """Devuelve (nombre, url, es_activa) de la jornada activa AHORA.
+
+    Delega en detectar_jornada_de_hoy() (que ya usa zona horaria Madrid
+    y las reglas horarias actualizadas) en lugar de duplicar la logica.
+    Es_activa es True solo si la jornada esta activa por hora Y la
+    pestana del Sheet tiene datos cargados.
+    """
+    jornada = detectar_jornada_de_hoy()
+    if jornada is None:
+        return None, None, False
+    url = URLS.get(jornada, "")
+    return jornada, url, True
+
 
 def get_proxima_jornada():
-    jornadas_orden = [
-        ("Grupo A Lunes", URLS["Grupo A Lunes"], 0, 10.0),
-        ("Grupo A Martes", URLS["Grupo A Martes"], 1, 10.0),
-        ("Grupo A Miércoles", URLS["Grupo A Miércoles"], 2, 10.0),
-        ("Grupo C Jueves", URLS["Grupo C Jueves"], 3, 13.0),
-        ("Grupo B Jueves", URLS["Grupo B Jueves"], 3, 22.0),
-        ("Grupo C Viernes", URLS["Grupo C Viernes"], 4, 13.0),
-        ("Grupo B Viernes", URLS["Grupo B Viernes"], 4, 22.0),
-        ("Final Sábado", URLS["Final Sábado"], 5, 20.0),
-    ]
-    ahora = datetime.now()
-    hora_actual = ahora.hour + ahora.minute / 60
-    dia_semana = ahora.weekday()
-    for nombre, url, dia, hora_inicio in jornadas_orden:
-        if dia > dia_semana or (dia == dia_semana and hora_inicio > hora_actual):
-            return nombre, url
-    return jornadas_orden[0][0], jornadas_orden[0][1]
+    """Devuelve (nombre, url) de la proxima jornada que va a empezar.
+
+    Delega en proxima_jornada() (que usa zona horaria Madrid y las reglas
+    horarias actualizadas).
+    """
+    try:
+        nombre, _hora, _dia = proxima_jornada()
+    except Exception:
+        nombre = "Grupo A Lunes"
+    url = URLS.get(nombre, "")
+    return nombre, url
