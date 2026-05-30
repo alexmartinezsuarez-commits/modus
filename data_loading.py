@@ -458,38 +458,37 @@ def detectar_jornada_de_hoy():
 
     jornada = None
     minuto = ahora.minute
+    mnow = h * 60 + minuto  # minutos desde medianoche, para comparar facil
 
-    # Madrugada (00:00 - 03:00) — prolongacion de la sesion anterior:
-    #   Viernes 00-03  -> B Jueves
-    #   Sabado  00-03  -> B Viernes
-    #   Domingo 00-23  -> Final Sabado (la final se prolonga todo el dom)
-    #   Lunes   00-02  -> Final Sabado (hasta las 2:00 del lunes)
-    if h < 3 or (h == 3 and minuto == 0):
-        if wd == 4:        # viernes madrugada
+    # Reglas (todas en hora Madrid):
+    #   Lun/Mar/Mie 10:30 - 16:00  -> Grupo A de ese dia
+    #   Jue/Vie     14:00 - 19:00  -> Grupo C
+    #   Jue/Vie     21:00 - 23:59  -> Grupo B
+    #   Vie/Sab     00:00 - 03:00  -> Grupo B del dia anterior (prolongacion)
+    #   Sab         20:40 - 23:59  -> Final Sabado
+    #   Dom         00:00 - 03:00  -> Final Sabado (prolongacion, cierra)
+    #
+    # Madrugada (00:00 - 03:00) -> prolongacion del dia anterior:
+    if mnow <= 3 * 60:   # 00:00 - 03:00
+        if wd == 4:        # viernes madrugada -> B Jueves
             jornada = DIAS_B[3]
-        elif wd == 5:      # sabado madrugada
+        elif wd == 5:      # sabado madrugada -> B Viernes
             jornada = DIAS_B[4]
-        elif wd == 6:      # domingo madrugada -> sigue Final Sabado
-            jornada = "Final Sábado"
-        elif wd == 0 and (h < 2 or (h == 2 and minuto == 0)):
-            # Lunes hasta las 2:00 -> sigue Final Sabado
+        elif wd == 6:      # domingo madrugada -> cierre Final
             jornada = "Final Sábado"
     else:
         if wd in DIAS_A:
-            # Lun/Mar/Mie: Grupo A desde las 10:00
-            # (excepto el lunes entre 2:00 y 10:00, que es "sin jornada")
-            if h >= 10:
+            # Lun/Mar/Mie: 10:30 - 16:00
+            if 10 * 60 + 30 <= mnow <= 16 * 60:
                 jornada = DIAS_A[wd]
         elif wd in DIAS_C:  # jue/vie
-            if 14 <= h < 23:
-                jornada = DIAS_C[wd]   # Grupo C
-            elif h >= 23:
-                jornada = DIAS_B[wd]   # Grupo B (noche)
-        elif wd == 5:  # sabado: Final empieza a las 20:40
-            if h > 20 or (h == 20 and minuto >= 40):
+            if 14 * 60 <= mnow <= 19 * 60:
+                jornada = DIAS_C[wd]   # Grupo C 14:00 - 19:00
+            elif 21 * 60 <= mnow:
+                jornada = DIAS_B[wd]   # Grupo B 21:00 - 23:59
+        elif wd == 5:  # sabado: Final 20:40 - 23:59
+            if mnow >= 20 * 60 + 40:
                 jornada = "Final Sábado"
-        elif wd == 6:  # domingo: Final se prolonga todo el dia
-            jornada = "Final Sábado"
 
     if jornada is None:
         return None
@@ -525,13 +524,13 @@ def proxima_jornada():
     # Inicios de cada jornada (wd, hora, minuto, nombre) en orden
     # cronologico de la semana.
     INICIOS = [
-        (0, 10, 0, "Grupo A Lunes"),
-        (1, 10, 0, "Grupo A Martes"),
-        (2, 10, 0, "Grupo A Miércoles"),
+        (0, 10, 30, "Grupo A Lunes"),
+        (1, 10, 30, "Grupo A Martes"),
+        (2, 10, 30, "Grupo A Miércoles"),
         (3, 14, 0, "Grupo C Jueves"),
-        (3, 23, 0, "Grupo B Jueves"),
+        (3, 21, 0, "Grupo B Jueves"),
         (4, 14, 0, "Grupo C Viernes"),
-        (4, 23, 0, "Grupo B Viernes"),
+        (4, 21, 0, "Grupo B Viernes"),
         (5, 20, 40, "Final Sábado"),
     ]
     DIAS_ES = ["Lunes", "Martes", "Miércoles", "Jueves",
@@ -592,29 +591,26 @@ def estado_jornada_sidebar():
     # detectar_jornada_de_hoy, que devuelve None si la pestana esta vacia).
     jornada_horaria = None
     minuto = ahora.minute
-    if h < 3 or (h == 3 and minuto == 0):
+    mnow = h * 60 + minuto
+    if mnow <= 3 * 60:
         if wd == 4:
             jornada_horaria = DIAS_B[3]
         elif wd == 5:
             jornada_horaria = DIAS_B[4]
         elif wd == 6:
             jornada_horaria = "Final Sábado"
-        elif wd == 0 and (h < 2 or (h == 2 and minuto == 0)):
-            jornada_horaria = "Final Sábado"
     else:
         if wd in DIAS_A:
-            if h >= 10:
+            if 10 * 60 + 30 <= mnow <= 16 * 60:
                 jornada_horaria = DIAS_A[wd]
         elif wd in DIAS_C:
-            if 14 <= h < 23:
+            if 14 * 60 <= mnow <= 19 * 60:
                 jornada_horaria = DIAS_C[wd]
-            elif h >= 23:
+            elif 21 * 60 <= mnow:
                 jornada_horaria = DIAS_B[wd]
         elif wd == 5:
-            if h > 20 or (h == 20 and minuto >= 40):
+            if mnow >= 20 * 60 + 40:
                 jornada_horaria = "Final Sábado"
-        elif wd == 6:
-            jornada_horaria = "Final Sábado"
 
     if jornada_horaria is None:
         # Fuera de horario: SIN_JORNADA + proxima

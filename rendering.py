@@ -2596,3 +2596,141 @@ def _render_evolucion_jugador(df_hist, jugador):
     st.markdown("---")
     st.markdown("#### 📋 Datos por semana")
     st.dataframe(df_j, use_container_width=True, hide_index=True)
+
+
+def render_empty_state_live(titulo_principal=None,
+                              proxima_nombre=None,
+                              proxima_hora=None,
+                              proxima_dia=None,
+                              tiempo_restante=None,
+                              motivo=None):
+    """Empty state moderno para LIVE.
+
+    Muestra una tarjeta centrada con icono, mensaje principal y la
+    informacion de la proxima jornada (si la hay). Se usa cuando no
+    hay datos en directo todavia.
+
+    Parametros (todos opcionales — se ajusta el contenido):
+      titulo_principal: texto destacado arriba (ej. 'Esperando datos...')
+      proxima_nombre:   nombre de la proxima jornada
+      proxima_hora:     "HH:MM"
+      proxima_dia:      "Hoy" / "Mañana" / "Lunes 02/06"
+      tiempo_restante:  string ya formateado tipo "2h 15min"
+      motivo:           explicacion adicional (ej. "Pestana sin datos cargados")
+    """
+    titulo = titulo_principal or "Sin partidos en directo ahora mismo"
+    bloques = [
+        f"""
+        <div style='text-align:center; padding:48px 24px; margin:32px auto;
+                    max-width:520px; background:linear-gradient(135deg,
+                    #f8fafc 0%, #f1f5f9 100%); border-radius:20px;
+                    border:1px solid #e2e8f0;
+                    box-shadow:0 4px 16px rgba(0,0,0,0.04);'>
+            <div style='font-size:64px; margin-bottom:16px;
+                        filter:grayscale(0.2);'>🎯</div>
+            <div style='font-size:1.35rem; font-weight:700; color:#0f172a;
+                        margin-bottom:8px;'>{titulo}</div>
+        """
+    ]
+
+    if motivo:
+        bloques.append(
+            f"<div style='color:#64748b; font-size:0.95rem; "
+            f"margin-bottom:24px;'>{motivo}</div>"
+        )
+
+    if proxima_nombre:
+        bloques.append(f"""
+            <div style='background:#fff; border:1px solid #e2e8f0;
+                        border-radius:14px; padding:20px 24px;
+                        margin:20px 0 16px; text-align:left;'>
+                <div style='font-size:0.75rem; color:#64748b;
+                            text-transform:uppercase; letter-spacing:0.05em;
+                            font-weight:600; margin-bottom:6px;'>
+                    ⏭️ Próxima jornada
+                </div>
+                <div style='font-size:1.15rem; font-weight:700;
+                            color:#0f172a; margin-bottom:8px;'>
+                    {proxima_nombre}
+                </div>
+                <div style='display:flex; gap:18px; flex-wrap:wrap;
+                            color:#475569; font-size:0.95rem;'>
+                    <div>📅 <strong>{proxima_dia or ""}</strong></div>
+                    <div>🕒 <strong>{proxima_hora or ""}</strong></div>
+                </div>
+        """)
+        if tiempo_restante:
+            bloques.append(
+                f"<div style='margin-top:10px; padding:8px 12px; "
+                f"background:#eff6ff; border-radius:8px; color:#1e40af; "
+                f"font-size:0.9rem; font-weight:600; display:inline-block;'>"
+                f"⏳ Faltan {tiempo_restante}</div>"
+            )
+        bloques.append("</div>")
+
+    bloques.append("""
+        <div style='color:#94a3b8; font-size:0.85rem; margin-top:8px;'>
+            Mientras tanto, consulta
+            <strong style='color:#475569;'>📊 Resultados y estadísticas</strong>
+            o <strong style='color:#475569;'>📚 Histórico</strong>.
+        </div>
+        </div>
+    """)
+
+    st.markdown("".join(bloques), unsafe_allow_html=True)
+
+
+def calcular_tiempo_restante(proxima_dia, proxima_hora):
+    """Calcula un string tipo '2h 15min' hasta la proxima jornada.
+
+    proxima_dia puede ser 'Hoy', 'Mañana' o un texto con fecha como
+    'Lunes 02/06'. proxima_hora es 'HH:MM'.
+
+    Devuelve un string o None si no se puede calcular.
+    """
+    if not proxima_dia or not proxima_hora:
+        return None
+    try:
+        from datetime import datetime, timedelta
+        try:
+            from zoneinfo import ZoneInfo
+            ahora = datetime.now(ZoneInfo("Europe/Madrid"))
+        except Exception:
+            ahora = datetime.now()
+        h, m = [int(x) for x in proxima_hora.split(":")]
+
+        if proxima_dia.lower() == "hoy":
+            objetivo = ahora.replace(hour=h, minute=m,
+                                     second=0, microsecond=0)
+        elif proxima_dia.lower() == "mañana":
+            objetivo = (ahora + timedelta(days=1)).replace(
+                hour=h, minute=m, second=0, microsecond=0)
+        else:
+            # Formato 'Lunes 02/06' o similar — parsear la fecha
+            import re
+            mtc = re.search(r"(\d{1,2})/(\d{1,2})", proxima_dia)
+            if not mtc:
+                return None
+            dia = int(mtc.group(1))
+            mes = int(mtc.group(2))
+            anio = ahora.year
+            objetivo = ahora.replace(month=mes, day=dia, hour=h,
+                                     minute=m, second=0, microsecond=0)
+            if objetivo < ahora:
+                objetivo = objetivo.replace(year=anio + 1)
+
+        diff = objetivo - ahora.replace(tzinfo=objetivo.tzinfo)
+        total_seg = int(diff.total_seconds())
+        if total_seg < 0:
+            return None
+        horas = total_seg // 3600
+        minutos = (total_seg % 3600) // 60
+        if horas == 0:
+            return f"{minutos} min"
+        if horas < 24:
+            return f"{horas}h {minutos:02d}min"
+        dias = horas // 24
+        h_rest = horas % 24
+        return f"{dias}d {h_rest}h"
+    except Exception:
+        return None

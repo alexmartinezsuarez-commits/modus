@@ -155,38 +155,51 @@ if "🔴 LIVE" in opcion_principal:
     st.title("🔴 LIVE")
     jornada_actual, url_actual, es_activa = get_jornada_actual()
 
-    # Cargar resumen semanal para comparativas (solo si hay jornada activa)
+    # Cargar Resumen Semanal (lo usaremos para tendencias y, sobre todo,
+    # para la clasificacion que SIEMPRE queremos mostrar abajo si tiene datos).
     stats_resumen_live = None
-    if es_activa and jornada_actual and jornada_actual != "Resumen Semanal":
-        _, stats_resumen_live = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
+    try:
+        _, stats_resumen_live = cargar_todo(
+            URLS["Resumen Semanal"], "Resumen Semanal",
+            CORTES.get("Resumen Semanal", 2))
+    except Exception:
+        stats_resumen_live = None
 
-    # Determinar qué jornada mostrar (activa o próxima si no hay actividad)
+    # Determinar qué jornada cargar
     if es_activa and jornada_actual:
         selected = jornada_actual
         selected_url = url_actual
-        st.success(f"✅ Jornada activa: **{selected}** (datos en tiempo real)")
         mostrar_tendencias_live = True
         stats_resumen_para_render = stats_resumen_live
     else:
         selected, selected_url = get_proxima_jornada()
-        st.info(f"📅 **Próxima jornada:** {selected}")
         mostrar_tendencias_live = False
         stats_resumen_para_render = None
 
-    st.markdown("---")
-    d1, d2 = cargar_todo(selected_url, selected, CORTES.get(selected, 2))
+    # Cargar los datos en directo (puede salir vacio si no hay jornada o
+    # si la pestana aun no tiene datos del Sheet)
+    try:
+        d1, d2 = cargar_todo(selected_url, selected, CORTES.get(selected, 2))
+    except Exception:
+        d1, d2 = None, None
 
-    if selected in st.session_state.last_update:
-        tiempo = (datetime.now() - st.session_state.last_update[selected]).seconds
-        st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
+    # ¿Hay datos suficientes para mostrar las tablas? (d2 son las stats
+    # por jugador). Si no, mostramos Empty State.
+    hay_datos_live = (d2 is not None and len(d2) > 0
+                       and es_activa is not False
+                       and es_activa is not None)
+    # Realmente la condicion clave: jornada activa Y stats cargadas
+    hay_datos_live = bool(es_activa and d2 is not None and len(d2) > 0)
 
-    # Bloque idéntico al de Resultados y Estadísticas:
-    # 1) Cards de jugadores con tendencias
-    # 2) Tabla de partidos
-    # 3) Ranking por métrica (small multiples)
-    # 4) Clasificación del grupo (si la jornada pertenece a un grupo)
+    if hay_datos_live:
+        # ── FLUJO NORMAL: hay datos en directo ─────────────────────────────
+        st.success(f"✅ Jornada activa: **{selected}** (datos en tiempo real)")
+        st.markdown("---")
 
-    if d2 is not None:
+        if selected in st.session_state.last_update:
+            tiempo = (datetime.now() - st.session_state.last_update[selected]).seconds
+            st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
+
         st.subheader("📈 Estadísticas por Jugador")
         for player, stats in d2.items():
             player_display = f"👤 {player.title()}"
@@ -196,19 +209,49 @@ if "🔴 LIVE" in opcion_principal:
                     mostrar_tendencias=mostrar_tendencias_live
                 )
 
-    if d1 is not None:
-        st.subheader("⚔️ Detalles")
-        if selected not in ["Resumen Semanal", "Value Bets"]:
-            st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(d1, use_container_width=True, hide_index=True)
+        if d1 is not None:
+            st.subheader("⚔️ Detalles")
+            if selected not in ["Resumen Semanal", "Value Bets"]:
+                st.dataframe(d1.style.apply(pintar_partidos, axis=1),
+                             use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(d1, use_container_width=True, hide_index=True)
 
-    # Ranking por métrica (sin heatmap): small multiples con Puntuación Global destacada
-    if d2 is not None and len(d2) > 0:
         st.markdown("---")
         render_small_multiples(d2, titulo="📊 Ranking por Métrica")
+    else:
+        # ── EMPTY STATE: no hay datos en directo ───────────────────────────
+        from rendering import (render_empty_state_live,
+                                calcular_tiempo_restante)
+        from data_loading import proxima_jornada
+        try:
+            prox_nom, prox_hora, prox_dia = proxima_jornada()
+        except Exception:
+            prox_nom = prox_hora = prox_dia = None
 
-    # Clasificación del grupo (al final del todo)
+        # Distinguir motivo: ¿no hay jornada activa, o sí pero sin datos?
+        if es_activa and jornada_actual:
+            titulo = f"Esperando datos de {selected}"
+            motivo = ("La jornada está activa pero los datos del Sheet "
+                      "todavía no se han cargado. Vuelve en unos minutos.")
+        else:
+            titulo = "Sin partidos en directo ahora mismo"
+            motivo = "No hay jornada activa en este momento."
+
+        tiempo_rest = calcular_tiempo_restante(prox_dia, prox_hora)
+        render_empty_state_live(
+            titulo_principal=titulo,
+            proxima_nombre=prox_nom,
+            proxima_hora=prox_hora,
+            proxima_dia=prox_dia,
+            tiempo_restante=tiempo_rest,
+            motivo=motivo,
+        )
+
+    # ── Clasificacion del grupo (SIEMPRE si tiene datos) ───────────────────
+    # Tanto si hay datos en directo como si estamos en empty state, si
+    # podemos detectar un grupo activo, mostramos su clasificacion
+    # (basada en el Resumen Semanal acumulado).
     grupo_actual_live = detectar_grupo(selected)
     if grupo_actual_live:
         st.markdown("---")
