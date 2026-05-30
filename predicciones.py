@@ -461,7 +461,12 @@ def registrar_predicciones(url_sheet, enfrentamientos, semana, jornada=""):
     except (ValueError, Exception):
         col_fecha = col_prob = col_cuota = col_pred = None
 
-    fecha_reg = datetime.now().strftime("%Y-%m-%d %H:%M")
+    try:
+        from zoneinfo import ZoneInfo
+        fecha_reg = datetime.now(ZoneInfo("Europe/Madrid")).strftime(
+            "%Y-%m-%d %H:%M")
+    except Exception:
+        fecha_reg = datetime.now().strftime("%Y-%m-%d %H:%M")
     filas_nuevas = []
     celdas_actualizar = []
     total = 0
@@ -1377,44 +1382,65 @@ def verificar_resultados(url_sheet=None):
                 f"Jornada '{jornada}' sin partidos cargados")
             continue
 
-        # Buscar el partido real entre estos dos jugadores
-        nombres_jornada = []
-        for p in partidos:
-            nombres_jornada.extend([p["j1"], p["j2"]])
-        nombres_jornada = sorted(set(nombres_jornada))
+        # Buscar el partido en la jornada registrada. Si no aparecen los
+        # nombres, probar la jornada GEMELA del mismo dia (B<->C jueves
+        # o viernes) — es habitual que se registre con la jornada
+        # equivocada cuando ambos grupos se juegan el mismo dia.
+        PARES_MISMO_DIA = {
+            "Grupo B Jueves":  "Grupo C Jueves",
+            "Grupo C Jueves":  "Grupo B Jueves",
+            "Grupo B Viernes": "Grupo C Viernes",
+            "Grupo C Viernes": "Grupo B Viernes",
+        }
 
-        j1_real = _emparejar_nombre_simple(j1_pred, nombres_jornada)
-        j2_real = _emparejar_nombre_simple(j2_pred, nombres_jornada)
+        def _buscar_en(parts):
+            """Intenta encontrar el partido en una lista de partidos.
+            Devuelve (partido, orden_invertido, motivo).
+            motivo es '' si OK, 'nombres' si no estan, 'no_jugado' si
+            estan pero el partido no aparece.
+            """
+            if not parts:
+                return None, False, "vacia"
+            nombres = sorted(set(
+                n for p in parts for n in (p["j1"], p["j2"])))
+            j1r = _emparejar_nombre_simple(j1_pred, nombres)
+            j2r = _emparejar_nombre_simple(j2_pred, nombres)
+            if not j1r or not j2r:
+                return None, False, "nombres"
+            for p in parts:
+                if p["j1"] == j1r and p["j2"] == j2r:
+                    return p, False, ""
+                if p["j1"] == j2r and p["j2"] == j1r:
+                    return p, True, ""
+            return None, False, "no_jugado"
 
-        if not j1_real or not j2_real:
-            falta = []
-            if not j1_real: falta.append(j1_pred)
-            if not j2_real: falta.append(j2_pred)
-            pendientes_diag[clave_partido] = (
-                f"Nombres no encontrados en la jornada: "
-                f"{', '.join(falta)}")
-            continue
+        partido, orden_invertido, motivo = _buscar_en(partidos)
 
-        partido = None
-        orden_invertido = False
-        for p in partidos:
-            if p["j1"] == j1_real and p["j2"] == j2_real:
-                partido = p
-                orden_invertido = False
-                break
-            if p["j1"] == j2_real and p["j2"] == j1_real:
-                partido = p
-                orden_invertido = True
-                break
+        # Si no se encontraron los nombres en la jornada registrada, probar
+        # la gemela del mismo dia (puede que se registrara con la jornada
+        # equivocada — por ejemplo registrado en B cuando jugo en C).
+        jornada_efectiva = jornada
+        if partido is None and motivo == "nombres" and jornada in PARES_MISMO_DIA:
+            gemela = PARES_MISMO_DIA[jornada]
+            partidos_gem = partidos_por_jornada.get(gemela, [])
+            p_g, oi_g, motivo_g = _buscar_en(partidos_gem)
+            if p_g is not None:
+                partido = p_g
+                orden_invertido = oi_g
+                jornada_efectiva = gemela
+                motivo = ""
 
         if partido is None:
-            # El partido no aparece en la pestana de la jornada. Puede ser
-            # que aun no se haya jugado: NO lo marcamos. Lo dejamos
-            # PENDIENTE para que una verificacion posterior lo recoja
-            # cuando el resultado ya este disponible.
-            pendientes_diag[clave_partido] = (
-                "Jugadores encontrados pero el partido no aparece "
-                "(¿aun no jugado?)")
+            if motivo == "nombres":
+                pendientes_diag[clave_partido] = (
+                    f"Nombres no encontrados en '{jornada}'"
+                    + (f" ni en '{PARES_MISMO_DIA[jornada]}'"
+                       if jornada in PARES_MISMO_DIA else "")
+                    + f": {j1_pred}, {j2_pred}")
+            else:
+                pendientes_diag[clave_partido] = (
+                    "Jugadores encontrados pero el partido no aparece "
+                    "(¿aun no jugado?)")
             continue
 
         # Alinear legs/180s con el orden J1/J2 de la PREDICCION
@@ -1489,7 +1515,11 @@ def _fecha_sabado_de_la_semana(hoy=None):
     """
     from datetime import datetime, timedelta
     if hoy is None:
-        hoy = datetime.now()
+        try:
+            from zoneinfo import ZoneInfo
+            hoy = datetime.now(ZoneInfo("Europe/Madrid"))
+        except Exception:
+            hoy = datetime.now()
     # weekday(): lunes=0 ... sabado=5, domingo=6
     wd = hoy.weekday()
     if wd == 6:  # domingo -> sabado siguiente (dentro de 6 dias)

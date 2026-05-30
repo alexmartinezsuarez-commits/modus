@@ -442,7 +442,13 @@ def detectar_jornada_de_hoy():
     (la app la considera no disponible todavia).
     """
     from datetime import datetime
-    ahora = datetime.now()
+    try:
+        from zoneinfo import ZoneInfo
+        ahora = datetime.now(ZoneInfo("Europe/Madrid"))
+    except Exception:
+        # Si zoneinfo no esta disponible, caemos a hora local (peor pero
+        # no rompe la app)
+        ahora = datetime.now()
     wd = ahora.weekday()  # 0=lunes, 1=martes ... 5=sabado, 6=domingo
     h = ahora.hour
 
