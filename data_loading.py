@@ -457,18 +457,27 @@ def detectar_jornada_de_hoy():
     DIAS_B = {3: "Grupo B Jueves", 4: "Grupo B Viernes"}
 
     jornada = None
+    minuto = ahora.minute
 
-    # Madrugada (00:00 - 03:00): se prolonga la sesion de la noche anterior.
-    # Si es viernes 00-03 -> B Jueves. Si es sabado 00-03 -> B Viernes.
-    if h < 3 or (h == 3 and ahora.minute == 0):
+    # Madrugada (00:00 - 03:00) — prolongacion de la sesion anterior:
+    #   Viernes 00-03  -> B Jueves
+    #   Sabado  00-03  -> B Viernes
+    #   Domingo 00-23  -> Final Sabado (la final se prolonga todo el dom)
+    #   Lunes   00-02  -> Final Sabado (hasta las 2:00 del lunes)
+    if h < 3 or (h == 3 and minuto == 0):
         if wd == 4:        # viernes madrugada
-            jornada = DIAS_B[3]   # Grupo B Jueves
+            jornada = DIAS_B[3]
         elif wd == 5:      # sabado madrugada
-            jornada = DIAS_B[4]   # Grupo B Viernes
+            jornada = DIAS_B[4]
+        elif wd == 6:      # domingo madrugada -> sigue Final Sabado
+            jornada = "Final Sábado"
+        elif wd == 0 and (h < 2 or (h == 2 and minuto == 0)):
+            # Lunes hasta las 2:00 -> sigue Final Sabado
+            jornada = "Final Sábado"
     else:
-        # Resto del dia: la jornada depende del dia y la hora actual.
         if wd in DIAS_A:
             # Lun/Mar/Mie: Grupo A desde las 10:00
+            # (excepto el lunes entre 2:00 y 10:00, que es "sin jornada")
             if h >= 10:
                 jornada = DIAS_A[wd]
         elif wd in DIAS_C:  # jue/vie
@@ -476,9 +485,11 @@ def detectar_jornada_de_hoy():
                 jornada = DIAS_C[wd]   # Grupo C
             elif h >= 23:
                 jornada = DIAS_B[wd]   # Grupo B (noche)
-        elif wd == 5:  # sabado
-            if h >= 14:
+        elif wd == 5:  # sabado: Final empieza a las 20:40
+            if h > 20 or (h == 20 and minuto >= 40):
                 jornada = "Final Sábado"
+        elif wd == 6:  # domingo: Final se prolonga todo el dia
+            jornada = "Final Sábado"
 
     if jornada is None:
         return None
@@ -511,40 +522,120 @@ def proxima_jornada():
     except Exception:
         ahora = datetime.now()
 
-    # Inicios de cada jornada (wd, hora) en orden cronologico de la semana.
-    # wd=0 lunes ... 6 domingo.
+    # Inicios de cada jornada (wd, hora, minuto, nombre) en orden
+    # cronologico de la semana.
     INICIOS = [
-        (0, 10, "Grupo A Lunes"),
-        (1, 10, "Grupo A Martes"),
-        (2, 10, "Grupo A Miércoles"),
-        (3, 14, "Grupo C Jueves"),
-        (3, 23, "Grupo B Jueves"),
-        (4, 14, "Grupo C Viernes"),
-        (4, 23, "Grupo B Viernes"),
-        (5, 14, "Final Sábado"),
+        (0, 10, 0, "Grupo A Lunes"),
+        (1, 10, 0, "Grupo A Martes"),
+        (2, 10, 0, "Grupo A Miércoles"),
+        (3, 14, 0, "Grupo C Jueves"),
+        (3, 23, 0, "Grupo B Jueves"),
+        (4, 14, 0, "Grupo C Viernes"),
+        (4, 23, 0, "Grupo B Viernes"),
+        (5, 20, 40, "Final Sábado"),
     ]
-
     DIAS_ES = ["Lunes", "Martes", "Miércoles", "Jueves",
                "Viernes", "Sábado", "Domingo"]
 
     wd_hoy = ahora.weekday()
     h_hoy = ahora.hour
+    m_hoy = ahora.minute
 
     # Buscar el proximo inicio que aun no ha llegado esta semana
-    for wd, h, nombre in INICIOS:
-        if wd > wd_hoy or (wd == wd_hoy and h > h_hoy):
+    for wd, h, mi, nombre in INICIOS:
+        # Comparar (wd, h, mi) vs (wd_hoy, h_hoy, m_hoy)
+        if (wd, h, mi) > (wd_hoy, h_hoy, m_hoy):
             dias_falta = wd - wd_hoy
             dia_inicio = ahora + timedelta(days=dias_falta)
             etiqueta_dia = ("Hoy" if dias_falta == 0
                             else "Mañana" if dias_falta == 1
                             else f"{DIAS_ES[wd]} {dia_inicio.strftime('%d/%m')}")
-            return nombre, f"{h:02d}:00", etiqueta_dia
+            return nombre, f"{h:02d}:{mi:02d}", etiqueta_dia
 
     # No hay mas inicios esta semana -> el proximo es el lunes que viene
     dias_falta = (7 - wd_hoy) + 0
     dia_inicio = ahora + timedelta(days=dias_falta)
     etiqueta_dia = f"Lunes {dia_inicio.strftime('%d/%m')}"
     return "Grupo A Lunes", "10:00", etiqueta_dia
+
+
+def estado_jornada_sidebar():
+    """Estado de la jornada para mostrar en el sidebar.
+
+    A diferencia de detectar_jornada_de_hoy(), distingue tres casos:
+      - ACTIVA: la jornada que toca por hora YA tiene datos cargados.
+      - PENDIENTE: estamos en horario de jornada pero la pestana del Sheet
+        aun no tiene jugadores cargados (suele pasar al principio del
+        horario, antes de que el Sheet recoja los datos del partido).
+      - SIN_JORNADA: estamos fuera del horario de cualquier jornada.
+
+    Devuelve un dict con:
+      estado: "ACTIVA" | "PENDIENTE" | "SIN_JORNADA"
+      jornada: nombre de la jornada (None si SIN_JORNADA)
+      proxima_nombre, proxima_hora, proxima_dia: solo si SIN_JORNADA
+    """
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        ahora = datetime.now(ZoneInfo("Europe/Madrid"))
+    except Exception:
+        ahora = datetime.now()
+    wd = ahora.weekday()
+    h = ahora.hour
+
+    DIAS_A = {0: "Grupo A Lunes", 1: "Grupo A Martes",
+              2: "Grupo A Miércoles"}
+    DIAS_C = {3: "Grupo C Jueves", 4: "Grupo C Viernes"}
+    DIAS_B = {3: "Grupo B Jueves", 4: "Grupo B Viernes"}
+
+    # Aplicar la regla horaria SIN comprobar datos (al contrario que
+    # detectar_jornada_de_hoy, que devuelve None si la pestana esta vacia).
+    jornada_horaria = None
+    minuto = ahora.minute
+    if h < 3 or (h == 3 and minuto == 0):
+        if wd == 4:
+            jornada_horaria = DIAS_B[3]
+        elif wd == 5:
+            jornada_horaria = DIAS_B[4]
+        elif wd == 6:
+            jornada_horaria = "Final Sábado"
+        elif wd == 0 and (h < 2 or (h == 2 and minuto == 0)):
+            jornada_horaria = "Final Sábado"
+    else:
+        if wd in DIAS_A:
+            if h >= 10:
+                jornada_horaria = DIAS_A[wd]
+        elif wd in DIAS_C:
+            if 14 <= h < 23:
+                jornada_horaria = DIAS_C[wd]
+            elif h >= 23:
+                jornada_horaria = DIAS_B[wd]
+        elif wd == 5:
+            if h > 20 or (h == 20 and minuto >= 40):
+                jornada_horaria = "Final Sábado"
+        elif wd == 6:
+            jornada_horaria = "Final Sábado"
+
+    if jornada_horaria is None:
+        # Fuera de horario: SIN_JORNADA + proxima
+        nom, hora, dia = proxima_jornada()
+        return {
+            "estado": "SIN_JORNADA",
+            "jornada": None,
+            "proxima_nombre": nom,
+            "proxima_hora": hora,
+            "proxima_dia": dia,
+        }
+
+    # En horario: comprobar si la pestana tiene datos
+    try:
+        jug = cargar_jugadores_desde(jornada_horaria)
+    except Exception:
+        jug = {}
+    if jug:
+        return {"estado": "ACTIVA", "jornada": jornada_horaria}
+    else:
+        return {"estado": "PENDIENTE", "jornada": jornada_horaria}
 
 
 def cargar_forma_reciente():
