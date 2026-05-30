@@ -2536,18 +2536,28 @@ def _render_evolucion_jugador(df_hist, jugador):
     fila = df_j[df_j["Fecha sabado"].astype(str) == semana_sel].iloc[0]
 
     # Construimos un dict con las claves que render_jugador_visual espera
-    # (sinonimos del Sheet de jornadas). Aprovechamos los campos del
-    # historico que ya estan rescatados a su escala correcta.
+    # (sinonimos del Sheet de jornadas). Formateamos cada valor como string
+    # con el aspecto deseado:
+    #   - Victorias y derrotas: enteros (sin decimales)
+    #   - Checkout y % victoria: porcentaje sin decimales (ej. "68%")
+    #   - El resto: numero con coma decimal espanola
+    def _ent(v):  # entero sin decimales
+        return str(int(round(safe_float(v))))
+    def _pct(v): # porcentaje entero con %
+        return f"{int(round(safe_float(v)))}%"
+    def _dec(v, n=2):  # decimal con coma
+        return f"{safe_float(v):.{n}f}".replace(".", ",")
+
     stats_para_render = {
-        "puntuación global":     fila.get("PR", 0),
-        "media 180 por partida": fila.get("Media 180s", 0),
-        "promedio puntos total": fila.get("Promedio dardos", 0),
-        "legs por partido":      fila.get("Legs por partido", 0),
-        "promedio checkouts":    fila.get("Checkout %", 0),
-        "número victorias":      fila.get("Victorias", 0),
-        "número derrotas":       fila.get("Derrotas", 0),
-        "porcentaje victoria":   fila.get("% Victorias", 0),
-        "índice volatilidad":    fila.get("Volatilidad", 0),
+        "puntuación global":     _dec(fila.get("PR", 0), 2),
+        "media 180 por partida": _dec(fila.get("Media 180s", 0), 2),
+        "promedio puntos total": _dec(fila.get("Promedio dardos", 0), 2),
+        "legs por partido":      _dec(fila.get("Legs por partido", 0), 2),
+        "promedio checkouts":    _pct(fila.get("Checkout %", 0)),
+        "número victorias":      _ent(fila.get("Victorias", 0)),
+        "número derrotas":       _ent(fila.get("Derrotas", 0)),
+        "porcentaje victoria":   _pct(fila.get("% Victorias", 0)),
+        "índice volatilidad":    _dec(fila.get("Volatilidad", 0), 2),
     }
 
     st.markdown(f"#### Datos de la semana del **{semana_sel}**")
