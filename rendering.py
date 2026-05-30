@@ -2621,55 +2621,94 @@ def render_empty_state_live(titulo_principal=None,
     titulo = titulo_principal or "Sin partidos en directo ahora mismo"
     bloques = [
         f"""
-        <div style='text-align:center; padding:48px 24px; margin:32px auto;
-                    max-width:520px; background:linear-gradient(135deg,
+        <div style='text-align:center; padding:56px 32px; margin:24px 0;
+                    width:100%; box-sizing:border-box;
+                    background:linear-gradient(135deg,
                     #f8fafc 0%, #f1f5f9 100%); border-radius:20px;
                     border:1px solid #e2e8f0;
                     box-shadow:0 4px 16px rgba(0,0,0,0.04);'>
-            <div style='font-size:64px; margin-bottom:16px;
+            <div style='font-size:72px; margin-bottom:16px;
                         filter:grayscale(0.2);'>🎯</div>
-            <div style='font-size:1.35rem; font-weight:700; color:#0f172a;
+            <div style='font-size:1.5rem; font-weight:700; color:#0f172a;
                         margin-bottom:8px;'>{titulo}</div>
         """
     ]
 
     if motivo:
         bloques.append(
-            f"<div style='color:#64748b; font-size:0.95rem; "
-            f"margin-bottom:24px;'>{motivo}</div>"
+            f"<div style='color:#64748b; font-size:1rem; "
+            f"margin-bottom:32px;'>{motivo}</div>"
         )
 
     if proxima_nombre:
         bloques.append(f"""
             <div style='background:#fff; border:1px solid #e2e8f0;
-                        border-radius:14px; padding:20px 24px;
-                        margin:20px 0 16px; text-align:left;'>
+                        border-radius:14px; padding:28px 24px;
+                        margin:24px 0 16px;'>
                 <div style='font-size:0.75rem; color:#64748b;
-                            text-transform:uppercase; letter-spacing:0.05em;
+                            text-transform:uppercase; letter-spacing:0.08em;
                             font-weight:600; margin-bottom:6px;'>
                     ⏭️ Próxima jornada
                 </div>
-                <div style='font-size:1.15rem; font-weight:700;
-                            color:#0f172a; margin-bottom:8px;'>
+                <div style='font-size:1.3rem; font-weight:700;
+                            color:#0f172a; margin-bottom:24px;'>
                     {proxima_nombre}
                 </div>
-                <div style='display:flex; gap:18px; flex-wrap:wrap;
-                            color:#475569; font-size:0.95rem;'>
-                    <div>📅 <strong>{proxima_dia or ""}</strong></div>
-                    <div>🕒 <strong>{proxima_hora or ""}</strong></div>
-                </div>
+                <div style='display:grid;
+                            grid-template-columns:repeat(3, 1fr);
+                            gap:16px; text-align:center;'>
         """)
-        if tiempo_restante:
-            bloques.append(
-                f"<div style='margin-top:10px; padding:8px 12px; "
-                f"background:#eff6ff; border-radius:8px; color:#1e40af; "
-                f"font-size:0.9rem; font-weight:600; display:inline-block;'>"
-                f"⏳ Faltan {tiempo_restante}</div>"
-            )
-        bloques.append("</div>")
+        # Bloque DÍA
+        bloques.append(f"""
+                    <div style='padding:14px 8px;
+                                background:#f8fafc; border-radius:10px;'>
+                        <div style='font-size:1.5rem;
+                                    margin-bottom:6px;'>📅</div>
+                        <div style='font-size:0.7rem; color:#64748b;
+                                    text-transform:uppercase;
+                                    letter-spacing:0.05em;
+                                    font-weight:600;
+                                    margin-bottom:2px;'>Día</div>
+                        <div style='font-size:0.95rem; font-weight:700;
+                                    color:#0f172a;'>{proxima_dia or "—"}</div>
+                    </div>
+        """)
+        # Bloque HORA
+        bloques.append(f"""
+                    <div style='padding:14px 8px;
+                                background:#f8fafc; border-radius:10px;'>
+                        <div style='font-size:1.5rem;
+                                    margin-bottom:6px;'>🕒</div>
+                        <div style='font-size:0.7rem; color:#64748b;
+                                    text-transform:uppercase;
+                                    letter-spacing:0.05em;
+                                    font-weight:600;
+                                    margin-bottom:2px;'>Hora</div>
+                        <div style='font-size:0.95rem; font-weight:700;
+                                    color:#0f172a;'>{proxima_hora or "—"}</div>
+                    </div>
+        """)
+        # Bloque TIEMPO RESTANTE
+        valor_tiempo = tiempo_restante or "—"
+        bloques.append(f"""
+                    <div style='padding:14px 8px;
+                                background:#eff6ff; border-radius:10px;
+                                border:1px solid #dbeafe;'>
+                        <div style='font-size:1.5rem;
+                                    margin-bottom:6px;'>⏳</div>
+                        <div style='font-size:0.7rem; color:#1e40af;
+                                    text-transform:uppercase;
+                                    letter-spacing:0.05em;
+                                    font-weight:600;
+                                    margin-bottom:2px;'>Faltan</div>
+                        <div style='font-size:0.95rem; font-weight:700;
+                                    color:#1e40af;'>{valor_tiempo}</div>
+                    </div>
+        """)
+        bloques.append("</div></div>")  # cierre grid + tarjeta interior
 
     bloques.append("""
-        <div style='color:#94a3b8; font-size:0.85rem; margin-top:8px;'>
+        <div style='color:#94a3b8; font-size:0.9rem; margin-top:16px;'>
             Mientras tanto, consulta
             <strong style='color:#475569;'>📊 Resultados y estadísticas</strong>
             o <strong style='color:#475569;'>📚 Histórico</strong>.
