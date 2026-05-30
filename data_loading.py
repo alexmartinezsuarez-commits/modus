@@ -494,6 +494,59 @@ def detectar_jornada_de_hoy():
     return jornada
 
 
+def proxima_jornada():
+    """Devuelve (nombre_jornada, hora_inicio_str) de la PROXIMA jornada
+    que va a empezar, desde el momento actual. Util para mostrar 'Sin
+    jornada activa - proxima: Grupo A Lunes a las 10:00'.
+
+    Si ya estamos en horario de jornada, devuelve None (significa que no
+    procede mostrar 'proxima', porque ya hay una activa).
+
+    Devuelve (None, None) si no hay proxima identificable.
+    """
+    from datetime import datetime, timedelta
+    try:
+        from zoneinfo import ZoneInfo
+        ahora = datetime.now(ZoneInfo("Europe/Madrid"))
+    except Exception:
+        ahora = datetime.now()
+
+    # Inicios de cada jornada (wd, hora) en orden cronologico de la semana.
+    # wd=0 lunes ... 6 domingo.
+    INICIOS = [
+        (0, 10, "Grupo A Lunes"),
+        (1, 10, "Grupo A Martes"),
+        (2, 10, "Grupo A Miércoles"),
+        (3, 14, "Grupo C Jueves"),
+        (3, 23, "Grupo B Jueves"),
+        (4, 14, "Grupo C Viernes"),
+        (4, 23, "Grupo B Viernes"),
+        (5, 14, "Final Sábado"),
+    ]
+
+    DIAS_ES = ["Lunes", "Martes", "Miércoles", "Jueves",
+               "Viernes", "Sábado", "Domingo"]
+
+    wd_hoy = ahora.weekday()
+    h_hoy = ahora.hour
+
+    # Buscar el proximo inicio que aun no ha llegado esta semana
+    for wd, h, nombre in INICIOS:
+        if wd > wd_hoy or (wd == wd_hoy and h > h_hoy):
+            dias_falta = wd - wd_hoy
+            dia_inicio = ahora + timedelta(days=dias_falta)
+            etiqueta_dia = ("Hoy" if dias_falta == 0
+                            else "Mañana" if dias_falta == 1
+                            else f"{DIAS_ES[wd]} {dia_inicio.strftime('%d/%m')}")
+            return nombre, f"{h:02d}:00", etiqueta_dia
+
+    # No hay mas inicios esta semana -> el proximo es el lunes que viene
+    dias_falta = (7 - wd_hoy) + 0
+    dia_inicio = ahora + timedelta(days=dias_falta)
+    etiqueta_dia = f"Lunes {dia_inicio.strftime('%d/%m')}"
+    return "Grupo A Lunes", "10:00", etiqueta_dia
+
+
 def cargar_forma_reciente():
     """Construye la fuente de datos 'Forma reciente'.
 
