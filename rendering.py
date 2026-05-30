@@ -2598,6 +2598,68 @@ def _render_evolucion_jugador(df_hist, jugador):
     st.dataframe(df_j, use_container_width=True, hide_index=True)
 
 
+def render_banner_proxima_jornada(proxima_nombre, proxima_hora,
+                                    proxima_dia, tiempo_restante=None):
+    """Burbuja compacta para mostrar 'Proxima jornada' en la cabecera de
+    LIVE cuando ya hay datos cargados pero la hora oficial todavia no ha
+    llegado. Misma estetica que la tarjeta interior del empty state pero
+    sin el wrapper grande.
+    """
+    valor_tiempo = tiempo_restante or "—"
+    html = f"""
+    <div style='background:#fff; border:1px solid #e2e8f0;
+                border-radius:14px; padding:20px 24px;
+                margin:8px 0 20px;'>
+        <div style='font-size:0.75rem; color:#64748b;
+                    text-transform:uppercase; letter-spacing:0.08em;
+                    font-weight:600; margin-bottom:6px;'>
+            ⏭️ Próxima jornada
+        </div>
+        <div style='font-size:1.2rem; font-weight:700;
+                    color:#0f172a; margin-bottom:18px;'>
+            {proxima_nombre}
+        </div>
+        <div style='display:grid;
+                    grid-template-columns:repeat(3, 1fr);
+                    gap:14px; text-align:center;'>
+            <div style='padding:12px 8px; background:#f8fafc;
+                        border-radius:10px;'>
+                <div style='font-size:1.3rem; margin-bottom:4px;'>📅</div>
+                <div style='font-size:0.7rem; color:#64748b;
+                            text-transform:uppercase;
+                            letter-spacing:0.05em; font-weight:600;
+                            margin-bottom:2px;'>Día</div>
+                <div style='font-size:0.95rem; font-weight:700;
+                            color:#0f172a;'>{proxima_dia or "—"}</div>
+            </div>
+            <div style='padding:12px 8px; background:#f8fafc;
+                        border-radius:10px;'>
+                <div style='font-size:1.3rem; margin-bottom:4px;'>🕒</div>
+                <div style='font-size:0.7rem; color:#64748b;
+                            text-transform:uppercase;
+                            letter-spacing:0.05em; font-weight:600;
+                            margin-bottom:2px;'>Hora</div>
+                <div style='font-size:0.95rem; font-weight:700;
+                            color:#0f172a;'>{proxima_hora or "—"}</div>
+            </div>
+            <div style='padding:12px 8px; background:#eff6ff;
+                        border-radius:10px; border:1px solid #dbeafe;'>
+                <div style='font-size:1.3rem; margin-bottom:4px;'>⏳</div>
+                <div style='font-size:0.7rem; color:#1e40af;
+                            text-transform:uppercase;
+                            letter-spacing:0.05em; font-weight:600;
+                            margin-bottom:2px;'>Faltan</div>
+                <div style='font-size:0.95rem; font-weight:700;
+                            color:#1e40af;'>{valor_tiempo}</div>
+            </div>
+        </div>
+    </div>
+    """
+    html_compacto = " ".join(line.strip() for line in html.splitlines()
+                              if line.strip())
+    st.markdown(html_compacto, unsafe_allow_html=True)
+
+
 def render_empty_state_live(titulo_principal=None,
                               proxima_nombre=None,
                               proxima_hora=None,
