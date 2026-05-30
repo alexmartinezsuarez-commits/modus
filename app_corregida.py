@@ -165,7 +165,10 @@ if "🔴 LIVE" in opcion_principal:
     except Exception:
         stats_resumen_live = None
 
-    # Determinar qué jornada cargar
+    # Determinar qué jornada cargar:
+    # - Si la jornada esta activa por hora, esa es la que toca.
+    # - Si no, intentamos cargar la PROXIMA — porque puede tener datos
+    #   pre-cargados aunque la hora oficial aun no haya llegado.
     if es_activa and jornada_actual:
         selected = jornada_actual
         selected_url = url_actual
@@ -176,24 +179,40 @@ if "🔴 LIVE" in opcion_principal:
         mostrar_tendencias_live = False
         stats_resumen_para_render = None
 
-    # Cargar los datos en directo (puede salir vacio si no hay jornada o
-    # si la pestana aun no tiene datos del Sheet)
+    # Cargar los datos
     try:
         d1, d2 = cargar_todo(selected_url, selected, CORTES.get(selected, 2))
     except Exception:
         d1, d2 = None, None
 
-    # ¿Hay datos suficientes para mostrar las tablas? (d2 son las stats
-    # por jugador). Si no, mostramos Empty State.
-    hay_datos_live = (d2 is not None and len(d2) > 0
-                       and es_activa is not False
-                       and es_activa is not None)
-    # Realmente la condicion clave: jornada activa Y stats cargadas
-    hay_datos_live = bool(es_activa and d2 is not None and len(d2) > 0)
+    hay_datos = (d2 is not None and len(d2) > 0)
 
-    if hay_datos_live:
-        # ── FLUJO NORMAL: hay datos en directo ─────────────────────────────
-        st.success(f"✅ Jornada activa: **{selected}** (datos en tiempo real)")
+    # Cuatro casos:
+    #   1) Hay datos + hora oficial activa   -> tablas normales (success arriba)
+    #   2) Hay datos + antes de hora oficial -> burbuja de proxima + tablas
+    #   3) Sin datos + antes de hora oficial -> empty state grande
+    #   4) Sin datos + hora oficial activa   -> empty state "esperando datos"
+
+    if hay_datos:
+        from rendering import (render_banner_proxima_jornada,
+                                calcular_tiempo_restante)
+        from data_loading import proxima_jornada
+
+        if es_activa and jornada_actual:
+            # Caso 1: jornada activa de verdad
+            st.success(f"✅ Jornada activa: **{selected}** "
+                       f"(datos en tiempo real)")
+        else:
+            # Caso 2: datos cargados pero antes del inicio oficial
+            try:
+                prox_nom, prox_hora, prox_dia = proxima_jornada()
+            except Exception:
+                prox_nom = prox_hora = prox_dia = None
+            tiempo_rest = calcular_tiempo_restante(prox_dia, prox_hora)
+            if prox_nom:
+                render_banner_proxima_jornada(
+                    prox_nom, prox_hora, prox_dia, tiempo_rest)
+
         st.markdown("---")
 
         if selected in st.session_state.last_update:
@@ -220,7 +239,7 @@ if "🔴 LIVE" in opcion_principal:
         st.markdown("---")
         render_small_multiples(d2, titulo="📊 Ranking por Métrica")
     else:
-        # ── EMPTY STATE: no hay datos en directo ───────────────────────────
+        # Casos 3 y 4: empty state grande
         from rendering import (render_empty_state_live,
                                 calcular_tiempo_restante)
         from data_loading import proxima_jornada
@@ -229,12 +248,13 @@ if "🔴 LIVE" in opcion_principal:
         except Exception:
             prox_nom = prox_hora = prox_dia = None
 
-        # Distinguir motivo: ¿no hay jornada activa, o sí pero sin datos?
         if es_activa and jornada_actual:
+            # Caso 4: jornada activa pero sin datos
             titulo = f"Esperando datos de {selected}"
             motivo = ("La jornada está activa pero los datos del Sheet "
                       "todavía no se han cargado. Vuelve en unos minutos.")
         else:
+            # Caso 3: ni datos ni jornada activa
             titulo = "Sin partidos en directo ahora mismo"
             motivo = "No hay jornada activa en este momento."
 
