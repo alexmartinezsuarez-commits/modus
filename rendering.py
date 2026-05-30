@@ -2606,117 +2606,92 @@ def render_empty_state_live(titulo_principal=None,
                               motivo=None):
     """Empty state moderno para LIVE.
 
-    Muestra una tarjeta centrada con icono, mensaje principal y la
-    informacion de la proxima jornada (si la hay). Se usa cuando no
-    hay datos en directo todavia.
+    Muestra una tarjeta a todo el ancho con icono, mensaje principal y la
+    informacion de la proxima jornada (si la hay). Se usa cuando no hay
+    datos en directo todavia.
 
-    Parametros (todos opcionales — se ajusta el contenido):
-      titulo_principal: texto destacado arriba (ej. 'Esperando datos...')
-      proxima_nombre:   nombre de la proxima jornada
-      proxima_hora:     "HH:MM"
-      proxima_dia:      "Hoy" / "Mañana" / "Lunes 02/06"
-      tiempo_restante:  string ya formateado tipo "2h 15min"
-      motivo:           explicacion adicional (ej. "Pestana sin datos cargados")
+    El HTML se construye como un UNICO string para evitar que Streamlit
+    lo "sanee" en trozos y muestre HTML literal en pantalla (bug
+    detectado con .append a lista).
     """
     titulo = titulo_principal or "Sin partidos en directo ahora mismo"
-    bloques = [
-        f"""
-        <div style='text-align:center; padding:56px 32px; margin:24px 0;
-                    width:100%; box-sizing:border-box;
-                    background:linear-gradient(135deg,
-                    #f8fafc 0%, #f1f5f9 100%); border-radius:20px;
-                    border:1px solid #e2e8f0;
-                    box-shadow:0 4px 16px rgba(0,0,0,0.04);'>
-            <div style='font-size:72px; margin-bottom:16px;
-                        filter:grayscale(0.2);'>🎯</div>
-            <div style='font-size:1.5rem; font-weight:700; color:#0f172a;
-                        margin-bottom:8px;'>{titulo}</div>
-        """
-    ]
-
-    if motivo:
-        bloques.append(
-            f"<div style='color:#64748b; font-size:1rem; "
-            f"margin-bottom:32px;'>{motivo}</div>"
-        )
+    motivo_html = (f"<div style='color:#64748b; font-size:1rem; "
+                   f"margin-bottom:32px;'>{motivo}</div>") if motivo else ""
 
     if proxima_nombre:
-        bloques.append(f"""
-            <div style='background:#fff; border:1px solid #e2e8f0;
-                        border-radius:14px; padding:28px 24px;
-                        margin:24px 0 16px;'>
-                <div style='font-size:0.75rem; color:#64748b;
-                            text-transform:uppercase; letter-spacing:0.08em;
-                            font-weight:600; margin-bottom:6px;'>
-                    ⏭️ Próxima jornada
-                </div>
-                <div style='font-size:1.3rem; font-weight:700;
-                            color:#0f172a; margin-bottom:24px;'>
-                    {proxima_nombre}
-                </div>
-                <div style='display:grid;
-                            grid-template-columns:repeat(3, 1fr);
-                            gap:16px; text-align:center;'>
-        """)
-        # Bloque DÍA
-        bloques.append(f"""
-                    <div style='padding:14px 8px;
-                                background:#f8fafc; border-radius:10px;'>
-                        <div style='font-size:1.5rem;
-                                    margin-bottom:6px;'>📅</div>
-                        <div style='font-size:0.7rem; color:#64748b;
-                                    text-transform:uppercase;
-                                    letter-spacing:0.05em;
-                                    font-weight:600;
-                                    margin-bottom:2px;'>Día</div>
-                        <div style='font-size:0.95rem; font-weight:700;
-                                    color:#0f172a;'>{proxima_dia or "—"}</div>
-                    </div>
-        """)
-        # Bloque HORA
-        bloques.append(f"""
-                    <div style='padding:14px 8px;
-                                background:#f8fafc; border-radius:10px;'>
-                        <div style='font-size:1.5rem;
-                                    margin-bottom:6px;'>🕒</div>
-                        <div style='font-size:0.7rem; color:#64748b;
-                                    text-transform:uppercase;
-                                    letter-spacing:0.05em;
-                                    font-weight:600;
-                                    margin-bottom:2px;'>Hora</div>
-                        <div style='font-size:0.95rem; font-weight:700;
-                                    color:#0f172a;'>{proxima_hora or "—"}</div>
-                    </div>
-        """)
-        # Bloque TIEMPO RESTANTE
         valor_tiempo = tiempo_restante or "—"
-        bloques.append(f"""
-                    <div style='padding:14px 8px;
-                                background:#eff6ff; border-radius:10px;
-                                border:1px solid #dbeafe;'>
-                        <div style='font-size:1.5rem;
-                                    margin-bottom:6px;'>⏳</div>
-                        <div style='font-size:0.7rem; color:#1e40af;
-                                    text-transform:uppercase;
-                                    letter-spacing:0.05em;
-                                    font-weight:600;
-                                    margin-bottom:2px;'>Faltan</div>
-                        <div style='font-size:0.95rem; font-weight:700;
-                                    color:#1e40af;'>{valor_tiempo}</div>
-                    </div>
-        """)
-        bloques.append("</div></div>")  # cierre grid + tarjeta interior
+        tarjeta_proxima = f"""
+        <div style='background:#fff; border:1px solid #e2e8f0;
+                    border-radius:14px; padding:28px 24px;
+                    margin:24px 0 16px;'>
+            <div style='font-size:0.75rem; color:#64748b;
+                        text-transform:uppercase; letter-spacing:0.08em;
+                        font-weight:600; margin-bottom:6px;'>
+                ⏭️ Próxima jornada
+            </div>
+            <div style='font-size:1.3rem; font-weight:700;
+                        color:#0f172a; margin-bottom:24px;'>
+                {proxima_nombre}
+            </div>
+            <div style='display:grid;
+                        grid-template-columns:repeat(3, 1fr);
+                        gap:16px; text-align:center;'>
+                <div style='padding:14px 8px; background:#f8fafc;
+                            border-radius:10px;'>
+                    <div style='font-size:1.5rem; margin-bottom:6px;'>📅</div>
+                    <div style='font-size:0.7rem; color:#64748b;
+                                text-transform:uppercase;
+                                letter-spacing:0.05em; font-weight:600;
+                                margin-bottom:2px;'>Día</div>
+                    <div style='font-size:0.95rem; font-weight:700;
+                                color:#0f172a;'>{proxima_dia or "—"}</div>
+                </div>
+                <div style='padding:14px 8px; background:#f8fafc;
+                            border-radius:10px;'>
+                    <div style='font-size:1.5rem; margin-bottom:6px;'>🕒</div>
+                    <div style='font-size:0.7rem; color:#64748b;
+                                text-transform:uppercase;
+                                letter-spacing:0.05em; font-weight:600;
+                                margin-bottom:2px;'>Hora</div>
+                    <div style='font-size:0.95rem; font-weight:700;
+                                color:#0f172a;'>{proxima_hora or "—"}</div>
+                </div>
+                <div style='padding:14px 8px; background:#eff6ff;
+                            border-radius:10px; border:1px solid #dbeafe;'>
+                    <div style='font-size:1.5rem; margin-bottom:6px;'>⏳</div>
+                    <div style='font-size:0.7rem; color:#1e40af;
+                                text-transform:uppercase;
+                                letter-spacing:0.05em; font-weight:600;
+                                margin-bottom:2px;'>Faltan</div>
+                    <div style='font-size:0.95rem; font-weight:700;
+                                color:#1e40af;'>{valor_tiempo}</div>
+                </div>
+            </div>
+        </div>
+        """
+    else:
+        tarjeta_proxima = ""
 
-    bloques.append("""
+    html = f"""
+    <div style='text-align:center; padding:56px 32px; margin:24px 0;
+                width:100%; box-sizing:border-box;
+                background:linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+                border-radius:20px; border:1px solid #e2e8f0;
+                box-shadow:0 4px 16px rgba(0,0,0,0.04);'>
+        <div style='font-size:72px; margin-bottom:16px;
+                    filter:grayscale(0.2);'>🎯</div>
+        <div style='font-size:1.5rem; font-weight:700; color:#0f172a;
+                    margin-bottom:8px;'>{titulo}</div>
+        {motivo_html}
+        {tarjeta_proxima}
         <div style='color:#94a3b8; font-size:0.9rem; margin-top:16px;'>
             Mientras tanto, consulta
             <strong style='color:#475569;'>📊 Resultados y estadísticas</strong>
             o <strong style='color:#475569;'>📚 Histórico</strong>.
         </div>
-        </div>
-    """)
-
-    st.markdown("".join(bloques), unsafe_allow_html=True)
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def calcular_tiempo_restante(proxima_dia, proxima_hora):
