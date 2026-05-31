@@ -375,48 +375,8 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     # Ranking por métrica (sin heatmap): small multiples con Puntuación Global destacada
     if d2 is not None and len(d2) > 0:
         st.markdown("---")
-"""
-app_corregida.py - Punto de entrada de Modus Super Series App.
+        render_small_multiples(d2, titulo="📊 Ranking por Métrica")
 
-
-Configura la pagina, inicializa el estado de sesion y construye la interfaz
-principal (barra lateral + las tres secciones: LIVE, VALUE BETS y RESULTADOS).
-
-
-La lógica se divide en módulos:
-- config.py constantes y configuracion
-- helpers.py utilidades de bajo nivel
-- data_loading.py: carga y análisis de datos desde Google Sheets
-- stats_engine.py: modelo matemático y simulación
-- rendering.py renderizado visual
-- Tablas de clasificación de classification.py
-
-
-Para que Streamlit Cloud lo despliegue, este archivo sigue siendo el main.
-"""
-
-
-import streamlit como st
-import pandas como pd
-import numpy como np
-import solicitudes
-import time
-de datetime import datetime, timedelta
-
-
-st.set_page_config(page_title="Aplicación Modus Super Series", layout="wide", page_icon="🎯")
-
-
-# CSS global: rejilla de estadísticas responsive
-# Desktop/tablet: 4 columnas | Móvil (<=768px): 2 columnas
-st.markdown("""
-<style>
-.stats-grid {
-display: grid;
-grid-template-columns: repeat(4, minmax(0, 1fr));
-espacio: 12 píxeles;
-margen: 10px 0 20px 0;
-}
     # Clasificación del grupo (al final del todo)
     grupo_actual = detectar_grupo(selected)
     if grupo_actual:
@@ -458,4 +418,4 @@ elif "📚 HISTÓRICO" in opcion_principal:
     except Exception as e:
         df_hist = None
         st.error(f"No se pudo cargar el histórico: {e}")
-    render_historico(df_hist, jugadores_resumen_hist
+    render_historico(df_hist, jugadores_resumen_hist)
