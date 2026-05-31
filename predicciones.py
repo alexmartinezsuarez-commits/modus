@@ -1570,12 +1570,16 @@ CABECERA_HISTORICO = [
 
 
 def _fecha_sabado_de_la_semana(hoy=None):
-    """Devuelve la fecha (YYYY-MM-DD) del sabado de la semana actual.
+    """Devuelve la fecha (YYYY-MM-DD) del sabado de la semana actual del
+    torneo (la semana NO cierra hasta que el script de Sheets borra los
+    datos, lo cual ocurre el lunes de madrugada).
 
-    El torneo termina en sabado, asi que esa es la etiqueta de la semana.
-    Si hoy ya es sabado, devuelve hoy. Si es domingo, devuelve el sabado
-    siguiente (la semana que empieza). Para el resto de dias, el sabado
-    de esa misma semana.
+    Regla:
+      - Lunes..sabado -> sabado de esta semana (hacia adelante en el calendario)
+      - Domingo       -> sabado de AYER (la semana del torneo sigue abierta)
+
+    Asi, si guardas el domingo tras la jornada final, se asigna a la
+    misma semana que el sabado anterior — no a la semana siguiente.
     """
     from datetime import datetime, timedelta
     if hoy is None:
@@ -1586,11 +1590,11 @@ def _fecha_sabado_de_la_semana(hoy=None):
             hoy = datetime.now()
     # weekday(): lunes=0 ... sabado=5, domingo=6
     wd = hoy.weekday()
-    if wd == 6:  # domingo -> sabado siguiente (dentro de 6 dias)
-        delta = 6
+    if wd == 6:  # domingo -> sabado de AYER (la semana del torneo sigue abierta)
+        sabado = hoy - timedelta(days=1)
     else:        # lunes..sabado -> sabado de esta semana
         delta = 5 - wd
-    sabado = hoy + timedelta(days=delta)
+        sabado = hoy + timedelta(days=delta)
     return sabado.strftime("%Y-%m-%d")
 
 
