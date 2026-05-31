@@ -185,7 +185,48 @@ if "🔴 LIVE" in opcion_principal:
     except Exception:
         d1, d2 = None, None
 
-    hay_datos = (d2 is not None and len(d2) > 0)
+    # Comprobacion de FRESCURA: si hay datos cargados pero no estamos en
+    # hora oficial, hay que distinguir entre:
+    #   (a) datos pre-cargados de la proxima jornada que SI vienen al caso
+    #   (b) datos viejos del lunes pasado que el script aun no ha borrado
+    #
+    # El script de Sheets limpia los datos cada lunes ~02:00. Por tanto
+    # los datos son "frescos" si:
+    #   - Estamos en hora oficial de la jornada (es_activa = True), o
+    #   - La proxima jornada empieza HOY (mismo dia natural), o
+    #   - La proxima jornada empieza MAÑANA y ya pasamos el lunes 10:00
+    #     de esta semana del torneo (los datos viejos ya estan limpios).
+    def _datos_son_frescos():
+        if es_activa:
+            return True
+        try:
+            from zoneinfo import ZoneInfo
+            ahora = datetime.now(ZoneInfo("Europe/Madrid"))
+        except Exception:
+            ahora = datetime.now()
+        wd = ahora.weekday()
+        h = ahora.hour
+        try:
+            from data_loading import proxima_jornada as _prox
+            _, _, prox_dia = _prox()
+        except Exception:
+            prox_dia = None
+
+        # Caso A: la proxima jornada empieza HOY -> frescos
+        if prox_dia == "Hoy":
+            return True
+        # Caso B: domingo o lunes antes de las 03:00 -> NO frescos
+        # (el script de Sheets limpia los lunes a las 02:00; antes de
+        # esa hora los datos pre-cargados son los viejos del lunes pasado)
+        if wd == 6:  # domingo
+            return False
+        if wd == 0 and h < 3:  # lunes madrugada antes de las 03:00
+            return False
+        # Resto: la limpieza del lunes ya paso, los datos pre-cargados
+        # son de esta semana del torneo
+        return True
+
+    hay_datos = (d2 is not None and len(d2) > 0 and _datos_son_frescos())
 
     # Cuatro casos:
     #   1) Hay datos + hora oficial activa   -> tablas normales (success arriba)
@@ -334,8 +375,48 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     # Ranking por métrica (sin heatmap): small multiples con Puntuación Global destacada
     if d2 is not None and len(d2) > 0:
         st.markdown("---")
-        render_small_multiples(d2, titulo="📊 Ranking por Métrica")
+"""
+app_corregida.py - Punto de entrada de Modus Super Series App.
 
+
+Configura la pagina, inicializa el estado de sesion y construye la interfaz
+principal (barra lateral + las tres secciones: LIVE, VALUE BETS y RESULTADOS).
+
+
+La lógica se divide en módulos:
+- config.py constantes y configuracion
+- helpers.py utilidades de bajo nivel
+- data_loading.py: carga y análisis de datos desde Google Sheets
+- stats_engine.py: modelo matemático y simulación
+- rendering.py renderizado visual
+- Tablas de clasificación de classification.py
+
+
+Para que Streamlit Cloud lo despliegue, este archivo sigue siendo el main.
+"""
+
+
+import streamlit como st
+import pandas como pd
+import numpy como np
+import solicitudes
+import time
+de datetime import datetime, timedelta
+
+
+st.set_page_config(page_title="Aplicación Modus Super Series", layout="wide", page_icon="🎯")
+
+
+# CSS global: rejilla de estadísticas responsive
+# Desktop/tablet: 4 columnas | Móvil (<=768px): 2 columnas
+st.markdown("""
+<style>
+.stats-grid {
+display: grid;
+grid-template-columns: repeat(4, minmax(0, 1fr));
+espacio: 12 píxeles;
+margen: 10px 0 20px 0;
+}
     # Clasificación del grupo (al final del todo)
     grupo_actual = detectar_grupo(selected)
     if grupo_actual:
@@ -377,4 +458,4 @@ elif "📚 HISTÓRICO" in opcion_principal:
     except Exception as e:
         df_hist = None
         st.error(f"No se pudo cargar el histórico: {e}")
-    render_historico(df_hist, jugadores_resumen_hist)
+    render_historico(df_hist, jugadores_resumen_hist
