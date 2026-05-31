@@ -1736,21 +1736,29 @@ def cargar_historico():
     jugador y semana). DataFrame vacio si no hay datos o falla la conexion.
     Cacheado 2 minutos.
 
-    Aplica logica de RESCATE de la coma decimal por columna: si gspread
-    devuelve un numero sin coma (residuo del bug de USER_ENTERED), lo
-    divide entre 10/100/1000 segun cual sea el rango esperado de esa
-    metrica. Asi 805 -> 80.5 (PR), 9736 -> 97.36 (promedio dardos), etc.
+    IMPORTANTE: usamos get_all_values() en vez de get_all_records() porque
+    este ultimo hace conversiones automaticas a numero que pierden la coma
+    decimal con locale espanol (0,48 -> 48). Con get_all_values() todo viene
+    como string literal y nosotros lo convertimos bien con safe_float
+    (que sustituye ',' por '.').
     """
     hoja, err = _abrir_hoja_historico()
     if hoja is None:
         return pd.DataFrame()
     try:
-        registros = hoja.get_all_records()
+        valores = hoja.get_all_values()
     except Exception:
         return pd.DataFrame()
-    if not registros:
+    if not valores or len(valores) < 2:
         return pd.DataFrame()
-    df = pd.DataFrame(registros)
+
+    cabecera = valores[0]
+    filas = valores[1:]
+    # Filtrar filas vacias (todas las celdas en blanco)
+    filas = [r for r in filas if any(str(x).strip() for x in r)]
+    if not filas:
+        return pd.DataFrame()
+    df = pd.DataFrame(filas, columns=cabecera)
 
     def _rescatar(valor, maximo_razonable):
         """Convierte un valor a float aplicando rescate de coma decimal.
