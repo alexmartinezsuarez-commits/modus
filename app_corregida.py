@@ -309,30 +309,33 @@ if "🔴 LIVE" in opcion_principal:
             motivo=motivo,
         )
 
-    # ── Clasificacion del grupo (SIEMPRE si tiene datos) ───────────────────
-    # Tanto si hay datos en directo como si estamos en empty state, si
-    # podemos detectar un grupo activo, mostramos su clasificacion
-    # (basada en el Resumen Semanal acumulado).
-    grupo_actual_live = detectar_grupo(selected)
-    if grupo_actual_live:
-        st.markdown("---")
-        render_clasificacion_grupo(grupo_actual_live)
-    elif selected == "Final Sábado":
-        # En Final Sábado renderizamos los DOS grupos de la final (A y B),
-        # compuestos según los rankings de la fase de grupos.
-        grupos_final = construir_grupos_final()
-        st.markdown("---")
-        st.subheader("🏆 Grupos de la Final")
-        for nombre_grupo, jugadores in grupos_final.items():
-            render_clasificacion_final(nombre_grupo, jugadores)
-            st.markdown("")
-    elif selected == "Resumen Semanal":
-        # En Resumen Semanal seguimos mostrando las 3 clasificaciones semanales
-        st.markdown("---")
-        st.subheader("🏆 Clasificaciones por Grupo")
-        for g in ("Grupo A", "Grupo B", "Grupo C"):
-            render_clasificacion_grupo(g)
-            st.markdown("")
+    # ── Clasificacion del grupo (si tiene datos Y la semana esta limpia) ──
+    # La clasificacion viene del Resumen Semanal, que durante el domingo y
+    # las primeras horas del lunes aun tiene los datos de la semana
+    # PASADA (no se limpian hasta el lunes a las 02:00). Por eso solo
+    # la mostramos cuando _datos_son_frescos() — misma condicion que
+    # las tablas de LIVE.
+    if _datos_son_frescos():
+        grupo_actual_live = detectar_grupo(selected)
+        if grupo_actual_live:
+            st.markdown("---")
+            render_clasificacion_grupo(grupo_actual_live)
+        elif selected == "Final Sábado":
+            # En Final Sábado renderizamos los DOS grupos de la final (A y B),
+            # compuestos según los rankings de la fase de grupos.
+            grupos_final = construir_grupos_final()
+            st.markdown("---")
+            st.subheader("🏆 Grupos de la Final")
+            for nombre_grupo, jugadores in grupos_final.items():
+                render_clasificacion_final(nombre_grupo, jugadores)
+                st.markdown("")
+        elif selected == "Resumen Semanal":
+            # En Resumen Semanal seguimos mostrando las 3 clasificaciones semanales
+            st.markdown("---")
+            st.subheader("🏆 Clasificaciones por Grupo")
+            for g in ("Grupo A", "Grupo B", "Grupo C"):
+                render_clasificacion_grupo(g)
+                st.markdown("")
 
 elif "💰 VALUE BETS" in opcion_principal:
     render_value_bets()
