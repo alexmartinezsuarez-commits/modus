@@ -1802,3 +1802,84 @@ def cargar_historico():
             df[col] = df[col].apply(safe_float)
 
     return df
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOG DE AUTO-REGISTRO
+# ─────────────────────────────────────────────────────────────────────────────
+
+NOMBRE_HOJA_LOG_AUTO = "Log Auto Registro"
+
+CABECERA_LOG_AUTO = [
+    "Timestamp", "Jornada", "Partidos registrados",
+    "Partidos saltados", "Estado", "Detalles",
+]
+
+
+def _abrir_hoja_log_auto():
+    """Abre (o crea) la pestana 'Log Auto Registro' del Sheet de
+    predicciones. Mismo patron que las otras hojas.
+    """
+    cliente, err = _conectar_gsheets()
+    if cliente is None:
+        return None, err
+    try:
+        libro = cliente.open_by_key(SHEET_ID_PREDICCIONES)
+    except Exception as e:
+        return None, f"No se pudo abrir el Sheet ({type(e).__name__}: {e})."
+    try:
+        hoja = libro.worksheet(NOMBRE_HOJA_LOG_AUTO)
+    except Exception:
+        try:
+            hoja = libro.add_worksheet(
+                title=NOMBRE_HOJA_LOG_AUTO,
+                rows=5000,
+                cols=len(CABECERA_LOG_AUTO),
+            )
+            hoja.append_row(CABECERA_LOG_AUTO)
+        except Exception as e:
+            return None, (
+                f"No se pudo crear '{NOMBRE_HOJA_LOG_AUTO}' ({e})."
+            )
+    # Garantizar cabecera
+    try:
+        if not hoja.row_values(1):
+            hoja.append_row(CABECERA_LOG_AUTO)
+    except Exception:
+        pass
+    return hoja, ""
+
+
+def escribir_log_auto(jornada, partidos_registrados, partidos_saltados,
+                       estado, detalles):
+    """Apunta una fila en la pestana 'Log Auto Registro'.
+
+    Parametros:
+      jornada:             nombre de la jornada (ej. 'Grupo A Martes')
+      partidos_registrados: lista de strings "J1 vs J2"
+      partidos_saltados:   lista de strings "J1 vs J2 (motivo)"
+      estado:              "OK", "PARCIAL", "ERROR" o "NADA"
+      detalles:            texto libre con info adicional
+    """
+    hoja, err = _abrir_hoja_log_auto()
+    if hoja is None:
+        return False, err
+    try:
+        from zoneinfo import ZoneInfo
+        ts = datetime.now(ZoneInfo("Europe/Madrid")).strftime(
+            "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    fila = [
+        ts,
+        jornada or "",
+        " | ".join(partidos_registrados) if partidos_registrados else "",
+        " | ".join(partidos_saltados) if partidos_saltados else "",
+        estado,
+        detalles or "",
+    ]
+    try:
+        hoja.append_row(fila, value_input_option="USER_ENTERED")
+        return True, ""
+    except Exception as e:
+        return False, str(e)
