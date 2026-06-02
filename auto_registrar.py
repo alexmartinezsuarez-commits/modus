@@ -1,5 +1,83 @@
 """auto_registrar.py — Script de auto-registro de predicciones.
 
+
+Disenado para ejecutarse desde GitHub Actions cada 15 minutos durante
+horario de jornada. Detecta los proximos partidos NO empezados y los
+registra en la pestana 'Predicciones', con datos lo mas frescos posibles.
+
+
+REGLAS DE FUNCIONAMIENTO:
+1. Solo se ejecuta los dias mar/mie/vie/sab (lunes y jueves NO porque
+son inicio de grupo, datos poco fiables).
+2. Solo si hay una jornada activa por hora.
+3. Detecta partidos terminados: alguien con 4 legs en alguna fila.
+4. Detecta partidos en curso: hay algun dato en las filas pero ninguno
+llega a 4 -> NO se registra.
+5. Registra hasta 2 partidos "no empezados" (sin datos en ninguna fila).
+6. Si los 2 siguientes no empezados comparten algun jugador, solo
+se registra el primero.
+7. Sobrescribe los registros si ya existian, sin tocar resultado/acierto.
+8. Apunta en la pestana 'Log Auto Registro' lo que hizo cada vez.
+
+
+USO:
+python auto_registrar.py
+
+
+VARIABLES DE ENTORNO REQUERIDAS:
+GOOGLE_SERVICE_ACCOUNT_JSON - JSON completo de la cuenta de servicio
+(el mismo que usa la app Streamlit).
+
+
+CÓDIGOS DE SALIDA:
+0 - OK (registro o nada que hacer).
+1 - Error (configuración, conexión, etc.).
+"""
+
+
+de __future__ import anotaciones
+
+
+importar los
+import sys
+import json"""auto_registrar.py — Script de auto-registro de predicciones.
+
+Disenado para ejecutarse desde GitHub Actions cada 15 minutos durante
+horario de jornada. Detecta los proximos partidos NO empezados y los
+registra en la pestana 'Predicciones', con datos lo mas frescos posibles.
+
+REGLAS DE FUNCIONAMIENTO:
+1. Solo se ejecuta los dias mar/mie/vie/sab (lunes y jueves NO porque
+son inicio de grupo, datos poco fiables).
+2. Solo si hay una jornada activa por hora.
+3. Detecta partidos terminados: alguien con 4 legs en alguna fila.
+4. Detecta partidos en curso: hay algun dato en las filas pero ninguno
+llega a 4 -> NO se registra.
+5. Registra hasta 2 partidos "no empezados" (sin datos en ninguna fila).
+6. Si los 2 siguientes no empezados comparten algun jugador, solo
+se registra el primero.
+7. Sobrescribe los registros si ya existian, sin tocar resultado/acierto.
+8. Apunta en la pestana 'Log Auto Registro' lo que hizo cada vez.
+
+USO:
+python auto_registrar.py
+
+VARIABLES DE ENTORNO REQUERIDAS:
+GOOGLE_SERVICE_ACCOUNT_JSON  - JSON completo de la cuenta de servicio
+(el mismo que usa la app Streamlit).
+
+CÓDIGOS DE SALIDA:
+0 - OK (registro o nada que hacer).
+1 - Error (configuración, conexión, etc.).
+"""
+
+de __future__ import anotaciones
+
+importar los
+import sys
+import json
+"""auto_registrar.py — Script de auto-registro de predicciones.
+
 Disenado para ejecutarse desde GitHub Actions cada 15 minutos durante
 horario de jornada. Detecta los proximos partidos NO empezados y los
 registra en la pestana 'Predicciones', con datos lo mas frescos posibles.
@@ -100,11 +178,19 @@ def configurar_credenciales():
 
     class _SS(dict):
         def __getattr__(self, k):
-            try: return self[k]
-            except KeyError: raise AttributeError(k)
+            # Auto-crear claves comunes que la app espera que existan
+            if k not in self:
+                if k == "last_update":
+                    self[k] = {}
+                else:
+                    raise AttributeError(k)
+            return self[k]
         def __setattr__(self, k, v): self[k] = v
         def get(self, k, d=None): return dict.get(self, k, d)
+
     st_stub.session_state = _SS()
+    # Pre-inicializar claves que la app usa con frecuencia
+    st_stub.session_state["last_update"] = {}
 
     # Funciones de UI que data_loading podria invocar — todas no-op
     def _noop(*a, **k):
@@ -383,6 +469,28 @@ def main():
         sys.exit(1)
 
     if not forma_dict:
+        # Diagnostico: ¿que falla? Intentamos cargar Resumen Semanal
+        # directamente y mostramos el error real.
+        print("  -> Forma reciente vacia, diagnosticando...")
+        try:
+            from data_loading import cargar_jugadores_desde
+            resumen_test = cargar_jugadores_desde("Resumen Semanal")
+            print(f"     cargar_jugadores_desde('Resumen Semanal') "
+                  f"devolvio: {len(resumen_test)} jugadores")
+            if not resumen_test:
+                # Intentar leer el CSV crudo para ver si llega
+                import pandas as pd
+                try:
+                    df_test = pd.read_csv(URLS["Resumen Semanal"], header=None)
+                    print(f"     CSV crudo: {df_test.shape[0]} filas, "
+                          f"{df_test.shape[1]} cols")
+                except Exception as e:
+                    print(f"     Error leyendo CSV crudo: {e}")
+                    traceback.print_exc()
+        except Exception as e:
+            print(f"     Error en diagnostico: {e}")
+            traceback.print_exc()
+
         msg = "Forma reciente vacia"
         print(f"  -> {msg}")
         escribir_log_auto(jornada=jornada, partidos_registrados=[],
@@ -449,4 +557,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(
