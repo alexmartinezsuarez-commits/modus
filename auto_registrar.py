@@ -1,5 +1,47 @@
 """auto_registrar.py — Script de auto-registro de predicciones.
 
+
+Disenado para ejecutarse desde GitHub Actions cada 15 minutos durante
+horario de jornada. Detecta los proximos partidos NO empezados y los
+registra en la pestana 'Predicciones', con datos lo mas frescos posibles.
+
+
+REGLAS DE FUNCIONAMIENTO:
+1. Solo se ejecuta los dias mar/mie/vie/sab (lunes y jueves NO porque
+son inicio de grupo, datos poco fiables).
+2. Solo si hay una jornada activa por hora.
+3. Detecta partidos terminados: alguien con 4 legs en alguna fila.
+4. Detecta partidos en curso: hay algun dato en las filas pero ninguno
+llega a 4 -> NO se registra.
+5. Registra hasta 2 partidos "no empezados" (sin datos en ninguna fila).
+6. Si los 2 siguientes no empezados comparten algun jugador, solo
+se registra el primero.
+7. Sobrescribe los registros si ya existian, sin tocar resultado/acierto.
+8. Apunta en la pestana 'Log Auto Registro' lo que hizo cada vez.
+
+
+USO:
+python auto_registrar.py
+
+
+VARIABLES DE ENTORNO REQUERIDAS:
+GOOGLE_SERVICE_ACCOUNT_JSON - JSON completo de la cuenta de servicio
+(el mismo que usa la app Streamlit).
+
+
+CÓDIGOS DE SALIDA:
+0 - OK (registro o nada que hacer).
+1 - Error (configuración, conexión, etc.).
+"""
+
+
+de __future__ import anotaciones
+
+
+importar los
+import sys
+import json"""auto_registrar.py — Script de auto-registro de predicciones.
+
 Disenado para ejecutarse desde GitHub Actions cada 15 minutos durante
 horario de jornada. Detecta los proximos partidos NO empezados y los
 registra en la pestana 'Predicciones', con datos lo mas frescos posibles.
@@ -252,9 +294,7 @@ def main():
 
     # ── Importar modulos de la app ────────────────────────────────────────
     try:
-        from data_loading import (
-            detectar_jornada_de_hoy, cargar_forma_reciente,
-        )
+        from data_loading import cargar_forma_reciente
         from predicciones import (
             registrar_predicciones, escribir_log_auto,
         )
@@ -263,13 +303,46 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # ── Detectar jornada activa ──────────────────────────────────────────
-    jornada = detectar_jornada_de_hoy()
+    # ── Detectar jornada activa por HORA (no por datos) ──────────────────
+    # Antes usabamos detectar_jornada_de_hoy(), pero esa funcion exige que
+    # la pestana del Sheet tenga datos cargados. En el cron a veces falla
+    # por race conditions o caches y devuelve None aunque sea hora valida.
+    # Aqui replicamos las reglas horarias directamente.
+    h = ahora.hour
+    minuto = ahora.minute
+    mnow = h * 60 + minuto
+    jornada = None
+    if mnow <= 3 * 60:
+        if wd == 4: jornada = "Grupo B Jueves"
+        elif wd == 5: jornada = "Grupo B Viernes"
+        elif wd == 6: jornada = "Final Sábado"
+    else:
+        if wd == 0 and 10 * 60 + 30 <= mnow <= 16 * 60:
+            jornada = "Grupo A Lunes"
+        elif wd == 1 and 10 * 60 + 30 <= mnow <= 16 * 60:
+            jornada = "Grupo A Martes"
+        elif wd == 2 and 10 * 60 + 30 <= mnow <= 16 * 60:
+            jornada = "Grupo A Miércoles"
+        elif wd == 3:
+            if 14 * 60 <= mnow <= 19 * 60:
+                jornada = "Grupo C Jueves"
+            elif 21 * 60 <= mnow:
+                jornada = "Grupo B Jueves"
+        elif wd == 4:
+            if 14 * 60 <= mnow <= 19 * 60:
+                jornada = "Grupo C Viernes"
+            elif 21 * 60 <= mnow:
+                jornada = "Grupo B Viernes"
+        elif wd == 5 and mnow >= 20 * 60 + 40:
+            jornada = "Final Sábado"
+
+    print(f"  -> hora={h:02d}:{minuto:02d} mnow={mnow} jornada_por_hora={jornada}")
+
     if not jornada:
         print("  -> no hay jornada activa por hora")
         escribir_log_auto(
             jornada="", partidos_registrados=[], partidos_saltados=[],
-            estado="NADA", detalles="sin jornada activa por hora",
+            estado="NADA", detalles=f"sin jornada activa por hora (h={h:02d}:{minuto:02d})",
         )
         sys.exit(0)
     print(f"  -> jornada activa: {jornada}")
@@ -418,4 +491,40 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()"""auto_registrar.py — Script de auto-registro de predicciones.
+
+Disenado para ejecutarse desde GitHub Actions cada 15 minutos durante
+horario de jornada. Detecta los proximos partidos NO empezados y los
+registra en la pestana 'Predicciones', con datos lo mas frescos posibles.
+
+REGLAS DE FUNCIONAMIENTO:
+1. Solo se ejecuta los dias mar/mie/vie/sab (lunes y jueves NO porque
+son inicio de grupo, datos poco fiables).
+2. Solo si hay una jornada activa por hora.
+3. Detecta partidos terminados: alguien con 4 legs en alguna fila.
+4. Detecta partidos en curso: hay algun dato en las filas pero ninguno
+llega a 4 -> NO se registra.
+5. Registra hasta 2 partidos "no empezados" (sin datos en ninguna fila).
+6. Si los 2 siguientes no empezados comparten algun jugador, solo
+se registra el primero.
+7. Sobrescribe los registros si ya existian, sin tocar resultado/acierto.
+8. Apunta en la pestana 'Log Auto Registro' lo que hizo cada vez.
+
+USO:
+python auto_registrar.py
+
+VARIABLES DE ENTORNO REQUERIDAS:
+GOOGLE_SERVICE_ACCOUNT_JSON  - JSON completo de la cuenta de servicio
+(el mismo que usa la app Streamlit).
+
+CÓDIGOS DE SALIDA:
+0 - OK (registro o nada que hacer).
+1 - Error (configuración, conexión, etc.).
+"""
+
+de __future__ import anotaciones
+
+importar los
+import sys
+import json
+
