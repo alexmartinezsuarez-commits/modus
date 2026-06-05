@@ -44,7 +44,7 @@ from zoneinfo import ZoneInfo
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Dias que SI registramos (weekday: lun=0, mar=1, mie=2, jue=3, vie=4, sab=5)
-DIAS_REGISTRABLES = {1, 2, 4, 5}  # mar, mie, vie, sab
+DIAS_REGISTRABLES = {1, 2, 4, 5, 6}  # mar, mie, vie, sab, dom (dom solo 00-03 Final)
 
 # Maximo de partidos a registrar por ejecucion
 MAX_PARTIDOS_POR_RONDA = 2
@@ -270,45 +270,49 @@ def main():
         sys.exit(1)
 
     # ── Detectar jornada activa por HORA (no por datos) ──────────────────
-    # Antes usabamos detectar_jornada_de_hoy(), pero esa funcion exige que
-    # la pestana del Sheet tenga datos cargados. En el cron a veces falla
-    # por race conditions o caches y devuelve None aunque sea hora valida.
-    # Aqui replicamos las reglas horarias directamente.
     h = ahora.hour
     minuto = ahora.minute
     mnow = h * 60 + minuto
     jornada = None
+
     if mnow <= 3 * 60:
-        if wd == 4: jornada = "Grupo B Jueves"
+        # Madrugada: prolongacion nocturna del dia anterior.
+        #   Vie 00-03 -> B Jueves  (jueves NO registrable, se filtra abajo)
+        #   Sab 00-03 -> B Viernes (viernes SI registrable -> OK)
+        #   Dom 00-03 -> Final Sab (sabado SI registrable -> OK)
+        if wd == 4:   jornada = "Grupo B Jueves"
         elif wd == 5: jornada = "Grupo B Viernes"
         elif wd == 6: jornada = "Final Sábado"
     else:
-        if wd == 0 and 10 * 60 + 30 <= mnow <= 16 * 60:
-            jornada = "Grupo A Lunes"
-        elif wd == 1 and 10 * 60 + 30 <= mnow <= 16 * 60:
+        if wd == 1 and 10*60+30 <= mnow <= 16*60:
             jornada = "Grupo A Martes"
-        elif wd == 2 and 10 * 60 + 30 <= mnow <= 16 * 60:
+        elif wd == 2 and 10*60+30 <= mnow <= 16*60:
             jornada = "Grupo A Miércoles"
-        elif wd == 3:
-            if 14 * 60 <= mnow <= 19 * 60:
-                jornada = "Grupo C Jueves"
-            elif 21 * 60 <= mnow:
-                jornada = "Grupo B Jueves"
         elif wd == 4:
-            if 14 * 60 <= mnow <= 19 * 60:
-                jornada = "Grupo C Viernes"
-            elif 21 * 60 <= mnow:
-                jornada = "Grupo B Viernes"
-        elif wd == 5 and mnow >= 20 * 60 + 40:
+            if 14*60 <= mnow <= 19*60:  jornada = "Grupo C Viernes"
+            elif 21*60 <= mnow:          jornada = "Grupo B Viernes"
+        elif wd == 5 and mnow >= 20*60+40:
             jornada = "Final Sábado"
 
     print(f"  -> hora={h:02d}:{minuto:02d} mnow={mnow} jornada_por_hora={jornada}")
+
+    # Excluir jornadas cuyo dia padre no es registrable.
+    # "Grupo B Jueves" ocurre en Vie 00-03: jueves no esta en DIAS_REGISTRABLES.
+    JORNADAS_EXCLUIDAS = {"Grupo B Jueves"}
+    if jornada in JORNADAS_EXCLUIDAS:
+        msg = f"jornada {jornada} excluida (dia padre no registrable)"
+        print(f"  -> {msg}")
+        escribir_log_auto(
+            jornada=jornada, partidos_registrados=[], partidos_saltados=[],
+            estado="NADA", detalles=msg,
+        )
+        sys.exit(0)
 
     if not jornada:
         print("  -> no hay jornada activa por hora")
         escribir_log_auto(
             jornada="", partidos_registrados=[], partidos_saltados=[],
-            estado="NADA", detalles=f"sin jornada activa por hora (h={h:02d}:{minuto:02d})",
+            estado="NADA", detalles=f"sin jornada activa (h={h:02d}:{minuto:02d})",
         )
         sys.exit(0)
     print(f"  -> jornada activa: {jornada}")
