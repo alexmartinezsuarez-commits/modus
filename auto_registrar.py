@@ -465,16 +465,44 @@ def main():
             errores.append(f"{p['j1']} vs {p['j2']} (excepcion: {e})")
             traceback.print_exc()
 
-    # ── Log ──────────────────────────────────────────────────────────────
+    # ── Log de registro ───────────────────────────────────────────────────
     if registrados_ok and not errores:
         estado = "OK"
     elif registrados_ok and errores:
         estado = "PARCIAL"
-    else:
+    elif errores:
         estado = "ERROR"
+    else:
+        estado = "NADA"
     detalles = f"{len(registrados_ok)} registrados, {len(errores)} errores"
     if errores:
         detalles += " | Errores: " + " ; ".join(errores)
+
+    # ── Verificar resultados pendientes ───────────────────────────────────
+    # Cada vez que el cron actua durante una jornada, ademas de registrar
+    # los proximos partidos tambien verifica los que ya han terminado.
+    # Asi las predicciones se van resolviendo automaticamente sin esperar
+    # al cierre semanal del domingo.
+    print("  -> Verificando resultados pendientes...")
+    try:
+        from predicciones import verificar_resultados
+        res_ver = verificar_resultados()
+        if res_ver.get("ok"):
+            ver_str = (
+                f"verificadas={res_ver.get('verificadas', 0)} "
+                f"aciertos={res_ver.get('aciertos', 0)} "
+                f"fallos={res_ver.get('fallos', 0)} "
+                f"pendientes={len(res_ver.get('pendientes_diag', {}))}"
+            )
+            print(f"     {ver_str}")
+            detalles += f" | Verificacion: {ver_str}"
+        else:
+            err_ver = res_ver.get("error", "desconocido")
+            print(f"     Error verificando: {err_ver}")
+            detalles += f" | Verificacion ERROR: {err_ver}"
+    except Exception as e:
+        print(f"     Excepcion verificando: {e}")
+        detalles += f" | Verificacion EXCEPCION: {e}"
 
     escribir_log_auto(jornada=jornada, partidos_registrados=registrados_ok,
                        partidos_saltados=descartados + errores,
