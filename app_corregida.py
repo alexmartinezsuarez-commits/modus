@@ -261,21 +261,31 @@ if "🔴 LIVE" in opcion_principal:
             st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
 
         st.subheader("📈 Estadísticas por Jugador")
+        # Cargar historial W/L de todos los jugadores de una vez (1 peticion
+        # por jornada, no N peticiones por jugador)
+        from data_loading import cargar_historial_todos_semana, _normalizar_nombre_hist
+        historial_todos = cargar_historial_todos_semana()
+
         for player, stats in d2.items():
-            player_display = f"👤 {player.title()}"
+            # Círculos de forma reciente en la cabecera del expander
+            p_norm = _normalizar_nombre_hist(player)
+            res = historial_todos.get(p_norm, [])
+            ultimos = ([None] * (5 - min(len(res), 5))) + res[-5:]
+            circulos = "".join(
+                "🟢" if r else "🔴" if r is not None else "⚫"
+                for r in ultimos
+            )
+            player_display = f"👤 {player.title()}  {circulos}"
             with st.expander(player_display, expanded=False):
                 render_jugador_visual(
                     player, stats, stats_resumen_para_render, selected,
                     mostrar_tendencias=mostrar_tendencias_live
                 )
 
-        if d1 is not None:
+        if d1 is not None and selected not in ["Resumen Semanal", "Value Bets"]:
             st.subheader("⚔️ Detalles")
-            if selected not in ["Resumen Semanal", "Value Bets"]:
-                st.dataframe(d1.style.apply(pintar_partidos, axis=1),
-                             use_container_width=True, hide_index=True)
-            else:
-                st.dataframe(d1, use_container_width=True, hide_index=True)
+            st.dataframe(d1.style.apply(pintar_partidos, axis=1),
+                         use_container_width=True, hide_index=True)
 
         st.markdown("---")
         render_small_multiples(d2, titulo="📊 Ranking por Métrica")
@@ -356,19 +366,30 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
     
     if d2 is not None:
         st.subheader("📈 Estadísticas por Jugador")
-        
+
         # Cargar resumen semanal solo si estamos viendo otra jornada
         stats_resumen = None
         mostrar_tendencias = selected != "Resumen Semanal"
         if mostrar_tendencias:
             _, stats_resumen = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
-        
+
+        # Historial W/L para los círculos en las cabeceras
+        from data_loading import cargar_historial_todos_semana, _normalizar_nombre_hist
+        historial_todos = cargar_historial_todos_semana()
+
         for player, stats in d2.items():
-            player_display = f"👤 {player.title()}"
+            p_norm = _normalizar_nombre_hist(player)
+            res = historial_todos.get(p_norm, [])
+            ultimos = ([None] * (5 - min(len(res), 5))) + res[-5:]
+            circulos = "".join(
+                "🟢" if r else "🔴" if r is not None else "⚫"
+                for r in ultimos
+            )
+            player_display = f"👤 {player.title()}  {circulos}"
             with st.expander(player_display, expanded=False):
                 render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=mostrar_tendencias)
-    
-    if d1 is not None:
+
+    if d1 is not None and selected not in ["Resumen Semanal", "Value Bets"]:
         st.subheader("⚔️ Detalles")
         if selected not in ["Resumen Semanal", "Value Bets"]:
             st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
