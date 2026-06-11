@@ -1158,3 +1158,84 @@ def calcular_racha(resultados: list) -> tuple:
         else:
             break
     return racha, ("W" if ultimo else "L")
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def cargar_historial_todos_semana() -> dict:
+    """Carga de una vez todas las jornadas de la semana y devuelve el
+    historial W/L de TODOS los jugadores.
+
+    Hace maximo 8 peticiones HTTP (una por jornada), sin repetir. Devuelve:
+      {nombre_normalizado: [True, False, True, ...], ...}
+
+    Usar esto en vez de cargar_historial_semana(jugador) en bucle para
+    evitar N*8 peticiones al mostrar todos los jugadores a la vez.
+    """
+    import io
+    import csv as csv_mod
+    import urllib.request
+
+    historial = {}   # {norm_name: [bool, ...]}
+
+    for jornada in JORNADAS_SEMANA_ORDEN:
+        url = URLS.get(jornada)
+        if not url:
+            continue
+        try:
+            with urllib.request.urlopen(url, timeout=8) as r:
+                texto = r.read().decode("utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        lineas = list(csv_mod.reader(io.StringIO(texto)))
+        idx_inicio = FILA_INICIO_PARTIDOS - 1
+        filas_partidos = lineas[idx_inicio:]
+
+        i = 0
+        while i + 1 < len(filas_partidos):
+            fila1 = filas_partidos[i]
+            fila2 = filas_partidos[i + 1]
+            i += 2
+
+            nombre1 = fila1[0].strip() if len(fila1) > 0 else ""
+            nombre2 = fila2[0].strip() if len(fila2) > 0 else ""
+            if not nombre1 or not nombre2:
+                break
+
+            def _legs(fila):
+                try:
+                    v = str(fila[1]).strip().replace(",", ".")
+                    return int(float(v)) if v else 0
+                except Exception:
+                    return 0
+
+            legs1 = _legs(fila1)
+            legs2 = _legs(fila2)
+
+            # Partido no jugado: sin ningun dato en filas B-E
+            if legs1 == 0 and legs2 == 0:
+                datos1 = any(
+                    str(fila1[c]).strip() not in ("", "0", "0,00%", "0%")
+                    for c in range(1, min(5, len(fila1)))
+                )
+                datos2 = any(
+                    str(fila2[c]).strip() not in ("", "0", "0,00%", "0%")
+                    for c in range(1, min(5, len(fila2)))
+                )
+                if not datos1 and not datos2:
+                    continue
+
+            if legs1 >= 4:
+                gano_j1 = True
+            elif legs2 >= 4:
+                gano_j1 = False
+            else:
+                continue  # partido en curso / incompleto
+
+            norm1 = _normalizar_nombre_hist(nombre1)
+            norm2 = _normalizar_nombre_hist(nombre2)
+
+            historial.setdefault(norm1, []).append(gano_j1)
+            historial.setdefault(norm2, []).append(not gano_j1)
+
+    return historial
