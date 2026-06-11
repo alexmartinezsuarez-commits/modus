@@ -349,6 +349,9 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
     
     claves_usadas = set()
     cards_html = '<div class="stats-grid">'
+
+    # ── Forma reciente + racha (Fase 1) ───────────────────────────────────
+    render_forma_reciente(player)
     
     for etiqueta, icono, sinonimos in config_stats:
         clave_encontrada, valor = buscar_valor(stats, sinonimos, claves_usadas)
@@ -2816,3 +2819,94 @@ def calcular_tiempo_restante(proxima_dia, proxima_hora):
         return f"{dias}d {h_rest}h"
     except Exception:
         return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FASE 1: INDICADOR DE FORMA RECIENTE (5 CÍRCULOS) + RACHA
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_forma_reciente(nombre_jugador: str):
+    """Muestra los ultimos 5 resultados del jugador como circulos de color
+    y la racha actual, leyendo todas las jornadas de la semana.
+
+    🟢 = victoria   🔴 = derrota   ⚫ = sin datos
+
+    Se coloca justo despues del PR en render_jugador_visual.
+    """
+    from data_loading import cargar_historial_semana, calcular_racha
+
+    resultados = cargar_historial_semana(nombre_jugador)
+    racha_n, racha_tipo = calcular_racha(resultados)
+
+    # Ultimos 5 resultados para los circulos
+    ultimos = resultados[-5:] if len(resultados) >= 5 else resultados
+    # Rellenar a izquierda con None si faltan
+    ultimos = [None] * (5 - len(ultimos)) + list(ultimos)
+
+    circulos = []
+    for r in ultimos:
+        if r is None:
+            circulos.append(
+                "<span style='font-size:20px;opacity:0.3;'>⚫</span>"
+            )
+        elif r:
+            circulos.append(
+                "<span style='font-size:20px;filter:drop-shadow"
+                "(0 0 3px #22c55e);'>🟢</span>"
+            )
+        else:
+            circulos.append(
+                "<span style='font-size:20px;filter:drop-shadow"
+                "(0 0 3px #ef4444);'>🔴</span>"
+            )
+
+    circulos_html = "".join(circulos)
+
+    # Badge de racha
+    if racha_tipo == "W" and racha_n >= 2:
+        racha_color = "#22c55e"
+        racha_bg = "rgba(34,197,94,0.12)"
+        racha_texto = f"🔥 {racha_n}W"
+    elif racha_tipo == "L" and racha_n >= 2:
+        racha_color = "#ef4444"
+        racha_bg = "rgba(239,68,68,0.10)"
+        racha_texto = f"❄️ {racha_n}L"
+    elif racha_tipo == "W":
+        racha_color = "#22c55e"
+        racha_bg = "rgba(34,197,94,0.10)"
+        racha_texto = "W"
+    elif racha_tipo == "L":
+        racha_color = "#ef4444"
+        racha_bg = "rgba(239,68,68,0.08)"
+        racha_texto = "L"
+    else:
+        racha_color = "#94a3b8"
+        racha_bg = "rgba(148,163,184,0.10)"
+        racha_texto = "—"
+
+    racha_badge = (
+        f"<span style='font-size:12px;font-weight:700;color:{racha_color};"
+        f"background:{racha_bg};padding:3px 10px;border-radius:12px;"
+        f"margin-left:10px;white-space:nowrap;'>{racha_texto}</span>"
+    )
+
+    partidos_str = (
+        f"<span style='font-size:11px;color:#94a3b8;margin-left:8px;'>"
+        f"{len(resultados)} partidos esta semana</span>"
+    )
+
+    html = (
+        f"<div style='display:flex;align-items:center;gap:4px;"
+        f"padding:10px 0 6px;flex-wrap:wrap;'>"
+        f"<span style='font-size:11px;color:#64748b;font-weight:600;"
+        f"margin-right:6px;text-transform:uppercase;letter-spacing:0.05em;'>"
+        f"Forma</span>"
+        f"{circulos_html}"
+        f"{racha_badge}"
+        f"{partidos_str}"
+        f"</div>"
+    )
+    html_compacto = " ".join(
+        line.strip() for line in html.splitlines() if line.strip()
+    )
+    st.markdown(html_compacto, unsafe_allow_html=True)
