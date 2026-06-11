@@ -1019,3 +1019,142 @@ def get_proxima_jornada():
         nombre = "Grupo A Lunes"
     url = URLS.get(nombre, "")
     return nombre, url
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HISTORIAL W/L Y RACHA SEMANAL
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Orden cronologico de las jornadas durante la semana
+JORNADAS_SEMANA_ORDEN = [
+    "Grupo A Lunes",
+    "Grupo A Martes",
+    "Grupo A Miércoles",
+    "Grupo C Jueves",
+    "Grupo B Jueves",
+    "Grupo C Viernes",
+    "Grupo B Viernes",
+    "Final Sábado",
+]
+
+FILA_INICIO_PARTIDOS = 7   # fila 1-indexed donde empiezan los partidos
+
+
+def _normalizar_nombre_hist(n):
+    """Quita tildes, pasa a minusculas y colapsa espacios."""
+    import unicodedata
+    n = unicodedata.normalize("NFD", str(n))
+    n = "".join(c for c in n if unicodedata.category(c) != "Mn")
+    return " ".join(n.lower().split())
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def cargar_historial_semana(nombre_jugador: str) -> list:
+    """Devuelve la lista de resultados del jugador en la semana actual,
+    en orden cronologico, como booleans: True = victoria, False = derrota.
+
+    Recorre TODAS las jornadas (A, B, C y Final) y extrae los partidos
+    donde aparece el jugador. Para cada partido de 2 filas, el ganador
+    es el que tiene 4 legs. Si ambas filas estan vacias, el partido no
+    se ha jugado y se ignora.
+
+    Devuelve una lista con hasta 15 elementos (max partidos por semana).
+    Lista vacia si no se encuentra el jugador en ninguna jornada.
+    """
+    import io
+    import csv as csv_mod
+    import urllib.request
+
+    nombre_norm = _normalizar_nombre_hist(nombre_jugador)
+    resultados = []
+
+    for jornada in JORNADAS_SEMANA_ORDEN:
+        url = URLS.get(jornada)
+        if not url:
+            continue
+        try:
+            with urllib.request.urlopen(url, timeout=8) as r:
+                texto = r.read().decode("utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        lineas = list(csv_mod.reader(io.StringIO(texto)))
+        idx_inicio = FILA_INICIO_PARTIDOS - 1  # 0-indexed
+        filas_partidos = lineas[idx_inicio:]
+
+        # Recorrer en pares: fila_j1 + fila_j2 = un partido
+        i = 0
+        while i + 1 < len(filas_partidos):
+            fila1 = filas_partidos[i]
+            fila2 = filas_partidos[i + 1]
+            i += 2
+
+            nombre1 = fila1[0].strip() if len(fila1) > 0 else ""
+            nombre2 = fila2[0].strip() if len(fila2) > 0 else ""
+            if not nombre1 or not nombre2:
+                break  # no hay mas partidos
+
+            # ¿Aparece nuestro jugador en alguna de las dos filas?
+            norm1 = _normalizar_nombre_hist(nombre1)
+            norm2 = _normalizar_nombre_hist(nombre2)
+            es_j1 = (nombre_norm in norm1 or norm1 in nombre_norm)
+            es_j2 = (nombre_norm in norm2 or norm2 in nombre_norm)
+            if not es_j1 and not es_j2:
+                continue  # este partido no le involucra
+
+            # Legs de cada jugador (columna B, indice 1)
+            def _legs(fila):
+                try:
+                    v = str(fila[1]).strip().replace(",", ".")
+                    return int(float(v)) if v else 0
+                except Exception:
+                    return 0
+
+            legs1 = _legs(fila1)
+            legs2 = _legs(fila2)
+
+            # Si ninguno tiene legs, el partido no se ha jugado todavia
+            if legs1 == 0 and legs2 == 0:
+                # Comprobar si hay algun dato en otras columnas
+                datos1 = any(
+                    str(fila1[c]).strip() not in ("", "0", "0,00%", "0%")
+                    for c in range(1, min(5, len(fila1)))
+                )
+                datos2 = any(
+                    str(fila2[c]).strip() not in ("", "0", "0,00%", "0%")
+                    for c in range(1, min(5, len(fila2)))
+                )
+                if not datos1 and not datos2:
+                    continue  # partido no jugado aun
+
+            # Determinar ganador (quien llego a 4)
+            if legs1 >= 4:
+                gano_j1 = True
+            elif legs2 >= 4:
+                gano_j1 = False
+            else:
+                continue  # partido en curso o datos incompletos
+
+            victoria = (es_j1 and gano_j1) or (es_j2 and not gano_j1)
+            resultados.append(victoria)
+
+    return resultados
+
+
+def calcular_racha(resultados: list) -> tuple:
+    """A partir de la lista de resultados (True=W, False=L) calcula
+    la racha actual del jugador.
+
+    Devuelve (longitud, tipo) donde tipo es 'W', 'L' o None (sin datos).
+    Ejemplo: (3, 'W') significa que lleva 3 victorias seguidas.
+    """
+    if not resultados:
+        return 0, None
+    ultimo = resultados[-1]
+    racha = 1
+    for r in reversed(resultados[:-1]):
+        if r == ultimo:
+            racha += 1
+        else:
+            break
+    return racha, ("W" if ultimo else "L")
