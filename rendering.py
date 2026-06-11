@@ -349,9 +349,6 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
     
     claves_usadas = set()
     cards_html = '<div class="stats-grid">'
-
-    # ── Forma reciente + racha (Fase 1) ───────────────────────────────────
-    render_forma_reciente(player)
     
     for etiqueta, icono, sinonimos in config_stats:
         clave_encontrada, valor = buscar_valor(stats, sinonimos, claves_usadas)
