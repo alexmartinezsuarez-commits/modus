@@ -246,7 +246,7 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     
     return html_datos
 
-def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=True):
+def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=True, mostrar_racha=False):
     """Renderiza un jugador con 9 estadísticas en un layout simétrico:
     
         ┌─────────────────────────────────────────────┐
@@ -485,6 +485,71 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
     
     cards_html += '</div>'
     st.markdown(cards_html, unsafe_allow_html=True)
+
+    # ── Tarjeta Racha (solo en LIVE si se pide) ───────────────────────────
+    if mostrar_racha:
+        try:
+            from data_loading import cargar_historial_semana, calcular_racha
+            resultados = cargar_historial_semana(player)
+            racha_n, racha_tipo = calcular_racha(resultados)
+            if resultados:  # solo si ha jugado algun partido
+                puntos = ""
+                for r in resultados[-5:]:
+                    if r:
+                        puntos += (
+                            "<span style='display:inline-block;width:11px;"
+                            "height:11px;border-radius:50%;background:#22c55e;"
+                            "margin:0 2px;box-shadow:0 0 4px rgba(34,197,94,0.5);'>"
+                            "</span>"
+                        )
+                    else:
+                        puntos += (
+                            "<span style='display:inline-block;width:11px;"
+                            "height:11px;border-radius:50%;background:#ef4444;"
+                            "margin:0 2px;box-shadow:0 0 4px rgba(239,68,68,0.4);'>"
+                            "</span>"
+                        )
+                if racha_tipo == "W" and racha_n >= 2:
+                    badge_color, badge_bg, badge = "#22c55e", "rgba(34,197,94,0.12)", f"{racha_n}V"
+                elif racha_tipo == "L" and racha_n >= 2:
+                    badge_color, badge_bg, badge = "#ef4444", "rgba(239,68,68,0.10)", f"{racha_n}D"
+                elif racha_tipo == "W":
+                    badge_color, badge_bg, badge = "#22c55e", "rgba(34,197,94,0.10)", "1V"
+                elif racha_tipo == "L":
+                    badge_color, badge_bg, badge = "#ef4444", "rgba(239,68,68,0.08)", "1D"
+                else:
+                    badge_color, badge_bg, badge = "#94a3b8", "rgba(148,163,184,0.10)", "—"
+                badge_html = (
+                    f"<span style='font-size:11px;font-weight:700;"
+                    f"color:{badge_color};background:{badge_bg};"
+                    f"padding:2px 8px;border-radius:10px;margin-left:6px;"
+                    f"white-space:nowrap;'>{badge}</span>"
+                )
+                racha_html = (
+                    f"<div style='background:linear-gradient(135deg,"
+                    f"rgba(248,250,252,0.8) 0%,rgba(255,255,255,0.01) 100%);"
+                    f"border-left:3px solid #cbd5e1;border-radius:8px;"
+                    f"padding:12px 15px;margin-top:10px;'>"
+                    f"<div style='display:flex;align-items:center;gap:8px;"
+                    f"margin-bottom:10px;'>"
+                    f"<span style='font-size:18px;'>📈</span>"
+                    f"<span style='font-size:12px;color:#888;font-weight:600;'>"
+                    f"RACHA SEMANAL</span>"
+                    f"{badge_html}"
+                    f"</div>"
+                    f"<div style='display:flex;align-items:center;'>"
+                    f"{puntos}"
+                    f"</div>"
+                    f"</div>"
+                )
+                racha_compacto = " ".join(
+                    line.strip() for line in racha_html.splitlines()
+                    if line.strip()
+                )
+                st.markdown(racha_compacto, unsafe_allow_html=True)
+        except Exception:
+            pass
+
 
 def selector_jornada(key_prefix, incluir_resumen=True,
                      modo_forma_reciente=True):
@@ -2816,94 +2881,3 @@ def calcular_tiempo_restante(proxima_dia, proxima_hora):
         return f"{dias}d {h_rest}h"
     except Exception:
         return None
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# FASE 1: INDICADOR DE FORMA RECIENTE (5 CÍRCULOS) + RACHA
-# ─────────────────────────────────────────────────────────────────────────────
-
-def render_forma_reciente(nombre_jugador: str):
-    """Muestra los ultimos 5 resultados del jugador como circulos de color
-    y la racha actual, leyendo todas las jornadas de la semana.
-
-    🟢 = victoria   🔴 = derrota   ⚫ = sin datos
-
-    Se coloca justo despues del PR en render_jugador_visual.
-    """
-    from data_loading import cargar_historial_semana, calcular_racha
-
-    resultados = cargar_historial_semana(nombre_jugador)
-    racha_n, racha_tipo = calcular_racha(resultados)
-
-    # Ultimos 5 resultados para los circulos
-    ultimos = resultados[-5:] if len(resultados) >= 5 else resultados
-    # Rellenar a izquierda con None si faltan
-    ultimos = [None] * (5 - len(ultimos)) + list(ultimos)
-
-    circulos = []
-    for r in ultimos:
-        if r is None:
-            circulos.append(
-                "<span style='font-size:20px;opacity:0.3;'>⚫</span>"
-            )
-        elif r:
-            circulos.append(
-                "<span style='font-size:20px;filter:drop-shadow"
-                "(0 0 3px #22c55e);'>🟢</span>"
-            )
-        else:
-            circulos.append(
-                "<span style='font-size:20px;filter:drop-shadow"
-                "(0 0 3px #ef4444);'>🔴</span>"
-            )
-
-    circulos_html = "".join(circulos)
-
-    # Badge de racha
-    if racha_tipo == "W" and racha_n >= 2:
-        racha_color = "#22c55e"
-        racha_bg = "rgba(34,197,94,0.12)"
-        racha_texto = f"🔥 {racha_n}W"
-    elif racha_tipo == "L" and racha_n >= 2:
-        racha_color = "#ef4444"
-        racha_bg = "rgba(239,68,68,0.10)"
-        racha_texto = f"❄️ {racha_n}L"
-    elif racha_tipo == "W":
-        racha_color = "#22c55e"
-        racha_bg = "rgba(34,197,94,0.10)"
-        racha_texto = "W"
-    elif racha_tipo == "L":
-        racha_color = "#ef4444"
-        racha_bg = "rgba(239,68,68,0.08)"
-        racha_texto = "L"
-    else:
-        racha_color = "#94a3b8"
-        racha_bg = "rgba(148,163,184,0.10)"
-        racha_texto = "—"
-
-    racha_badge = (
-        f"<span style='font-size:12px;font-weight:700;color:{racha_color};"
-        f"background:{racha_bg};padding:3px 10px;border-radius:12px;"
-        f"margin-left:10px;white-space:nowrap;'>{racha_texto}</span>"
-    )
-
-    partidos_str = (
-        f"<span style='font-size:11px;color:#94a3b8;margin-left:8px;'>"
-        f"{len(resultados)} partidos esta semana</span>"
-    )
-
-    html = (
-        f"<div style='display:flex;align-items:center;gap:4px;"
-        f"padding:10px 0 6px;flex-wrap:wrap;'>"
-        f"<span style='font-size:11px;color:#64748b;font-weight:600;"
-        f"margin-right:6px;text-transform:uppercase;letter-spacing:0.05em;'>"
-        f"Forma</span>"
-        f"{circulos_html}"
-        f"{racha_badge}"
-        f"{partidos_str}"
-        f"</div>"
-    )
-    html_compacto = " ".join(
-        line.strip() for line in html.splitlines() if line.strip()
-    )
-    st.markdown(html_compacto, unsafe_allow_html=True)
