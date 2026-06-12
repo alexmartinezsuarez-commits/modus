@@ -345,6 +345,9 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
             continue
     
     # Si la jornada no ha empezado, suprimir los indicadores de tendencia
+    # (pero guardamos la referencia original para el parentesis de la
+    # tarjeta de volatilidad, que debe verse aunque no haya tendencias)
+    stats_resumen_original = stats_jugador_resumen
     if not jornada_iniciada:
         stats_jugador_resumen = None
     
@@ -353,7 +356,64 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
     
     for etiqueta, icono, sinonimos in config_stats:
         clave_encontrada, valor = buscar_valor(stats, sinonimos, claves_usadas)
-        
+
+        # ── Caso especial: Índice Volatilidad sin datos suficientes ──────
+        # El Sheet no calcula la volatilidad hasta que el jugador lleva
+        # varios partidos. En vez de ocultar la tarjeta (queda feo), se
+        # muestra "Faltan datos" y, entre parentesis, el indice del
+        # Resumen Semanal (dias anteriores) si existe.
+        if etiqueta == "Índice Volatilidad":
+            vol_sin_datos = False
+            if not clave_encontrada:
+                vol_sin_datos = True
+            else:
+                try:
+                    v_num = float(str(valor).replace('%', '')
+                                  .replace(',', '.').strip())
+                    if v_num == 0:
+                        vol_sin_datos = True
+                except Exception:
+                    vol_sin_datos = True
+
+            if vol_sin_datos:
+                paren = ""
+                if stats_resumen_original:
+                    _, v_sem = buscar_valor(stats_resumen_original,
+                                             sinonimos, set())
+                    try:
+                        n_sem = float(str(v_sem).replace('%', '')
+                                      .replace(',', '.').strip())
+                        if n_sem != 0:
+                            paren = f"({n_sem:.1f})".replace('.', ',')
+                    except Exception:
+                        pass
+                paren_html = (
+                    f'<span style="font-size:13px;color:#999;'
+                    f'font-weight:500;">{paren}</span>'
+                ) if paren else ''
+                cards_html += (
+                    f'<div style="background:linear-gradient(135deg,'
+                    f'rgba(156,163,175,0.08) 0%,rgba(255,255,255,0.01) 100%);'
+                    f'border-left:3px solid #9ca3af;border-radius:8px;'
+                    f'padding:12px 15px;">'
+                    f'<div style="display:flex;align-items:center;gap:8px;'
+                    f'margin-bottom:8px;">'
+                    f'<span style="font-size:18px;">{icono}</span>'
+                    f'<span style="font-size:12px;color:#888;'
+                    f'font-weight:600;">{etiqueta}</span>'
+                    f'</div>'
+                    f'<div style="display:flex;align-items:baseline;'
+                    f'justify-content:space-between;gap:6px;flex-wrap:wrap;">'
+                    f'<span style="font-size:15px;font-weight:600;'
+                    f'color:#6b7280;">Faltan datos</span>'
+                    f'{paren_html}'
+                    f'</div>'
+                    f'</div>'
+                )
+                if clave_encontrada:
+                    claves_usadas.add(clave_encontrada)
+                continue
+
         if not clave_encontrada:
             continue
         
@@ -2889,4 +2949,3 @@ def calcular_tiempo_restante(proxima_dia, proxima_hora):
         return f"{dias}d {h_rest}h"
     except Exception:
         return None
-
