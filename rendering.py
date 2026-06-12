@@ -534,7 +534,7 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
                     f"<div style='grid-column:1 / -1;background:linear-gradient("
                     f"135deg,rgba(248,250,252,0.8) 0%,rgba(255,255,255,0.01) "
                     f"100%);border:1px solid #e2e8f0;border-radius:10px;"
-                    f"padding:14px 20px;margin-top:12px;'>"
+                    f"padding:14px 20px;margin-top:6px;margin-bottom:18px;'>"
                     f"<div style='display:flex;align-items:center;"
                     f"justify-content:space-between;gap:12px;flex-wrap:wrap;'>"
                     f"<div style='display:flex;align-items:center;gap:8px;'>"
