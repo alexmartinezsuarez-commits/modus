@@ -1340,3 +1340,70 @@ def obtener_proximos_partidos_csv(limite=3) -> dict:
                                f"pendientes con datos."}
 
     return {"partidos": proximos[:limite], "diagnostico": ""}
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def cargar_historial_jornada(nombre_jugador: str, jornada: str) -> list:
+    """Como cargar_historial_semana pero SOLO de una jornada concreta.
+
+    Devuelve lista de booleans (True=victoria, False=derrota) de los
+    partidos del jugador en esa jornada, en orden de juego. Lista vacia
+    si el jugador no aparece o la jornada no tiene datos.
+    """
+    import io
+    import csv as csv_mod
+    import urllib.request
+
+    url = URLS.get(jornada)
+    if not url:
+        return []
+
+    nombre_norm = _normalizar_nombre_hist(nombre_jugador)
+    resultados = []
+
+    try:
+        with urllib.request.urlopen(url, timeout=8) as r:
+            texto = r.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    lineas = list(csv_mod.reader(io.StringIO(texto)))
+    idx_inicio = FILA_INICIO_PARTIDOS - 1
+    filas = lineas[idx_inicio:]
+
+    i = 0
+    while i + 1 < len(filas):
+        fila1 = filas[i]
+        fila2 = filas[i + 1]
+        i += 2
+        n1 = fila1[0].strip() if len(fila1) > 0 else ""
+        n2 = fila2[0].strip() if len(fila2) > 0 else ""
+        if not n1 or not n2:
+            continue
+        norm1 = _normalizar_nombre_hist(n1)
+        norm2 = _normalizar_nombre_hist(n2)
+        es_j1 = (nombre_norm in norm1 or norm1 in nombre_norm)
+        es_j2 = (nombre_norm in norm2 or norm2 in nombre_norm)
+        if not es_j1 and not es_j2:
+            continue
+
+        def _legs(fila):
+            try:
+                v = str(fila[1]).strip().replace(",", ".")
+                return int(float(v)) if v else 0
+            except Exception:
+                return 0
+
+        legs1 = _legs(fila1)
+        legs2 = _legs(fila2)
+        if legs1 >= 4:
+            gano_j1 = True
+        elif legs2 >= 4:
+            gano_j1 = False
+        else:
+            continue  # en curso / no jugado
+
+        victoria = (es_j1 and gano_j1) or (es_j2 and not gano_j1)
+        resultados.append(victoria)
+
+    return resultados

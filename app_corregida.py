@@ -367,7 +367,10 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
         for player, stats in d2.items():
             player_display = f"👤 {player.title()}"
             with st.expander(player_display, expanded=False):
-                render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=mostrar_tendencias)
+                # Racha: si vemos "Resumen Semanal" -> toda la semana;
+                # si vemos una jornada concreta -> solo esa jornada.
+                jornada_para_racha = None if selected == "Resumen Semanal" else selected
+                render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=mostrar_tendencias, mostrar_racha=True, jornada_racha=jornada_para_racha)
     
     if d1 is not None:
         st.subheader("⚔️ Detalles")

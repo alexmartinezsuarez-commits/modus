@@ -247,7 +247,7 @@ def render_pentagono_habilidades(pr, lam_180, promedio_dardos, checkouts, pct_vi
     
     return html_datos
 
-def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=True, mostrar_racha=False):
+def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=True, mostrar_racha=False, jornada_racha=None):
     """Renderiza un jugador con 9 estadísticas en un layout simétrico:
     
         ┌─────────────────────────────────────────────┐
@@ -487,29 +487,33 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
     cards_html += '</div>'
     st.markdown(cards_html, unsafe_allow_html=True)
 
-    # ── Tarjeta Racha (solo en LIVE si se pide) ───────────────────────────
+    # ── Tarjeta Racha (ancho completo) ────────────────────────────────────
     if mostrar_racha:
         try:
-            from data_loading import cargar_historial_semana, calcular_racha
-            resultados = cargar_historial_semana(player)
+            from data_loading import (cargar_historial_semana,
+                                       cargar_historial_jornada, calcular_racha)
+            # Si jornada_racha tiene valor, leer solo esa jornada; si es None,
+            # toda la semana.
+            if jornada_racha:
+                resultados = cargar_historial_jornada(player, jornada_racha)
+                titulo_racha = "RACHA EN LA JORNADA"
+            else:
+                resultados = cargar_historial_semana(player)
+                titulo_racha = "RACHA SEMANAL"
             racha_n, racha_tipo = calcular_racha(resultados)
             if resultados:  # solo si ha jugado algun partido
+                # Mostrar TODOS los resultados (no solo 5), distribuidos a lo
+                # ancho de la barra completa.
                 puntos = ""
-                for r in resultados[-5:]:
-                    if r:
-                        puntos += (
-                            "<span style='display:inline-block;width:11px;"
-                            "height:11px;border-radius:50%;background:#22c55e;"
-                            "margin:0 2px;box-shadow:0 0 4px rgba(34,197,94,0.5);'>"
-                            "</span>"
-                        )
-                    else:
-                        puntos += (
-                            "<span style='display:inline-block;width:11px;"
-                            "height:11px;border-radius:50%;background:#ef4444;"
-                            "margin:0 2px;box-shadow:0 0 4px rgba(239,68,68,0.4);'>"
-                            "</span>"
-                        )
+                for r in resultados:
+                    color = "#22c55e" if r else "#ef4444"
+                    sombra = ("rgba(34,197,94,0.5)" if r
+                              else "rgba(239,68,68,0.4)")
+                    puntos += (
+                        f"<span style='display:inline-block;width:13px;"
+                        f"height:13px;border-radius:50%;background:{color};"
+                        f"box-shadow:0 0 4px {sombra};'></span>"
+                    )
                 if racha_tipo == "W" and racha_n >= 2:
                     badge_color, badge_bg, badge = "#22c55e", "rgba(34,197,94,0.12)", f"{racha_n}V"
                 elif racha_tipo == "L" and racha_n >= 2:
@@ -523,23 +527,27 @@ def render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tenden
                 badge_html = (
                     f"<span style='font-size:11px;font-weight:700;"
                     f"color:{badge_color};background:{badge_bg};"
-                    f"padding:2px 8px;border-radius:10px;margin-left:6px;"
+                    f"padding:2px 10px;border-radius:10px;"
                     f"white-space:nowrap;'>{badge}</span>"
                 )
                 racha_html = (
-                    f"<div style='background:linear-gradient(135deg,"
-                    f"rgba(248,250,252,0.8) 0%,rgba(255,255,255,0.01) 100%);"
-                    f"border-left:3px solid #cbd5e1;border-radius:8px;"
-                    f"padding:12px 15px;margin-top:10px;'>"
-                    f"<div style='display:flex;align-items:center;gap:8px;"
-                    f"margin-bottom:10px;'>"
+                    f"<div style='grid-column:1 / -1;background:linear-gradient("
+                    f"135deg,rgba(248,250,252,0.8) 0%,rgba(255,255,255,0.01) "
+                    f"100%);border:1px solid #e2e8f0;border-radius:10px;"
+                    f"padding:14px 20px;margin-top:12px;'>"
+                    f"<div style='display:flex;align-items:center;"
+                    f"justify-content:space-between;gap:12px;flex-wrap:wrap;'>"
+                    f"<div style='display:flex;align-items:center;gap:8px;'>"
                     f"<span style='font-size:18px;'>📈</span>"
-                    f"<span style='font-size:12px;color:#888;font-weight:600;'>"
-                    f"RACHA SEMANAL</span>"
+                    f"<span style='font-size:12px;color:#888;font-weight:600;"
+                    f"text-transform:uppercase;letter-spacing:0.04em;'>"
+                    f"{titulo_racha}</span>"
                     f"{badge_html}"
                     f"</div>"
-                    f"<div style='display:flex;align-items:center;'>"
+                    f"<div style='display:flex;align-items:center;gap:8px;"
+                    f"flex-wrap:wrap;flex:1;justify-content:flex-end;'>"
                     f"{puntos}"
+                    f"</div>"
                     f"</div>"
                     f"</div>"
                 )
