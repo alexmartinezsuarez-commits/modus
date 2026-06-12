@@ -204,17 +204,51 @@ def clasificar_partidos(filas_partidos):
 
 
 def seleccionar_partidos_a_registrar(partidos):
-    """Opcion A: registra TODOS los partidos no empezados de la jornada.
+    """Registra los partidos no empezados cuyos jugadores YA HAN TERMINADO
+    todos sus partidos previos en la jornada.
 
-    Como el registro tiene anti-duplicados por ID, registrar partidos ya
-    registrados antes no crea duplicados. Asi, conforme se van cargando
-    nombres nuevos en el Sheet, cada ejecucion del cron registra los que
-    falten sin atascarse.
+    Logica: la prediccion debe hacerse con la 'Forma reciente' mas fresca
+    posible. Si el jugador tiene un partido anterior sin terminar (en curso
+    o aun no jugado), registrar su siguiente partido ahora usaria datos
+    incompletos -> se espera a la siguiente ejecucion del cron.
+
+    Los partidos previos de OTROS jugadores no bloquean. Los huecos (filas
+    sin nombre) tampoco. El anti-duplicados por ID permite que cada pasada
+    del cron registre los que se hayan desbloqueado sin repetir.
 
     Devuelve (lista_a_registrar, lista_descartados_con_motivo).
     """
-    a_registrar = [p for p in partidos if p["estado"] == "no_empezado"]
-    return a_registrar, []
+    a_registrar = []
+    descartados = []
+
+    for p in partidos:
+        if p["estado"] != "no_empezado":
+            continue
+
+        j1_l = p["j1"].lower()
+        j2_l = p["j2"].lower()
+
+        # Buscar si algun partido ANTERIOR de j1 o j2 no esta terminado
+        bloqueante = None
+        for prev in partidos:
+            if prev["idx"] >= p["idx"]:
+                break  # la lista va en orden de juego; solo miramos previos
+            if prev["estado"] == "terminado":
+                continue
+            jugadores_prev = {prev["j1"].lower(), prev["j2"].lower()}
+            if j1_l in jugadores_prev or j2_l in jugadores_prev:
+                bloqueante = (f"{prev['j1']} vs {prev['j2']} "
+                              f"[{prev['estado']}]")
+                break
+
+        if bloqueante:
+            descartados.append(
+                f"{p['j1']} vs {p['j2']} (espera a: {bloqueante})"
+            )
+        else:
+            a_registrar.append(p)
+
+    return a_registrar, descartados
 
 
 # ─────────────────────────────────────────────────────────────────────────────
