@@ -169,8 +169,10 @@ def clasificar_partidos(filas_partidos):
         j2 = (fila_j2[0] if len(fila_j2) > 0 else "").strip()
 
         if not j1 or not j2:
-            # Fila sin nombre -> ya no hay mas partidos validos
-            break
+            # Fila sin nombre: hueco (los nombres se cargan progresivamente).
+            # NO cortamos: saltamos este par y seguimos, por si mas abajo
+            # hay partidos ya cargados.
+            continue
 
         # Celdas de stats: columnas B-E (indices 1-4)
         celdas_j1 = fila_j1[1:5] if len(fila_j1) >= 5 else fila_j1[1:]
@@ -202,39 +204,17 @@ def clasificar_partidos(filas_partidos):
 
 
 def seleccionar_partidos_a_registrar(partidos):
-    """Aplica las reglas: hasta MAX no empezados consecutivos, con la
-    restriccion de no solapar jugadores entre los seleccionados.
+    """Opcion A: registra TODOS los partidos no empezados de la jornada.
+
+    Como el registro tiene anti-duplicados por ID, registrar partidos ya
+    registrados antes no crea duplicados. Asi, conforme se van cargando
+    nombres nuevos en el Sheet, cada ejecucion del cron registra los que
+    falten sin atascarse.
 
     Devuelve (lista_a_registrar, lista_descartados_con_motivo).
     """
-    a_registrar = []
-    descartados = []
-
-    # Recorrer en orden y coger los primeros 'no_empezado'
-    candidatos = [p for p in partidos if p["estado"] == "no_empezado"]
-    if not candidatos:
-        return [], []
-
-    primer = candidatos[0]
-    a_registrar.append(primer)
-    jugadores_ocupados = {primer["j1"].lower(), primer["j2"].lower()}
-
-    for cand in candidatos[1:]:
-        if len(a_registrar) >= MAX_PARTIDOS_POR_RONDA:
-            break
-        if (cand["j1"].lower() in jugadores_ocupados or
-                cand["j2"].lower() in jugadores_ocupados):
-            descartados.append(
-                f"{cand['j1']} vs {cand['j2']} "
-                f"(solapa con partido anterior pendiente)"
-            )
-            # No avanzamos a posteriores, paramos: hay que esperar a que
-            # se juegue el conflicto antes de registrar futuros.
-            break
-        a_registrar.append(cand)
-        jugadores_ocupados.update({cand["j1"].lower(), cand["j2"].lower()})
-
-    return a_registrar, descartados
+    a_registrar = [p for p in partidos if p["estado"] == "no_empezado"]
+    return a_registrar, []
 
 
 # ─────────────────────────────────────────────────────────────────────────────
