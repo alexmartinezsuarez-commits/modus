@@ -1069,24 +1069,14 @@ def cargar_historial_semana(nombre_jugador: str) -> list:
     Devuelve una lista con hasta 15 elementos (max partidos por semana).
     Lista vacia si no se encuentra el jugador en ninguna jornada.
     """
-    import io
-    import csv as csv_mod
-    import urllib.request
-
     nombre_norm = _normalizar_nombre_hist(nombre_jugador)
     resultados = []
 
     for jornada in JORNADAS_SEMANA_ORDEN:
-        url = URLS.get(jornada)
-        if not url:
-            continue
-        try:
-            with urllib.request.urlopen(url, timeout=8) as r:
-                texto = r.read().decode("utf-8", errors="ignore")
-        except Exception:
+        lineas = _descargar_csv_jornada(jornada)
+        if not lineas:
             continue
 
-        lineas = list(csv_mod.reader(io.StringIO(texto)))
         idx_inicio = FILA_INICIO_PARTIDOS - 1  # 0-indexed
         filas_partidos = lineas[idx_inicio:]
 
@@ -1181,24 +1171,13 @@ def cargar_orden_partidos_jornada_activa() -> list:
 
     Lista vacia si no hay jornada activa o el CSV no se puede leer.
     """
-    import io
-    import csv as csv_mod
-    import urllib.request
-
     jornada = detectar_jornada_de_hoy()
     if not jornada:
         return []
-    url = URLS.get(jornada)
-    if not url:
-        return []
 
-    try:
-        with urllib.request.urlopen(url, timeout=8) as r:
-            texto = r.read().decode("utf-8", errors="ignore")
-    except Exception:
+    lineas = _descargar_csv_jornada(jornada)
+    if not lineas:
         return []
-
-    lineas = list(csv_mod.reader(io.StringIO(texto)))
     idx_inicio = FILA_INICIO_PARTIDOS - 1
     filas = lineas[idx_inicio:]
 
@@ -1257,10 +1236,6 @@ def obtener_proximos_partidos_csv(limite=3) -> dict:
     DEVUELVE dict:
       {"partidos": [{id, j1, j2, etiqueta}], "diagnostico": str}
     """
-    import io
-    import csv as csv_mod
-    import urllib.request
-
     # 1) Elegir la jornada: activa primero, luego proxima
     jornada = detectar_jornada_de_hoy()
     origen = "activa"
@@ -1276,20 +1251,11 @@ def obtener_proximos_partidos_csv(limite=3) -> dict:
         return {"partidos": [],
                 "diagnostico": "No hay jornada activa ni proxima identificable."}
 
-    url = URLS.get(jornada)
-    if not url:
+    # 2) Leer el CSV (descarga centralizada y cacheada)
+    lineas = _descargar_csv_jornada(jornada)
+    if not lineas:
         return {"partidos": [],
-                "diagnostico": f"No hay URL para la jornada {jornada}."}
-
-    # 2) Leer el CSV
-    try:
-        with urllib.request.urlopen(url, timeout=8) as r:
-            texto = r.read().decode("utf-8", errors="ignore")
-    except Exception as e:
-        return {"partidos": [],
-                "diagnostico": f"No se pudo leer el CSV de {jornada} ({type(e).__name__})."}
-
-    lineas = list(csv_mod.reader(io.StringIO(texto)))
+                "diagnostico": f"No se pudo leer el CSV de {jornada}."}
     idx_inicio = FILA_INICIO_PARTIDOS - 1
     filas = lineas[idx_inicio:]
 
@@ -1350,24 +1316,12 @@ def cargar_historial_jornada(nombre_jugador: str, jornada: str) -> list:
     partidos del jugador en esa jornada, en orden de juego. Lista vacia
     si el jugador no aparece o la jornada no tiene datos.
     """
-    import io
-    import csv as csv_mod
-    import urllib.request
-
-    url = URLS.get(jornada)
-    if not url:
-        return []
-
     nombre_norm = _normalizar_nombre_hist(nombre_jugador)
     resultados = []
 
-    try:
-        with urllib.request.urlopen(url, timeout=8) as r:
-            texto = r.read().decode("utf-8", errors="ignore")
-    except Exception:
+    lineas = _descargar_csv_jornada(jornada)
+    if not lineas:
         return []
-
-    lineas = list(csv_mod.reader(io.StringIO(texto)))
     idx_inicio = FILA_INICIO_PARTIDOS - 1
     filas = lineas[idx_inicio:]
 
@@ -1407,3 +1361,28 @@ def cargar_historial_jornada(nombre_jugador: str, jornada: str) -> list:
         resultados.append(victoria)
 
     return resultados
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _descargar_csv_jornada(jornada: str) -> list:
+    """Descarga el CSV de una jornada UNA SOLA VEZ (cacheado 60s) y devuelve
+    las filas parseadas como lista de listas.
+
+    Todas las funciones de historial/racha/orden/proximos usan esta funcion
+    para evitar descargar el mismo CSV varias veces (antes, cada jugador
+    descargaba su propia copia: 6 jugadores x 8 jornadas = 48 peticiones;
+    ahora maximo 8, una por jornada).
+    """
+    import io
+    import csv as csv_mod
+    import urllib.request
+
+    url = URLS.get(jornada)
+    if not url:
+        return []
+    try:
+        with urllib.request.urlopen(url, timeout=8) as r:
+            texto = r.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return []
+    return list(csv_mod.reader(io.StringIO(texto)))
