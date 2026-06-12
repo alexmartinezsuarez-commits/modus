@@ -371,6 +371,13 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
                 # si vemos una jornada concreta -> solo esa jornada.
                 jornada_para_racha = None if selected == "Resumen Semanal" else selected
                 render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=mostrar_tendencias, mostrar_racha=True, jornada_racha=jornada_para_racha)
+
+        # ── Comparativa de jugadores lado a lado (Fase 3) ─────────────────
+        if len(d2) >= 2:
+            st.markdown("---")
+            st.subheader("🥊 Comparativa de Jugadores")
+            from rendering import render_comparativa_jugadores
+            render_comparativa_jugadores(d2, key_prefix="comp_resultados")
     
     if d1 is not None:
         st.subheader("⚔️ Detalles")
