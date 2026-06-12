@@ -19,6 +19,7 @@ from helpers import (
 )
 from data_loading import (
     cargar_todo, cargar_jugadores_desde, obtener_proximos_partidos_api,
+    obtener_proximos_partidos_csv,
     cargar_forma_reciente, detectar_jornada_de_hoy,
 )
 from stats_engine import (
@@ -710,11 +711,10 @@ def render_value_bets():
     st.markdown("### 🥊 Seleccionar Enfrentamiento")
 
     # ── Desplegable de próximos partidos ──────────────────────────────────────
-    # Lista los 3 próximos partidos que aún no han empezado (vía API de MODUS).
-    # Al elegir uno, autocompleta los selectores manuales de J1 y J2 de abajo.
-    # Si la API no responde, se muestra un mensaje explicando el motivo en
-    # lugar de ocultar el desplegable silenciosamente.
-    resultado_api = obtener_proximos_partidos_api(limite=3)
+    # Lista los 3 próximos partidos que aún no han empezado, leídos del CSV
+    # de la jornada que toca (activa o, si no hay, la próxima). NO usa la API
+    # de MODUS porque devuelve fixtures de jornadas viejas ya finalizadas.
+    resultado_api = obtener_proximos_partidos_csv(limite=3)
     # Compatibilidad: la función ahora devuelve un dict; si por lo que sea
     # llegara una lista (versión antigua en caché), la adaptamos.
     if isinstance(resultado_api, dict):

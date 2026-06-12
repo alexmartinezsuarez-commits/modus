@@ -1234,3 +1234,109 @@ def _indice_orden_partido(j1, j2, orden_csv):
                 (_coincide(nj1, c2) and _coincide(nj2, c1))):
             return idx
     return 9999
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def obtener_proximos_partidos_csv(limite=3) -> dict:
+    """Devuelve los proximos partidos NO empezados leyendo el CSV de la
+    jornada que toca (activa o, si no hay activa, la proxima), en ORDEN
+    DE JUEGO REAL.
+
+    A diferencia de obtener_proximos_partidos_api(), NO usa la API de MODUS
+    (que devuelve fixtures de jornadas viejas ya finalizadas). Se basa solo
+    en el CSV de la jornada correcta.
+
+    Reglas:
+      - Jornada activa con datos -> sus partidos no empezados.
+      - Sin jornada activa pero proxima con datos -> los de la proxima.
+      - Ningun CSV con datos -> lista vacia (no se muestra nada).
+
+    Un partido esta "no empezado" si ninguna de sus 2 filas tiene datos
+    de juego en las columnas B-E (legs, 180s, promedio, checkout).
+
+    DEVUELVE dict:
+      {"partidos": [{id, j1, j2, etiqueta}], "diagnostico": str}
+    """
+    import io
+    import csv as csv_mod
+    import urllib.request
+
+    # 1) Elegir la jornada: activa primero, luego proxima
+    jornada = detectar_jornada_de_hoy()
+    origen = "activa"
+    if not jornada:
+        try:
+            nombre_prox, _h, _d = proxima_jornada()
+        except Exception:
+            nombre_prox = None
+        jornada = nombre_prox
+        origen = "proxima"
+
+    if not jornada:
+        return {"partidos": [],
+                "diagnostico": "No hay jornada activa ni proxima identificable."}
+
+    url = URLS.get(jornada)
+    if not url:
+        return {"partidos": [],
+                "diagnostico": f"No hay URL para la jornada {jornada}."}
+
+    # 2) Leer el CSV
+    try:
+        with urllib.request.urlopen(url, timeout=8) as r:
+            texto = r.read().decode("utf-8", errors="ignore")
+    except Exception as e:
+        return {"partidos": [],
+                "diagnostico": f"No se pudo leer el CSV de {jornada} ({type(e).__name__})."}
+
+    lineas = list(csv_mod.reader(io.StringIO(texto)))
+    idx_inicio = FILA_INICIO_PARTIDOS - 1
+    filas = lineas[idx_inicio:]
+
+    def _celda_dato(v):
+        t = str(v).strip().lower()
+        return t not in ("", "none", "null", "-", "0", "0.0", "0,0",
+                          "0-0", "0,00%", "0%", "00:00")
+
+    def _legs(v):
+        try:
+            return int(float(str(v).strip().replace(",", ".")))
+        except Exception:
+            return 0
+
+    proximos = []
+    i = 0
+    while i + 1 < len(filas):
+        fila1 = filas[i]
+        fila2 = filas[i + 1]
+        i += 2
+        j1 = fila1[0].strip() if len(fila1) > 0 else ""
+        j2 = fila2[0].strip() if len(fila2) > 0 else ""
+        if not j1 or not j2:
+            continue  # hueco
+
+        celdas1 = fila1[1:5] if len(fila1) >= 5 else fila1[1:]
+        celdas2 = fila2[1:5] if len(fila2) >= 5 else fila2[1:]
+        legs1 = _legs(fila1[1] if len(fila1) > 1 else "")
+        legs2 = _legs(fila2[1] if len(fila2) > 1 else "")
+
+        terminado = (legs1 >= 4 or legs2 >= 4)
+        algun_dato = (any(_celda_dato(c) for c in celdas1) or
+                      any(_celda_dato(c) for c in celdas2))
+
+        if terminado or algun_dato:
+            continue  # ya empezado o terminado -> no es "proximo"
+
+        proximos.append({
+            "id": f"{j1}-{j2}",
+            "j1": j1,
+            "j2": j2,
+            "etiqueta": f"{j1} vs {j2}",
+        })
+
+    if not proximos:
+        return {"partidos": [],
+                "diagnostico": f"La jornada {jornada} aun no tiene partidos "
+                               f"pendientes con datos."}
+
+    return {"partidos": proximos[:limite], "diagnostico": ""}
