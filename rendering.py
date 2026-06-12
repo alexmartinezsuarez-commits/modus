@@ -767,7 +767,7 @@ def render_value_bets():
             index=0,
             key="vb_proximo_partido",
             help="Elige un partido para autocompletar automáticamente "
-                 "Jugador 1 y Jugador 2. Se muestran los 3 próximos partidos "
+                 "Jugador 1 y Jugador 2. Se muestran todos los partidos "
                  "que aún no han empezado."
         )
 

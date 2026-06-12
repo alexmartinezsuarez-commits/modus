@@ -963,8 +963,16 @@ def obtener_proximos_partidos_api(limite=3):
         except Exception:
             continue
 
-    # Ordenar cronológicamente (la API suele dar fechas ISO ordenables)
-    proximos.sort(key=lambda p: p["_sort"])
+    # Ordenar segun el ORDEN DE JUEGO REAL del CSV de la jornada activa.
+    # La API devuelve los fixtures desordenados y a menudo sin fecha fiable,
+    # asi que cruzamos con el CSV (que respeta el orden real de juego).
+    orden_csv = cargar_orden_partidos_jornada_activa()
+    if orden_csv:
+        proximos.sort(key=lambda p: _indice_orden_partido(
+            p["j1"], p["j2"], orden_csv))
+    else:
+        # Fallback: si no hay CSV, ordenar por fecha como antes.
+        proximos.sort(key=lambda p: p["_sort"])
 
     # Construir resultado: etiqueta SOLO con nombres "J1 vs J2"
     resultado = []
@@ -1158,3 +1166,71 @@ def calcular_racha(resultados: list) -> tuple:
         else:
             break
     return racha, ("W" if ultimo else "L")
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def cargar_orden_partidos_jornada_activa() -> list:
+    """Devuelve el orden de juego de los partidos de la jornada activa AHORA,
+    leido del CSV (que respeta el orden real de juego).
+
+    Cada elemento es una tupla de nombres normalizados de los 2 jugadores:
+        [(norm_j1, norm_j2), (norm_j1, norm_j2), ...]
+
+    El indice en la lista = orden de juego. Sirve para ordenar los partidos
+    que la API devuelve desordenados.
+
+    Lista vacia si no hay jornada activa o el CSV no se puede leer.
+    """
+    import io
+    import csv as csv_mod
+    import urllib.request
+
+    jornada = detectar_jornada_de_hoy()
+    if not jornada:
+        return []
+    url = URLS.get(jornada)
+    if not url:
+        return []
+
+    try:
+        with urllib.request.urlopen(url, timeout=8) as r:
+            texto = r.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    lineas = list(csv_mod.reader(io.StringIO(texto)))
+    idx_inicio = FILA_INICIO_PARTIDOS - 1
+    filas = lineas[idx_inicio:]
+
+    orden = []
+    i = 0
+    while i + 1 < len(filas):
+        fila1 = filas[i]
+        fila2 = filas[i + 1]
+        i += 2
+        n1 = fila1[0].strip() if len(fila1) > 0 else ""
+        n2 = fila2[0].strip() if len(fila2) > 0 else ""
+        if not n1 or not n2:
+            continue  # hueco (nombres no cargados aun), saltar
+        orden.append((_normalizar_nombre_hist(n1),
+                      _normalizar_nombre_hist(n2)))
+    return orden
+
+
+def _indice_orden_partido(j1, j2, orden_csv):
+    """Dado un partido (j1, j2) y la lista de orden del CSV, devuelve su
+    posicion de juego. Si no se encuentra, devuelve un numero grande para
+    que quede al final. Compara por nombres normalizados en cualquier orden.
+    """
+    nj1 = _normalizar_nombre_hist(j1)
+    nj2 = _normalizar_nombre_hist(j2)
+
+    def _coincide(a, b):
+        return (a in b or b in a) if a and b else False
+
+    for idx, (c1, c2) in enumerate(orden_csv):
+        # El partido puede venir como (j1,j2) o (j2,j1)
+        if ((_coincide(nj1, c1) and _coincide(nj2, c2)) or
+                (_coincide(nj1, c2) and _coincide(nj2, c1))):
+            return idx
+    return 9999
