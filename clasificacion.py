@@ -26,9 +26,12 @@ def detectar_grupo(jornada):
         return "Grupo C"
     return None
 
-def calcular_clasificacion_grupo(grupo):
+def calcular_clasificacion_grupo(grupo, dias_excluidos=None):
     """Calcula la clasificación de un grupo sumando todos los partidos terminados
     de los días que lo componen.
+
+    dias_excluidos: lista opcional de nombres de jornada a NO contar
+    (se usa para calcular la clasificación "previa" y sacar tendencias).
 
     Estructura asumida del DataFrame de partidos (idéntica a la usada en h2h):
         - iloc[0] = nombre del jugador
@@ -48,8 +51,12 @@ def calcular_clasificacion_grupo(grupo):
     if grupo not in GRUPOS_DIAS:
         return None
 
+    excluidos = set(dias_excluidos or [])
+
     stats = {}  # key: nombre_lower → dict con stats
     for dia in GRUPOS_DIAS[grupo]:
+        if dia in excluidos:
+            continue
         try:
             df, _ = cargar_todo(URLS[dia], dia, CORTES[dia])
             if df is None or len(df) < 2:
@@ -145,9 +152,74 @@ def calcular_clasificacion_grupo(grupo):
     df.insert(0, "Pos", [_pos_emoji(i) for i in range(len(df))])
     return df[["Pos", "Jugador", "PJ", "V", "D", "LF", "LC", "DIF", "PTS"]]
 
+def _ultimo_dia_con_datos(grupo):
+    """Devuelve el nombre del ultimo dia del grupo que tiene partidos
+    terminados, o None si ninguno tiene."""
+    if grupo not in GRUPOS_DIAS:
+        return None
+    ultimo = None
+    for dia in GRUPOS_DIAS[grupo]:
+        try:
+            df, _ = cargar_todo(URLS[dia], dia, CORTES[dia])
+            if df is None or len(df) < 2:
+                continue
+            for i in range(0, len(df) - 1, 2):
+                f1, f2 = df.iloc[i], df.iloc[i + 1]
+                def _pl(v):
+                    try:
+                        return int(float(str(v).replace(',', '.').strip()))
+                    except Exception:
+                        return -1
+                l1 = _pl(f1.iloc[1]) if len(f1) > 1 else -1
+                l2 = _pl(f2.iloc[1]) if len(f2) > 1 else -1
+                if l1 >= 4 or l2 >= 4:
+                    ultimo = dia
+                    break
+        except Exception:
+            continue
+    return ultimo
+
+
+def calcular_tendencias_grupo(grupo, df_actual):
+    """Compara la clasificacion actual con la previa (sin el ultimo dia con
+    datos) y devuelve un dict {jugador: '↑'|'↓'|'='}.
+
+    Si solo hay un dia con datos (no hay 'previa'), devuelve dict vacio
+    (sin flechas).
+    """
+    ultimo = _ultimo_dia_con_datos(grupo)
+    if not ultimo:
+        return {}
+    # Si el ultimo dia es el primero del grupo, no hay clasificacion previa
+    dias = GRUPOS_DIAS.get(grupo, [])
+    if not dias or dias[0] == ultimo:
+        return {}
+
+    df_previa = calcular_clasificacion_grupo(grupo, dias_excluidos=[ultimo])
+    if df_previa is None or df_previa.empty:
+        return {}
+
+    pos_previa = {row["Jugador"]: i for i, (_, row) in enumerate(df_previa.iterrows())}
+    tendencias = {}
+    for i, (_, row) in enumerate(df_actual.iterrows()):
+        nombre = row["Jugador"]
+        if nombre not in pos_previa:
+            tendencias[nombre] = "🆕"
+            continue
+        prev = pos_previa[nombre]
+        if i < prev:
+            tendencias[nombre] = "↑"
+        elif i > prev:
+            tendencias[nombre] = "↓"
+        else:
+            tendencias[nombre] = "="
+    return tendencias
+
+
 def render_clasificacion_grupo(grupo):
     """Renderiza la tabla de clasificación de un grupo aplicando los colores
-    configurados en COLORES_CLASIFICACION (verdes desde arriba, rojos desde abajo).
+    configurados en COLORES_CLASIFICACION (verdes desde arriba, rojos desde abajo),
+    con flechas de tendencia y barra de progreso visual en PTS.
 
     Si verdes + rojos > nº de jugadores, el verde tiene prioridad para evitar
     pintar la misma fila dos veces.
@@ -159,19 +231,55 @@ def render_clasificacion_grupo(grupo):
 
     st.subheader(f"🏆 Clasificación {grupo}")
 
+    # ── Flechas de tendencia (vs clasificacion sin el ultimo dia) ─────────
+    tendencias = calcular_tendencias_grupo(grupo, df)
+    if tendencias:
+        df = df.copy()
+        df.insert(1, "Tend", [tendencias.get(j, "") for j in df["Jugador"]])
+
     n = len(df)
     config = COLORES_CLASIFICACION.get(grupo, {"verdes": 1, "rojos": 0})
     n_verdes = config["verdes"]
     n_rojos = config["rojos"]
     umbral_rojo = n - n_rojos  # filas con idx >= umbral_rojo van en rojo
 
+    pts_max = df["PTS"].max() if "PTS" in df.columns and n > 0 else 0
+
     def estilo_fila(fila):
         idx = fila.name
         if idx < n_verdes:
-            return ['background-color: rgba(40,167,69,0.18); font-weight: 600;'] * len(fila)
-        if n_rojos > 0 and idx >= umbral_rojo:
-            return ['background-color: rgba(220,53,69,0.12);'] * len(fila)
-        return [''] * len(fila)
+            base = 'background-color: rgba(40,167,69,0.18); font-weight: 600;'
+        elif n_rojos > 0 and idx >= umbral_rojo:
+            base = 'background-color: rgba(220,53,69,0.12);'
+        else:
+            base = ''
+        estilos = [base] * len(fila)
+        # Barra de progreso visual en la celda PTS (proporcional al lider)
+        if pts_max > 0 and "PTS" in fila.index:
+            try:
+                pct = max(0, min(100, round(100 * fila["PTS"] / pts_max)))
+                col_idx = list(fila.index).index("PTS")
+                estilos[col_idx] = (
+                    f'background: linear-gradient(90deg, '
+                    f'rgba(59,130,246,0.35) {pct}%, transparent {pct}%); '
+                    f'font-weight: 700;'
+                )
+            except Exception:
+                pass
+        # Colorear la flecha de tendencia
+        if "Tend" in fila.index:
+            try:
+                t_idx = list(fila.index).index("Tend")
+                t = fila["Tend"]
+                if t == "↑":
+                    estilos[t_idx] = base + 'color: #16a34a; font-weight: 900;'
+                elif t == "↓":
+                    estilos[t_idx] = base + 'color: #dc2626; font-weight: 900;'
+                else:
+                    estilos[t_idx] = base + 'color: #94a3b8;'
+            except Exception:
+                pass
+        return estilos
 
     styled = df.style.apply(estilo_fila, axis=1).set_properties(**{
         'text-align': 'center',
@@ -181,7 +289,10 @@ def render_clasificacion_grupo(grupo):
     ])
 
     st.dataframe(styled, use_container_width=True, hide_index=True)
-    st.caption("💡 Orden: **PTS** (2 por victoria) → **DIF** (legs a favor − en contra) → **LF** (legs a favor)")
+    leyenda = ("💡 Orden: **PTS** (2 por victoria) → **DIF** (legs a favor − en contra) → **LF** (legs a favor)")
+    if tendencias:
+        leyenda += " · **Tend**: posición vs día anterior (↑ sube, ↓ baja, = igual)"
+    st.caption(leyenda)
 
 def _ranking_grupo_semana(grupo):
     """Devuelve la clasificación ordenada de un grupo semanal (lista de nombres
