@@ -1305,6 +1305,41 @@ def obtener_proximos_partidos_csv(limite=3) -> dict:
             "etiqueta": f"{j1} vs {j2}",
         })
 
+    # ── Final Sábado: anadir semifinales y final al desplegable ───────────
+    # Las semis/final no estan en el CSV (se calculan), pero queremos poder
+    # predecirlas con antelacion en cuanto se conozcan los jugadores.
+    if jornada == "Final Sábado":
+        try:
+            from clasificacion import construir_bracket_final
+            bracket = construir_bracket_final()
+            extra = []
+            sf = bracket.get("semifinales", [None, None])
+            etiquetas_sf = ["Semifinal 1", "Semifinal 2"]
+            for par, etq in zip(sf, etiquetas_sf):
+                if par:
+                    extra.append({
+                        "id": f"{par[0]}-{par[1]}",
+                        "j1": par[0], "j2": par[1],
+                        "etiqueta": f"[{etq}] {par[0]} vs {par[1]}",
+                    })
+            fin = bracket.get("final")
+            if fin:
+                extra.append({
+                    "id": f"{fin[0]}-{fin[1]}",
+                    "j1": fin[0], "j2": fin[1],
+                    "etiqueta": f"[Final] {fin[0]} vs {fin[1]}",
+                })
+            # Las semis/final van al principio (mas relevantes para apostar)
+            if extra:
+                proximos = extra + proximos
+        except Exception:
+            pass
+
+    # En Final Sábado mostramos mas partidos (grupos + 2 semis + final),
+    # asi que ampliamos el limite para esa jornada.
+    if jornada == "Final Sábado":
+        limite = max(limite, 10)
+
     if not proximos:
         return {"partidos": [],
                 "diagnostico": f"La jornada {jornada} aun no tiene partidos "

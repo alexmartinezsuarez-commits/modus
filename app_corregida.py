@@ -333,6 +333,9 @@ if "🔴 LIVE" in opcion_principal:
             for nombre_grupo, jugadores in grupos_final.items():
                 render_clasificacion_final(nombre_grupo, jugadores)
                 st.markdown("")
+            # Cuadro de semifinales y final
+            from clasificacion import render_bracket_final
+            render_bracket_final()
         elif selected == "Resumen Semanal":
             # En Resumen Semanal seguimos mostrando las 3 clasificaciones semanales
             st.markdown("---")

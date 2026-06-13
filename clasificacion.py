@@ -399,3 +399,177 @@ def render_clasificacion_final(nombre_grupo, jugadores_del_grupo):
     ])
 
     st.dataframe(styled, use_container_width=True, hide_index=True)
+
+
+def _buscar_ganador_partido_final(nombre_a, nombre_b):
+    """Busca en la pestana 'Final Sábado' si el partido entre nombre_a y
+    nombre_b ya se jugo, y devuelve el nombre del ganador. None si aun no
+    se ha jugado o no se encuentra."""
+    na, nb = nombre_a.lower().strip(), nombre_b.lower().strip()
+    try:
+        df, _ = cargar_todo(URLS["Final Sábado"], "Final Sábado",
+                            CORTES["Final Sábado"])
+    except Exception:
+        return None
+    if df is None or len(df) < 2:
+        return None
+
+    def _legs(val):
+        try:
+            return int(float(str(val).replace(',', '.').strip()))
+        except Exception:
+            return -1
+
+    for i in range(0, len(df) - 1, 2):
+        f1, f2 = df.iloc[i], df.iloc[i + 1]
+        n1 = str(f1.iloc[0]).strip().lower()
+        n2 = str(f2.iloc[0]).strip().lower()
+        if not n1 or not n2 or n1 in ('nan', '') or n2 in ('nan', ''):
+            continue
+        # ¿Es este el partido que buscamos (en cualquier orden)?
+        if {n1, n2} != {na, nb}:
+            continue
+        l1 = _legs(f1.iloc[1]) if len(f1) > 1 else -1
+        l2 = _legs(f2.iloc[1]) if len(f2) > 1 else -1
+        if l1 >= 4 and l1 > l2:
+            return str(f1.iloc[0]).strip()
+        if l2 >= 4 and l2 > l1:
+            return str(f2.iloc[0]).strip()
+        return None  # encontrado pero sin terminar
+    return None
+
+
+def construir_bracket_final():
+    """Construye el bracket completo de la Final Sábado:
+      - 6 partidos de grupos (3 por grupo, round-robin)
+      - 2 semifinales (1A vs 2B, 1B vs 2A) cuando los grupos terminen
+      - 1 final (ganador SF1 vs ganador SF2) cuando las semis terminen
+
+    Devuelve dict:
+      {
+        "grupos": {"Grupo A Final": [(j1,j2),...], "Grupo B Final": [...]},
+        "semifinales": [(j1,j2)|None, (j1,j2)|None],
+        "final": (j1,j2)|None,
+        "diagnostico": str,
+      }
+
+    Cada emparejamiento es una tupla (jugador1, jugador2). Si una fase aun
+    no se puede determinar (faltan resultados), su valor es None.
+    """
+    grupos = construir_grupos_final()
+    ga = [d["jugador"] for d in grupos.get("Grupo A Final", [])]
+    gb = [d["jugador"] for d in grupos.get("Grupo B Final", [])]
+
+    resultado = {
+        "grupos": {},
+        "semifinales": [None, None],
+        "final": None,
+        "diagnostico": "",
+    }
+
+    # ── Partidos de grupos (round-robin, orden 1-3, 3-2, 2-1) ─────────────
+    def _emparejamientos_grupo(jugadores):
+        # jugadores en orden [1º, 2º, 3º] de la composicion
+        if len(jugadores) < 3:
+            # con menos de 3 no hay round-robin completo
+            pares = []
+            for a in range(len(jugadores)):
+                for b in range(a + 1, len(jugadores)):
+                    pares.append((jugadores[a], jugadores[b]))
+            return pares
+        p1, p2, p3 = jugadores[0], jugadores[1], jugadores[2]
+        # Orden observado en la plataforma: 1-3, 3-2, 2-1
+        return [(p1, p3), (p3, p2), (p2, p1)]
+
+    resultado["grupos"]["Grupo A Final"] = _emparejamientos_grupo(ga)
+    resultado["grupos"]["Grupo B Final"] = _emparejamientos_grupo(gb)
+
+    # ── Semifinales: necesitan la clasificacion final de cada grupo ───────
+    clas_a = calcular_clasificacion_final(grupos.get("Grupo A Final", []))
+    clas_b = calcular_clasificacion_final(grupos.get("Grupo B Final", []))
+
+    def _grupo_terminado(clas, n_jug):
+        # round-robin de 3 -> 3 partidos -> cada jugador juega 2
+        if clas is None or clas.empty:
+            return False
+        return int(clas["PJ"].sum()) >= n_jug  # 3 jugadores * 2 / 2 *... =3 partidos =>PJ suma 6
+                                               # usamos suma de PJ >= 6 abajo
+
+    # 1º y 2º de cada grupo (si la clasificacion existe)
+    def _pos(clas, idx):
+        if clas is None or clas.empty or idx >= len(clas):
+            return None
+        return clas.iloc[idx]["Jugador"]
+
+    a_terminado = (clas_a is not None and not clas_a.empty
+                   and int(clas_a["PJ"].sum()) >= 6)
+    b_terminado = (clas_b is not None and not clas_b.empty
+                   and int(clas_b["PJ"].sum()) >= 6)
+
+    sf1 = sf2 = None
+    if a_terminado and b_terminado:
+        a1, a2 = _pos(clas_a, 0), _pos(clas_a, 1)
+        b1, b2 = _pos(clas_b, 0), _pos(clas_b, 1)
+        if a1 and b2:
+            sf1 = (a1, b2)   # SF1: 1ºA vs 2ºB
+        if b1 and a2:
+            sf2 = (b1, a2)   # SF2: 1ºB vs 2ºA
+        resultado["semifinales"] = [sf1, sf2]
+        resultado["diagnostico"] = "Grupos terminados; semifinales definidas."
+    else:
+        resultado["diagnostico"] = (
+            "Esperando a que terminen los grupos para definir semifinales.")
+
+    # ── Final: ganadores de cada semifinal ────────────────────────────────
+    if sf1 and sf2:
+        g1 = _buscar_ganador_partido_final(sf1[0], sf1[1])
+        g2 = _buscar_ganador_partido_final(sf2[0], sf2[1])
+        if g1 and g2:
+            resultado["final"] = (g1, g2)
+            resultado["diagnostico"] = "Final definida."
+        else:
+            resultado["diagnostico"] = (
+                "Semifinales definidas; esperando sus resultados para la final.")
+
+    return resultado
+
+
+def render_bracket_final():
+    """Muestra el cuadro completo de la Final: semifinales y final, con los
+    jugadores ya definidos o 'Por definir' si aun no se conocen."""
+    bracket = construir_bracket_final()
+    sf = bracket["semifinales"]
+    final = bracket["final"]
+
+    st.markdown("---")
+    st.subheader("🥊 Cuadro Final (Semifinales y Final)")
+
+    def _tarjeta(titulo, par, color):
+        if par:
+            cuerpo = (f"<span style='font-weight:700;'>{par[0]}</span>"
+                      f"<span style='color:#94a3b8;margin:0 8px;'>vs</span>"
+                      f"<span style='font-weight:700;'>{par[1]}</span>")
+        else:
+            cuerpo = "<span style='color:#94a3b8;'>Por definir</span>"
+        return (
+            f"<div style='background:white;border:1px solid #e2e8f0;"
+            f"border-left:4px solid {color};border-radius:10px;"
+            f"padding:12px 16px;margin-bottom:10px;'>"
+            f"<div style='font-size:12px;color:#888;font-weight:600;"
+            f"text-transform:uppercase;letter-spacing:0.04em;"
+            f"margin-bottom:6px;'>{titulo}</div>"
+            f"<div style='font-size:16px;'>{cuerpo}</div>"
+            f"</div>"
+        )
+
+    html = (
+        _tarjeta("Semifinal 1 · 1º Grupo A vs 2º Grupo B", sf[0], "#3b82f6")
+        + _tarjeta("Semifinal 2 · 1º Grupo B vs 2º Grupo A", sf[1], "#3b82f6")
+        + _tarjeta("🏆 Final · Ganador SF1 vs Ganador SF2", final, "#f59e0b")
+    )
+    html_compacto = " ".join(
+        line.strip() for line in html.splitlines() if line.strip()
+    )
+    st.markdown(html_compacto, unsafe_allow_html=True)
+    if bracket["diagnostico"]:
+        st.caption("ℹ️ " + bracket["diagnostico"])
