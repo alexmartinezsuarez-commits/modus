@@ -147,9 +147,10 @@ def main():
             res_hist = guardar_historico_semana(resumen)
             if res_hist.get("ok"):
                 msg_hist = (
-                    f"Historico guardado: fecha={res_hist.get('fecha')}, "
-                    f"jugadores={res_hist.get('guardados')}, "
-                    f"sobrescrita={res_hist.get('sobrescrita')}"
+                    f"Historico guardado: "
+                    f"nuevas={res_hist.get('nuevas', 0)}, "
+                    f"actualizadas={res_hist.get('actualizadas', 0)}, "
+                    f"total={res_hist.get('total', 0)}"
                 )
                 print(f"     {msg_hist}")
                 detalles_total.append(msg_hist)
