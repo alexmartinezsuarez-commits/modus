@@ -1051,6 +1051,23 @@ def render_value_bets():
     if not st.session_state.vb_calcular:
         st.info("👆 Selecciona los jugadores y pulsa **Calcular**")
         return
+
+    # PRIORIDAD DEL DESPLEGABLE: si hay un enfrentamiento seleccionado en
+    # "Próximos partidos" (distinto de "Selección manual"), sus jugadores
+    # mandan sobre lo que haya en las casillas manuales. Esto evita el bug
+    # de calcular con jugadores antiguos cuando el desplegable muestra otro
+    # partido.
+    sel_prox = st.session_state.get("vb_proximo_partido")
+    if sel_prox and sel_prox != "— Selección manual —" and proximos:
+        partido_sel = next((p for p in proximos
+                             if p.get("etiqueta_limpia") == sel_prox
+                             or f"{p['j1']} vs {p['j2']}" == sel_prox), None)
+        if partido_sel:
+            m1 = _emparejar_nombre(partido_sel["j1"], nombres_disponibles)
+            m2 = _emparejar_nombre(partido_sel["j2"], nombres_disponibles)
+            if m1 and m2 and m1 != m2:
+                j1_sel, j2_sel = m1, m2
+
     # Buscar los datos de cada jugador: primero en la fuente seleccionada
     # (datos del día/grupo concreto) y, si no está ahí, en la base completa
     # (Resumen Semanal). Así se puede analizar un enfrentamiento aunque uno
@@ -2949,3 +2966,4 @@ def calcular_tiempo_restante(proxima_dia, proxima_hora):
         return f"{dias}d {h_rest}h"
     except Exception:
         return None
+
