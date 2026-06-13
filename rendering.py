@@ -2966,4 +2966,3 @@ def calcular_tiempo_restante(proxima_dia, proxima_hora):
         return f"{dias}d {h_rest}h"
     except Exception:
         return None
-
