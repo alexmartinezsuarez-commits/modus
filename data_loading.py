@@ -424,7 +424,7 @@ _JORNADAS_ORDEN = [
 ]
 
 
-def detectar_jornada_de_hoy():
+def detectar_jornada_de_hoy(exigir_datos=True):
     """Detecta cual es la jornada activa AHORA segun el dia de la semana y
     la hora del dia. Reglas del torneo MODUS:
 
@@ -494,7 +494,12 @@ def detectar_jornada_de_hoy():
         return None
 
     # Comprobar que la pestana tenga datos cargados. Si todavia no, la
-    # consideramos no disponible.
+    # consideramos no disponible — SALVO que se pida lo contrario con
+    # exigir_datos=False (LIVE quiere saber la jornada por hora aunque
+    # los datos aun no esten cargados, para mostrar "esperando datos de
+    # <jornada>" en vez de saltar a la proxima).
+    if not exigir_datos:
+        return jornada
     try:
         jug = cargar_jugadores_desde(jornada)
     except Exception:
@@ -1003,12 +1008,12 @@ def obtener_proximos_partidos_api(limite=3):
 def get_jornada_actual():
     """Devuelve (nombre, url, es_activa) de la jornada activa AHORA.
 
-    Delega en detectar_jornada_de_hoy() (que ya usa zona horaria Madrid
-    y las reglas horarias actualizadas) en lugar de duplicar la logica.
-    Es_activa es True solo si la jornada esta activa por hora Y la
-    pestana del Sheet tiene datos cargados.
+    es_activa es True si la jornada esta activa POR HORA, aunque la pestana
+    del Sheet aun no tenga datos cargados. Asi LIVE muestra "esperando datos
+    de <jornada>" en vez de saltar a la proxima jornada cuando los datos
+    todavia no estan disponibles.
     """
-    jornada = detectar_jornada_de_hoy()
+    jornada = detectar_jornada_de_hoy(exigir_datos=False)
     if jornada is None:
         return None, None, False
     url = URLS.get(jornada, "")
