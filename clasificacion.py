@@ -209,6 +209,20 @@ def construir_grupos_final():
     valor siendo lista de dicts {jugador, procedencia}. Si falta algún rango
     en algún grupo, se omite ese hueco (la lista será más corta).
     """
+    # Si la Final ya ha empezado (el Sheet tiene partidos), la composicion
+    # sale de los PARTIDOS REALES y queda congelada (no cambia aunque el
+    # ranking semanal se mueva por un resultado tardio). Si aun no ha
+    # empezado, mostramos la composicion PREVISTA desde el ranking semanal.
+    reales = _grupos_final_desde_sheet()
+    if reales is not None:
+        return reales
+    return _grupos_final_previstos()
+
+
+def _grupos_final_previstos():
+    """Composicion PREVISTA de los grupos de la Final, calculada desde el
+    ranking de la fase de grupos semanal. Se usa ANTES de que empiece la
+    Final (cuando el Sheet aun no tiene partidos)."""
     rank_a = _ranking_grupo_semana("Grupo A")
     rank_b = _ranking_grupo_semana("Grupo B")
     rank_c = _ranking_grupo_semana("Grupo C")
@@ -235,6 +249,103 @@ def construir_grupos_final():
             grupo_b_final.append({"jugador": nombre, "procedencia": proc})
 
     return {"Grupo A Final": grupo_a_final, "Grupo B Final": grupo_b_final}
+
+
+def _grupos_final_desde_sheet():
+    """Deduce la composicion REAL de los grupos de la Final a partir de los
+    partidos ya escritos en la pestana 'Final Sábado'.
+
+    En un round-robin, los jugadores de un mismo grupo solo se enfrentan
+    entre si. Agrupamos por 'componentes conexas': si A juega contra B,
+    estan en el mismo grupo.
+
+    Devuelve el mismo formato que construir_grupos_final, o None si el Sheet
+    aun no tiene partidos (la Final no ha empezado).
+
+    Para asignar cual es 'Grupo A Final' y cual 'Grupo B Final' y la
+    procedencia de cada jugador, se cruza con la prevision por ranking:
+    el grupo reasl que mas coincide con la prevision A se etiqueta como A.
+    """
+    try:
+        df, _ = cargar_todo(URLS["Final Sábado"], "Final Sábado",
+                            CORTES["Final Sábado"])
+    except Exception:
+        return None
+    if df is None or len(df) < 2:
+        return None
+
+    # Recoger los enfrentamientos (pares de nombres) que hay en el Sheet
+    enfrentamientos = []
+    jugadores = set()
+    for i in range(0, len(df) - 1, 2):
+        f1, f2 = df.iloc[i], df.iloc[i + 1]
+        n1 = str(f1.iloc[0]).strip()
+        n2 = str(f2.iloc[0]).strip()
+        if (not n1 or not n2 or n1.lower() in ('nan', '')
+                or n2.lower() in ('nan', '')):
+            continue
+        enfrentamientos.append((n1, n2))
+        jugadores.add(n1)
+        jugadores.add(n2)
+
+    if not enfrentamientos:
+        return None
+
+    # Componentes conexas (union-find sencillo)
+    padre = {j: j for j in jugadores}
+
+    def find(x):
+        while padre[x] != x:
+            padre[x] = padre[padre[x]]
+            x = padre[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            padre[ra] = rb
+
+    for a, b in enfrentamientos:
+        union(a, b)
+
+    grupos_dict = {}
+    for j in jugadores:
+        grupos_dict.setdefault(find(j), []).append(j)
+
+    componentes = list(grupos_dict.values())
+    # Esperamos 2 grupos. Si solo hay 1 (la Final acaba de empezar y aun no
+    # se ve la separacion), devolvemos None para seguir usando la prevision.
+    if len(componentes) < 2:
+        return None
+
+    # Cruzar con la prevision para etiquetar A/B y procedencias
+    prevista = _grupos_final_previstos()
+    nombres_prev_a = {d["jugador"].lower()
+                      for d in prevista.get("Grupo A Final", [])}
+    proc_por_jugador = {}
+    for g in ("Grupo A Final", "Grupo B Final"):
+        for d in prevista.get(g, []):
+            proc_por_jugador[d["jugador"].lower()] = d["procedencia"]
+
+    # Elegir cual componente es A: la que mas solape con la prevision A
+    def solape_con_a(comp):
+        return sum(1 for j in comp if j.lower() in nombres_prev_a)
+
+    componentes.sort(key=solape_con_a, reverse=True)
+    comp_a = componentes[0]
+    comp_b = componentes[1] if len(componentes) > 1 else []
+
+    def _a_dicts(comp):
+        out = []
+        for j in comp:
+            out.append({
+                "jugador": j,
+                "procedencia": proc_por_jugador.get(j.lower(), "Final"),
+            })
+        return out
+
+    return {"Grupo A Final": _a_dicts(comp_a),
+            "Grupo B Final": _a_dicts(comp_b)}
 
 def calcular_clasificacion_final(jugadores_del_grupo):
     """Calcula la clasificación del grupo de Final Sábado a partir de los
