@@ -438,6 +438,10 @@ elif "📚 HISTÓRICO" in opcion_principal:
         st.error(f"No se pudo cargar el histórico: {e}")
     render_historico(df_hist, jugadores_resumen_hist)
 
+    # ── Top 10 histórico por PR medio ─────────────────────────────────────
+    from rendering import render_top10_pr_historico
+    render_top10_pr_historico(df_hist)
+
     # ── Lista de campeones de cada semana ─────────────────────────────────
     st.markdown("---")
     st.subheader("🏆 Campeones de la Semana")
