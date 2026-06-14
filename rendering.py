@@ -2966,3 +2966,78 @@ def calcular_tiempo_restante(proxima_dia, proxima_hora):
         return f"{dias}d {h_rest}h"
     except Exception:
         return None
+
+
+
+def render_top10_pr_historico(df_hist):
+    """Top 10 jugadores por PR medio historico.
+
+    Agrupa todas las filas del historico por jugador, calcula el PR medio
+    de cada uno (a lo largo de todas las semanas guardadas) y muestra los
+    10 mejores. Tambien indica cuantas semanas tiene cada jugador.
+    """
+    import pandas as pd
+
+    if df_hist is None or df_hist.empty:
+        return
+    if "Jugador" not in df_hist.columns or "PR" not in df_hist.columns:
+        return
+
+    df = df_hist.copy()
+    # PR a numero (por si viene como string)
+    df["PR"] = pd.to_numeric(
+        df["PR"].astype(str).str.replace(",", ".", regex=False),
+        errors="coerce")
+    df = df.dropna(subset=["PR"])
+    df = df[df["PR"] > 0]  # descartar PR=0 (semanas sin datos)
+    if df.empty:
+        return
+
+    agrupado = df.groupby("Jugador").agg(
+        pr_medio=("PR", "mean"),
+        semanas=("PR", "count"),
+    ).reset_index()
+    agrupado = agrupado.sort_values("pr_medio", ascending=False).head(10)
+
+    st.markdown("---")
+    st.subheader("🏅 Top 10 Histórico (PR medio)")
+    st.caption("Media del Power Rating de cada jugador a lo largo de todas "
+               "las semanas guardadas.")
+
+    pr_max = agrupado["pr_medio"].max() if not agrupado.empty else 1
+    filas_html = ""
+    for i, (_, row) in enumerate(agrupado.iterrows()):
+        pos = i + 1
+        if pos == 1:
+            medalla = "🥇"
+        elif pos == 2:
+            medalla = "🥈"
+        elif pos == 3:
+            medalla = "🥉"
+        else:
+            medalla = f"<span style='color:#94a3b8;font-weight:700;'>{pos}</span>"
+        pr = row["pr_medio"]
+        sem = int(row["semanas"])
+        pct = max(6, round(100 * pr / pr_max)) if pr_max > 0 else 0
+        filas_html += (
+            f"<div style='display:flex;align-items:center;gap:12px;"
+            f"padding:10px 16px;border-bottom:1px solid #f1f5f9;'>"
+            f"<span style='font-size:18px;min-width:30px;text-align:center;'>"
+            f"{medalla}</span>"
+            f"<span style='font-size:15px;font-weight:700;min-width:160px;'>"
+            f"{row['Jugador']}</span>"
+            f"<div style='flex:1;background:#f1f5f9;border-radius:6px;"
+            f"height:14px;overflow:hidden;'>"
+            f"<div style='width:{pct}%;height:100%;background:linear-gradient("
+            f"90deg,#3b82f6,#60a5fa);'></div></div>"
+            f"<span style='font-size:15px;font-weight:800;color:#1e3a8a;"
+            f"min-width:55px;text-align:right;'>{pr:.1f}</span>".replace('.', ',')
+            + f"<span style='font-size:11px;color:#94a3b8;min-width:70px;"
+            f"text-align:right;'>{sem} sem.</span>"
+            f"</div>"
+        )
+    html = ("<div style='background:white;border:1px solid #e2e8f0;"
+            "border-radius:12px;overflow:hidden;'>" + filas_html + "</div>")
+    html_compacto = " ".join(
+        line.strip() for line in html.splitlines() if line.strip())
+    st.markdown(html_compacto, unsafe_allow_html=True)
