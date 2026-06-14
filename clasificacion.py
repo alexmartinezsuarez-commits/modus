@@ -274,10 +274,18 @@ def _grupos_final_desde_sheet():
     if df is None or len(df) < 2:
         return None
 
-    # Recoger los enfrentamientos (pares de nombres) que hay en el Sheet
+    # Recoger los enfrentamientos (pares de nombres) que hay en el Sheet.
+    # IMPORTANTE: solo los 6 PRIMEROS partidos son la fase de grupos
+    # (3 por grupo). Los siguientes son semifinales/final, que CRUZAN
+    # jugadores de ambos grupos y romperian la deteccion por componentes
+    # conexas. Por eso nos limitamos a los primeros 6.
     enfrentamientos = []
     jugadores = set()
+    MAX_PARTIDOS_GRUPOS = 6
+    contador = 0
     for i in range(0, len(df) - 1, 2):
+        if contador >= MAX_PARTIDOS_GRUPOS:
+            break
         f1, f2 = df.iloc[i], df.iloc[i + 1]
         n1 = str(f1.iloc[0]).strip()
         n2 = str(f2.iloc[0]).strip()
@@ -287,6 +295,7 @@ def _grupos_final_desde_sheet():
         enfrentamientos.append((n1, n2))
         jugadores.add(n1)
         jugadores.add(n2)
+        contador += 1
 
     if not enfrentamientos:
         return None
