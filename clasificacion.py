@@ -693,3 +693,43 @@ def render_bracket_final():
     st.markdown(html_compacto, unsafe_allow_html=True)
     if bracket["diagnostico"]:
         st.caption("ℹ️ " + bracket["diagnostico"])
+
+
+def obtener_campeon_semana():
+    """Devuelve el nombre del campeon de la semana (ganador de la final de
+    la Final Sábado) o None si la final aun no ha terminado.
+
+    La final son los ganadores de cada semifinal. Se busca el resultado de
+    ese partido en la pestana 'Final Sábado'.
+    """
+    bracket = construir_bracket_final()
+    final = bracket.get("final")
+    if not final:
+        return None
+    # final = (ganador_sf1, ganador_sf2); buscamos quien gano ese partido
+    campeon = _buscar_ganador_partido_final(final[0], final[1])
+    return campeon  # None si aun no ha terminado
+
+
+def render_campeon_semana():
+    """Muestra la tarjeta del campeon de la semana, SOLO si la final ha
+    terminado. Si no, no muestra nada."""
+    campeon = obtener_campeon_semana()
+    if not campeon:
+        return
+    html = (
+        "<div style='background:linear-gradient(135deg,#fef3c7 0%,"
+        "#fde68a 100%);border:2px solid #f59e0b;border-radius:14px;"
+        "padding:22px 26px;margin:18px 0;text-align:center;"
+        "box-shadow:0 4px 14px rgba(245,158,11,0.25);'>"
+        "<div style='font-size:13px;color:#92400e;font-weight:700;"
+        "text-transform:uppercase;letter-spacing:0.08em;'>"
+        "🏆 Campeón de la Semana</div>"
+        f"<div style='font-size:30px;font-weight:900;color:#78350f;"
+        f"margin-top:8px;'>{campeon}</div>"
+        "</div>"
+    )
+    html_compacto = " ".join(
+        line.strip() for line in html.splitlines() if line.strip()
+    )
+    st.markdown(html_compacto, unsafe_allow_html=True)

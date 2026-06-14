@@ -109,8 +109,9 @@ def main():
         from data_loading import cargar_jugadores_desde
         from predicciones import (
             guardar_historico_semana, verificar_resultados,
-            escribir_log_auto,
+            escribir_log_auto, guardar_campeon_semana,
         )
+        from clasificacion import obtener_campeon_semana
     except Exception as e:
         print(f"ERROR importando modulos: {e}")
         traceback.print_exc()
@@ -199,6 +200,34 @@ def main():
         print(f"     {msg_ver}")
         traceback.print_exc()
         detalles_total.append(msg_ver)
+        estados.append("ERROR")
+
+    # ── 3) Guardar campeon de la semana ───────────────────────────────────
+    print("  -> Paso 3/3: guardar campeon de la semana")
+    try:
+        campeon = obtener_campeon_semana()
+        if campeon:
+            res_camp = guardar_campeon_semana(campeon)
+            if res_camp.get("ok"):
+                msg_camp = (f"Campeon guardado: {res_camp.get('campeon')} "
+                            f"(fecha {res_camp.get('fecha')})")
+                print(f"     {msg_camp}")
+                detalles_total.append(msg_camp)
+                estados.append("OK")
+            else:
+                msg_camp = f"ERROR guardando campeon: {res_camp.get('error')}"
+                print(f"     {msg_camp}")
+                detalles_total.append(msg_camp)
+                estados.append("ERROR")
+        else:
+            msg_camp = "Sin campeon (la final no ha terminado)"
+            print(f"     {msg_camp}")
+            detalles_total.append(msg_camp)
+    except Exception as e:
+        msg_camp = f"EXCEPCION guardando campeon: {e}"
+        print(f"     {msg_camp}")
+        traceback.print_exc()
+        detalles_total.append(msg_camp)
         estados.append("ERROR")
 
     # ── Log final ─────────────────────────────────────────────────────────

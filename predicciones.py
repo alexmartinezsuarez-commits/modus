@@ -1561,6 +1561,9 @@ def verificar_resultados(url_sheet=None):
 
 NOMBRE_HOJA_HISTORICO = "Historico"
 
+NOMBRE_HOJA_CAMPEONES = "Campeones"
+CABECERA_CAMPEONES = ["Fecha sabado", "Campeon"]
+
 # Cabecera de la pestana de historico. Una fila por jugador y semana.
 CABECERA_HISTORICO = [
     "Fecha sabado", "Jugador", "PR", "Media 180s", "Legs por partido",
@@ -1883,3 +1886,98 @@ def escribir_log_auto(jornada, partidos_registrados, partidos_saltados,
         return True, ""
     except Exception as e:
         return False, str(e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CAMPEONES DE LA SEMANA
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _abrir_hoja_campeones():
+    """Abre (o crea) la pestana 'Campeones'. Devuelve (worksheet, error)."""
+    cliente, err = _conectar_gsheets()
+    if cliente is None:
+        return None, err
+    try:
+        libro = cliente.open_by_key(SHEET_ID_PREDICCIONES)
+    except Exception as e:
+        return None, f"No se pudo abrir el Sheet ({type(e).__name__}: {e})."
+    try:
+        hoja = libro.worksheet(NOMBRE_HOJA_CAMPEONES)
+    except Exception:
+        try:
+            hoja = libro.add_worksheet(
+                title=NOMBRE_HOJA_CAMPEONES, rows=1000,
+                cols=len(CABECERA_CAMPEONES))
+            hoja.append_row(CABECERA_CAMPEONES)
+        except Exception as e:
+            return None, (
+                f"No se pudo crear la pestana '{NOMBRE_HOJA_CAMPEONES}' ({e}).")
+    try:
+        if not hoja.row_values(1):
+            hoja.append_row(CABECERA_CAMPEONES)
+    except Exception:
+        pass
+    return hoja, ""
+
+
+def guardar_campeon_semana(campeon, fecha_sabado=None):
+    """Anade el campeon de la semana a la pestana 'Campeones'.
+
+    Si ya existe una fila con esa misma fecha de sabado, la sobrescribe
+    (para no duplicar si el cierre se ejecuta dos veces).
+
+    Devuelve dict {ok, fecha, campeon, error}.
+    """
+    if not campeon:
+        return {"ok": False, "error": "campeon vacio", "fecha": "", "campeon": ""}
+
+    if fecha_sabado is None:
+        fecha_sabado = _fecha_sabado_de_la_semana()
+
+    hoja, err = _abrir_hoja_campeones()
+    if hoja is None:
+        return {"ok": False, "error": err, "fecha": fecha_sabado, "campeon": campeon}
+
+    try:
+        valores = hoja.get_all_values()
+    except Exception as e:
+        return {"ok": False, "error": f"No se pudo leer: {e}",
+                "fecha": fecha_sabado, "campeon": campeon}
+
+    # ¿Ya existe esa fecha? (saltando cabecera)
+    fila_existente = None
+    for idx, fila in enumerate(valores[1:], start=2):
+        if fila and fila[0].strip() == fecha_sabado:
+            fila_existente = idx
+            break
+
+    try:
+        if fila_existente:
+            hoja.update(f"A{fila_existente}:B{fila_existente}",
+                        [[fecha_sabado, campeon]])
+        else:
+            hoja.append_row([fecha_sabado, campeon])
+    except Exception as e:
+        return {"ok": False, "error": f"No se pudo escribir: {e}",
+                "fecha": fecha_sabado, "campeon": campeon}
+
+    return {"ok": True, "error": "", "fecha": fecha_sabado, "campeon": campeon}
+
+
+def cargar_campeones():
+    """Lee la pestana 'Campeones' y devuelve lista de dicts
+    [{fecha, campeon}, ...], mas reciente primero. Lista vacia si no hay."""
+    hoja, err = _abrir_hoja_campeones()
+    if hoja is None:
+        return []
+    try:
+        valores = hoja.get_all_values()
+    except Exception:
+        return []
+    filas = valores[1:] if len(valores) > 1 else []
+    out = []
+    for fila in filas:
+        if len(fila) >= 2 and fila[0].strip() and fila[1].strip():
+            out.append({"fecha": fila[0].strip(), "campeon": fila[1].strip()})
+    out.reverse()  # mas reciente primero
+    return out

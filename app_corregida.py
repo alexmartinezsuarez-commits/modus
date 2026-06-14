@@ -334,8 +334,10 @@ if "🔴 LIVE" in opcion_principal:
                 render_clasificacion_final(nombre_grupo, jugadores)
                 st.markdown("")
             # Cuadro de semifinales y final
-            from clasificacion import render_bracket_final
+            from clasificacion import render_bracket_final, render_campeon_semana
             render_bracket_final()
+            # Campeon de la semana (solo si la final ha terminado)
+            render_campeon_semana()
         elif selected == "Resumen Semanal":
             # En Resumen Semanal seguimos mostrando las 3 clasificaciones semanales
             st.markdown("---")
@@ -403,6 +405,10 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
         for nombre_grupo, jugadores in grupos_final.items():
             render_clasificacion_final(nombre_grupo, jugadores)
             st.markdown("")
+        # Cuadro de semis/final + campeon (solo si la final ha terminado)
+        from clasificacion import render_bracket_final, render_campeon_semana
+        render_bracket_final()
+        render_campeon_semana()
     elif selected == "Resumen Semanal":
         # En Resumen Semanal mostramos las 3 clasificaciones semanales completas
         st.markdown("---")
@@ -431,3 +437,37 @@ elif "📚 HISTÓRICO" in opcion_principal:
         df_hist = None
         st.error(f"No se pudo cargar el histórico: {e}")
     render_historico(df_hist, jugadores_resumen_hist)
+
+    # ── Lista de campeones de cada semana ─────────────────────────────────
+    st.markdown("---")
+    st.subheader("🏆 Campeones de la Semana")
+    try:
+        from predicciones import cargar_campeones
+        campeones = cargar_campeones()
+    except Exception:
+        campeones = []
+    if campeones:
+        filas_html = ""
+        for i, c in enumerate(campeones):
+            medalla = "🥇" if i == 0 else "🏆"
+            filas_html += (
+                f"<div style='display:flex;align-items:center;gap:14px;"
+                f"padding:10px 16px;border-bottom:1px solid #f1f5f9;'>"
+                f"<span style='font-size:20px;'>{medalla}</span>"
+                f"<span style='font-size:13px;color:#94a3b8;min-width:110px;'>"
+                f"{c['fecha']}</span>"
+                f"<span style='font-size:16px;font-weight:700;'>"
+                f"{c['campeon']}</span>"
+                f"</div>"
+            )
+        html = (
+            "<div style='background:white;border:1px solid #e2e8f0;"
+            "border-radius:12px;overflow:hidden;'>" + filas_html + "</div>"
+        )
+        html_compacto = " ".join(
+            line.strip() for line in html.splitlines() if line.strip()
+        )
+        st.markdown(html_compacto, unsafe_allow_html=True)
+    else:
+        st.info("ℹ️ Aún no hay campeones registrados. Se añadirán "
+                "automáticamente cada domingo al cerrar la semana.")
