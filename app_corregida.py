@@ -363,33 +363,54 @@ elif "📊 RESULTADOS Y ESTADÍSTICAS" in opcion_principal:
         tiempo = (datetime.now() - st.session_state.last_update[selected]).seconds
         st.caption(f"⏱️ Datos actualizados hace {tiempo} segundos")
     
-    if d2 is not None:
+    # ¿Hay datos de jugadores en esta jornada?
+    hay_datos = d2 is not None and len(d2) > 0
+
+    if hay_datos:
         st.subheader("📈 Estadísticas por Jugador")
-        
+
         # Cargar resumen semanal solo si estamos viendo otra jornada
         stats_resumen = None
         mostrar_tendencias = selected != "Resumen Semanal"
         if mostrar_tendencias:
             _, stats_resumen = cargar_todo(URLS["Resumen Semanal"], "Resumen Semanal", CORTES.get("Resumen Semanal", 2))
-        
+
         for player, stats in d2.items():
             player_display = f"👤 {player.title()}"
             with st.expander(player_display, expanded=False):
                 # Racha: ultimos 5 partidos de la jornada seleccionada
                 jornada_para_racha = None if selected == "Resumen Semanal" else selected
                 render_jugador_visual(player, stats, stats_resumen, selected, mostrar_tendencias=mostrar_tendencias, mostrar_racha=True, jornada_racha=jornada_para_racha)
-    
-    if d1 is not None:
-        st.subheader("⚔️ Detalles")
-        if selected not in ["Resumen Semanal", "Value Bets"]:
-            st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(d1, use_container_width=True, hide_index=True)
 
-    # Ranking por métrica (sin heatmap): small multiples con Puntuación Global destacada
-    if d2 is not None and len(d2) > 0:
-        st.markdown("---")
-        render_small_multiples(d2, titulo="📊 Ranking por Métrica")
+        if d1 is not None:
+            st.subheader("⚔️ Detalles")
+            if selected not in ["Resumen Semanal", "Value Bets"]:
+                st.dataframe(d1.style.apply(pintar_partidos, axis=1), use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(d1, use_container_width=True, hide_index=True)
+
+        # Ranking por métrica
+        if len(d2) > 0:
+            st.markdown("---")
+            render_small_multiples(d2, titulo="📊 Ranking por Métrica")
+    else:
+        # Estado vacío limpio: jornada sin datos todavia
+        empty_html = (
+            "<div style='background:linear-gradient(135deg,#f8fafc 0%,"
+            "#ffffff 100%);border:1px dashed #cbd5e1;border-radius:16px;"
+            "padding:48px 24px;text-align:center;margin:8px 0 4px;'>"
+            "<div style='font-size:46px;margin-bottom:12px;'>📊</div>"
+            "<div style='font-size:19px;font-weight:700;color:#475569;'>"
+            "Aún no hay datos de esta jornada</div>"
+            "<div style='font-size:14px;color:#94a3b8;margin-top:8px;'>"
+            "Los jugadores aparecerán aquí cuando comiencen a jugarse "
+            "los partidos.</div>"
+            "</div>"
+        )
+        empty_compacto = " ".join(
+            line.strip() for line in empty_html.splitlines() if line.strip()
+        )
+        st.markdown(empty_compacto, unsafe_allow_html=True)
 
     # Clasificación del grupo (al final del todo)
     grupo_actual = detectar_grupo(selected)
