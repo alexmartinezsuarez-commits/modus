@@ -779,10 +779,10 @@ def render_value_bets():
     st.markdown("### 🥊 Seleccionar Enfrentamiento")
 
     # ── Desplegable de próximos partidos ──────────────────────────────────────
-    # Lista los 3 próximos partidos que aún no han empezado, leídos del CSV
+    # Lista los 5 próximos partidos que aún no han empezado, leídos del CSV
     # de la jornada que toca (activa o, si no hay, la próxima). NO usa la API
     # de MODUS porque devuelve fixtures de jornadas viejas ya finalizadas.
-    resultado_api = obtener_proximos_partidos_csv(limite=3)
+    resultado_api = obtener_proximos_partidos_csv(limite=5)
     # Compatibilidad: la función ahora devuelve un dict; si por lo que sea
     # llegara una lista (versión antigua en caché), la adaptamos.
     if isinstance(resultado_api, dict):
