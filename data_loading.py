@@ -1221,7 +1221,7 @@ def _indice_orden_partido(j1, j2, orden_csv):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def obtener_proximos_partidos_csv(limite=3) -> dict:
+def obtener_proximos_partidos_csv(limite=5) -> dict:
     """Devuelve los proximos partidos NO empezados leyendo el CSV de la
     jornada que toca (activa o, si no hay activa, la proxima), en ORDEN
     DE JUEGO REAL.
