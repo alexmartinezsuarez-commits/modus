@@ -153,14 +153,14 @@ pásame el archivo.
 | Volatilidad | la del jugador más irregular de los dos. Hasta 12 (baja o media): edge mínimo 20 %. Por encima de 12 (alta): +2 puntos de edge por cada punto (13 → 22 %, 15 → 26 %, 17 → 30 %) y el importe baja un escalón (15 → 10 €, 10 → 5 €). Más de 18 o sin dato → se descarta y se anota en `vigia_log` (en los **avisos del vigía**; para **apuntar en la app** la volatilidad no cuenta: siempre 20 % e importe normal, solo se muestra como información) |
 | Value | edge = p × cuota − 1 ≥ el mínimo exigido (20 %, o más con volatilidad alta) |
 | 🟢 | p − 1/cuota ≥ margen del mercado (`MARGEN_POR_MERCADO` de `config.py`: ganador 6, total de legs 8, hándicaps y 180s 5). Resultado exacto nunca 🟢 |
-| Importe | edge 20–35 % → 5 €; 35–50 % → 10 €; más del 50 % → 15 €. Más de 5 € solo si 🟢 y cuota ≤ 4,00 |
+| Importe | ¼ de Kelly sobre la banca (200 € + tu beneficio real): banca × ¼ × edge ÷ (cuota − 1), al múltiplo de 5 € más cercano, entre 5 y 15 €. Con el mismo edge, más a las cuotas bajas (más probables). Más de 5 € solo si 🟢 y cuota ≤ 4,00 |
 | Por partido | sin límite: puedes apostar a varias selecciones del mismo partido si lo consideras |
 | Tope | 50 € por jornada más tu beneficio real acumulado (las apuestas marcadas «apostada» ya liquidadas; si vas en pérdidas, 50 €). El importe recomendado se recorta en múltiplos de 5 € a lo que quede; una «no apostada» devuelve su importe |
 | Importe a mano | en Value Bets eliges el importe antes de pulsar «Apostar» (por defecto, el recomendado), y en 🎟️ Apuestas lo puedes cambiar después con ✏️ Importe. Se guarda en la columna `importe_real` de `alertas` y solo cuenta para **tus apuestas** (tope, «Las que apostaste», beneficio real); las estadísticas del modelo («Si las hubieras hecho todas», seguimiento por mercado, Winamax frente al modelo) siguen con el recomendado (`importe`) |
 
 **Cuotas mínimas** (pestaña `cuotas_minimas`): cuota justa = 1/p; para avisar
 (edge 20 %, o el exigido por volatilidad alta: columna `edge_exigido`) = 1,20/p;
-para 10 € = 1,35/p; para 15 € = 1,50/p; para 🟢 = 1/(p − margen). Siempre se
+para 10 € y para 15 €, la cuota con la que ¼ de Kelly llega a 7,5 € y a 12,5 € (se redondean a 10 y 15); para 🟢 = 1/(p − margen). Siempre se
 redondean **hacia arriba** (con p = 0,742, la de avisar es 1,62).
 
 **Cuándo avisa el vigía:** los partidos no tienen hora fija (empiezan uno tras
@@ -267,3 +267,19 @@ app **Atajos** llamado `Abrir Winamax` (créalo una vez: Atajos → + → Abrir
 app → Winamax → nombre `Abrir Winamax`); abre la app en su inicio, no en el
 partido, y al lado hay otro botón con el partido en la web.
 En el ordenador no sale. Es solo un enlace: no inicia sesión ni apuesta.
+
+**Estado de los partidos al momento en la app.** La app lee las hojas de las
+jornadas por la API de Google (sin el retraso del CSV publicado) si tiene:
+1. En Streamlit Cloud → tu app → *Settings* → *Secrets*, una línea
+   `SHEET_ID_DATOS = "…"` con el mismo valor que en el `.env` del portátil.
+2. La hoja de las jornadas compartida (como *Lector*) con el correo de la
+   cuenta de servicio de la app (`client_email` de su JSON en los secretos).
+Si no, usa el CSV publicado y lo dice («🕒 … unos minutos de retraso»). Antes
+de avisar de que falta el partido anterior, la app vuelve a descargarlo todo
+una vez.
+
+**Las cuotas del botón se mantienen por partido.** Cada lectura del botón
+«Modus value» se guarda (en la sesión y, en modo administrador, en la pestaña
+`lecturas_boton`). Si vuelves a ese partido en Value Bets, aunque hayas
+cambiado de partido o cerrado la página, se vuelven a poner sus cuotas (la
+última lectura de hoy) hasta que el partido empiece.

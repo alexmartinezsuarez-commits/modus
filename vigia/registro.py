@@ -12,6 +12,10 @@ HOJA_ALERTAS = "alertas"
 HOJA_LOG = "vigia_log"
 HOJA_CUOTAS = "cuotas_minimas"
 HOJA_WINAMAX = "cuotas_winamax"
+# Ultima lectura del boton "Modus value" de cada partido (los datos tal
+# cual), para recuperar las cuotas en Value Bets hasta que se juegue
+HOJA_LECTURAS = "lecturas_boton"
+COLUMNAS_LECTURAS = ["fecha", "hora", "j1", "j2", "match_id", "lectura", "wm"]
 
 COLUMNAS_ALERTAS = [
     "id", "fecha", "hora", "partido", "j1", "j2", "vol_j1", "vol_j2",
@@ -111,6 +115,13 @@ def beneficio_real(filas, hasta=None):
                and f.get("estado") == ESTADO_APOSTADA
                and f.get("resultado") in ("ganada", "perdida")
                and (hasta is None or str(f.get("fecha", "")) < hasta))
+
+
+def banca_actual(filas):
+    """Banca para el 1/4 de Kelly: la inicial (200 EUR) mas el beneficio
+    real acumulado (tus apuestas liquidadas; si vas perdiendo, baja)."""
+    from vigia.reglas import BANCA_INICIAL
+    return max(0.0, BANCA_INICIAL + beneficio_real(filas))
 
 
 def tope_del_dia(filas, base=None):
