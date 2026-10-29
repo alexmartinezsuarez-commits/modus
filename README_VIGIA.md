@@ -207,3 +207,45 @@ diciendo qué partido falta: pulsa «Ejecutar actualización», espera y
 «Refrescar datos» antes de apostar. Si está todo, dice con qué partido anterior
 de cada uno calcula («✅ Datos al día»). Fuera de jornada no se comprueba (se
 usa el Resumen Semanal).
+
+**Versión del botón.** El marcador guarda una copia del código y no se
+actualiza solo. Cada vez que el botón cambia sube su versión (ahora la 2) y,
+si pulsas uno antiguo, la app te avisa de que lo reinstales (🎟️ Apuestas →
+«Instalar el botón Modus value»: copia el código y pégalo como URL del
+marcador). Desde la versión 2, si llegas al partido navegando dentro de
+Winamax (sin recargar), el botón solo usa las cuotas que se ven en pantalla:
+las del estado de carga serían de la página anterior. Si la página lleva más
+de 10 minutos abierta y algún mercado no se veía, la app avisa de que esas
+cuotas pueden haber cambiado.
+
+**Solo partidos fiables en las estadísticas.** Un partido es fiable si los
+dos jugadores llevan al menos 3 partidos esa semana antes de él, de cualquier
+día (quien jugó el día anterior ya los tiene: son 5 por jornada). Las cuotas
+de Winamax de un partido no fiable **no se guardan** (la app lo dice al pulsar
+el botón), y las que ya estaban guardadas no cuentan en «Winamax frente al
+modelo». En `cuotas_winamax` van `jornada`, `n_partido`, `previos_j1` y
+`previos_j2`; en las filas de esta semana que no los tenían se rellenan solos
+al apuntar los resultados.
+
+**«Si las hubieras hecho todas»** (🎟️ Apuestas): de cada partido fiable que
+leíste con el botón, la mejor apuesta (la de más edge entre las que tu regla
+manda apostar) con el importe que indicaba el modelo; una por partido. «Las
+que apostaste» son tus apuestas de verdad, con lo que apostaste. El
+seguimiento por mercado compara las dos cosas.
+
+**Semanas anteriores (pestaña `Historico`).** La «Forma reciente» (Value Bets
+y el vigía) mezcla los datos de esta semana con la media de las semanas
+anteriores de cada jugador, con muy poco peso: todo su histórico vale como
+**un partido** de esta semana (sin partidos esta semana: solo el histórico;
+con 1, el 50 %; con 3, el 25 %; con 9, el 10 %). Los jugadores del cartel de
+hoy que aún no tienen datos esta semana salen solo con su histórico (antes no
+se podían calcular). Las estadísticas siguen contando solo partidos fiables
+(3 partidos previos esta semana). El histórico lo guarda el cierre semanal.
+
+**Volatilidad ajustada.** El índice de la hoja salía casi siempre por encima
+de 12 (alto). Ahora se ajusta con tus datos del `Historico`: el tercio más
+estable queda por debajo de 8 (baja), el del medio entre 8 y 12 (media) y el
+más irregular por encima de 12 (alta); las reglas de siempre (más edge por
+encima de 12 y descarte por encima de 18 en el vigía) se aplican sobre el
+valor ajustado. El de la hoja se sigue guardando en el `Historico` sin ajustar.
+Con menos de 9 valores en el histórico no se ajusta.

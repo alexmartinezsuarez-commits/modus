@@ -8,7 +8,7 @@ fuente de datos, reloj) para poder probarlo sin red.
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
@@ -49,9 +49,13 @@ class DatosSheet:
     (HojaGoogle.leer_jornada). El CSV publicado va con varios minutos de
     retraso; sin lector, o si la API falla, se usa el CSV."""
 
-    def __init__(self, recarga_seg=300, lector=None):
+    def __init__(self, recarga_seg=300, lector=None, historico=None):
         self.recarga_seg = recarga_seg
         self.lector = lector
+        # historico: funcion -> filas de la pestana 'Historico' (semanas
+        # anteriores): ajusta la volatilidad y completa a los jugadores con
+        # pocos datos esta semana (modelo/historico.py)
+        self.historico = historico
         self.fuente = "API" if lector else "CSV"
         self._t = 0.0
         self.jugadores = {}
@@ -80,21 +84,34 @@ class DatosSheet:
                                for j in md.jornadas_del_dia(dia)}
             return False
         # Igual que data_loading.cargar_forma_reciente: la jornada que toca
-        # por hora, solo si ya tiene datos.
+        # por hora, solo si ya tiene datos; volatilidad ajustada y semanas
+        # anteriores con poco peso.
+        from modelo import historico as mh
+        ref, hist = None, {}
+        if self.historico:
+            try:
+                filas = self.historico()
+                ref = mh.referencia_volatilidad([f.get("Volatilidad") for f in filas])
+                hist = mh.resumen_historico(filas, antes_de=mh.sabado_de_la_semana(dia), ref=ref)
+            except Exception as e:
+                log.warning("No se pudo leer el Historico: %s", e)
         jornada = md.jornada_por_hora(ahora)
-        hoy = md.cargar_jugadores(jornada) if jornada else {}
+        hoy = mh.ajustar_jugadores(md.cargar_jugadores(jornada), ref) if jornada else {}
         self.jornada_hoy = jornada if hoy else None
-        resumen = md.cargar_jugadores("Resumen Semanal")
+        resumen = mh.ajustar_jugadores(md.cargar_jugadores("Resumen Semanal"), ref)
         if not resumen:
             jugadores = hoy
         elif not self.jornada_hoy:
             jugadores = resumen
         else:
             jugadores = md.combinar_forma_reciente(resumen, hoy)
-        if jugadores:
-            self.jugadores = jugadores
         self.calendario = {j: md.partidos_de_jornada(self.lineas(j))
                            for j in md.jornadas_del_dia(dia)}
+        if hist:
+            nombres = {n for ps in self.calendario.values() for p in ps for n in (p["j1"], p["j2"])}
+            jugadores = mh.combinar_con_historico(jugadores, hist, nombres_extra=sorted(nombres))
+        if jugadores:
+            self.jugadores = jugadores
         self._t = time.time()
         return True
 
@@ -243,9 +260,9 @@ class Vigia:
         log.info("AVISO %s", texto)
 
     # ── resultados de las apuestas apuntadas en la app ───────────────────
-    def _resultado_real(self, f, cache):
-        """(legs1, legs2, 180s_1, 180s_2) del partido de la fila f, con J1/J2
-        en el orden de la fila, si ya ha terminado; si no, None."""
+    def _partido_real(self, f, cache):
+        """(partido terminado de la hoja, jornada, invertido) de la fila f,
+        o None. invertido: J1 de la fila es J2 en la hoja."""
         try:
             dia = datetime.fromisoformat(f["fecha"])
         except (KeyError, ValueError, TypeError):
@@ -258,48 +275,99 @@ class Vigia:
                 if cp["estado"] != "terminado":
                     continue
                 if mismo_jugador(cp["j1"], f["j1"]) and mismo_jugador(cp["j2"], f["j2"]):
-                    return (cp["legs1"], cp["legs2"], cp["t180_1"], cp["t180_2"])
+                    return cp, j, False
                 if mismo_jugador(cp["j1"], f["j2"]) and mismo_jugador(cp["j2"], f["j1"]):
-                    return (cp["legs2"], cp["legs1"], cp["t180_2"], cp["t180_1"])
+                    return cp, j, True
         return None
+
+    def _resultado_real(self, f, cache):
+        """(legs1, legs2, 180s_1, 180s_2) del partido de la fila f, con J1/J2
+        en el orden de la fila, si ya ha terminado; si no, None."""
+        r = self._partido_real(f, cache)
+        if not r:
+            return None
+        cp, _, inv = r
+        if inv:
+            return (cp["legs2"], cp["legs1"], cp["t180_2"], cp["t180_1"])
+        return (cp["legs1"], cp["legs2"], cp["t180_1"], cp["t180_2"])
+
+    def _pendientes(self, filas, hoy, campos=("n_partido",)):
+        """Filas sin resultado, o a las que les falta alguno de `campos` y son
+        de esta semana (la hoja de cada jornada se reescribe la siguiente)."""
+        hace_6 = (hoy - timedelta(days=6)).isoformat()
+        return [f for f in filas
+                if f.get("resultado") not in ("ganada", "perdida")
+                or (any(str(f.get(c, "")).strip() == "" for c in campos)
+                    and str(f.get("fecha", "")) >= hace_6)]
+
+    def _previos(self, f, jornada, orden, cache):
+        """Partidos de cada jugador en la semana antes de este (para saber si
+        el partido es fiable): {previos_j1, previos_j2}."""
+        from vigia.frescura import partidos_previos
+        dia = datetime.fromisoformat(f["fecha"])
+        semana = {}
+        for j in md.jornadas_hasta(dia):
+            if j not in cache:
+                cache[j] = md.partidos_de_jornada(self.datos.lineas(j))
+            semana[j] = cache[j]
+        return {"previos_j1": partidos_previos(semana, f["j1"], jornada, orden),
+                "previos_j2": partidos_previos(semana, f["j2"], jornada, orden)}
 
     def liquidar(self):
         """Apunta el resultado de las apuestas (pestana alertas: resultado y
         beneficio) y de las cuotas guardadas con el boton (cuotas_winamax)
-        cuyos partidos ya han terminado."""
+        cuyos partidos ya han terminado. De paso rellena la jornada y el
+        numero de partido de las filas que no lo tienen."""
         cache = {}
+        hoy = (self.reloj() or ahora_madrid()).date()
         n = 0
         filas = [f for f in self.hoja.alertas()
-                 if f.get("tipo_aviso") in (registro.AVISO_APUESTA, registro.AVISO_REVISAR)
-                 and f.get("resultado") not in ("ganada", "perdida")]
-        for f in filas:
-            real = self._resultado_real(f, cache)
-            if not real:
+                 if f.get("tipo_aviso") in (registro.AVISO_APUESTA, registro.AVISO_REVISAR)]
+        for f in self._pendientes(filas, hoy):
+            r = self._partido_real(f, cache)
+            if not r:
                 continue
-            ok = reglas.acierta(registro.seleccion(f), *real)
-            if ok is None:
-                continue
-            resultado = "ganada" if ok else "perdida"
-            # Las apostadas, con lo que de verdad apostaste (importe_real)
-            ben = registro.beneficio_fila(dict(f, resultado=resultado),
-                                          real=f.get("estado") == registro.ESTADO_APOSTADA)
-            self.hoja.actualizar_resultado(f["_fila"], resultado, ben)
-            self._log("resultado", f.get("partido", ""),
-                      f"{resultado} ({real[0]}-{real[1]}, 180s {real[2]}-{real[3]})")
-            n += 1
+            cp, jornada, _ = r
+            campos = {} if f.get("n_partido") else {"jornada": f.get("jornada") or jornada,
+                                                     "n_partido": cp["orden"] + 1}
+            ok = None
+            if f.get("resultado") not in ("ganada", "perdida"):
+                real = self._resultado_real(f, cache)
+                ok = reglas.acierta(registro.seleccion(f), *real)
+            if ok is not None:
+                resultado = "ganada" if ok else "perdida"
+                # Las apostadas, con lo que de verdad apostaste (importe_real)
+                ben = registro.beneficio_fila(dict(f, resultado=resultado),
+                                              real=f.get("estado") == registro.ESTADO_APOSTADA)
+                campos.update(resultado=resultado, beneficio=round(ben, 2))
+                self._log("resultado", f.get("partido", ""),
+                          f"{resultado} ({cp['legs1']}-{cp['legs2']}, "
+                          f"180s {cp['t180_1']}-{cp['t180_2']})")
+                n += 1
+            if campos:
+                self.hoja.actualizar_alerta(f["_fila"], campos)
 
         # Cuotas de Winamax guardadas con el boton: todas en una peticion
-        cambios = []
-        for f in self.hoja.filas_winamax():
-            if f.get("resultado") in ("ganada", "perdida") or not f.get("seleccion_json"):
+        cambios, n_wm = [], 0
+        for f in self._pendientes(self.hoja.filas_winamax(), hoy,
+                                  ("n_partido", "previos_j1", "previos_j2")):
+            r = self._partido_real(f, cache)
+            if not r:
                 continue
-            real = self._resultado_real(f, cache)
-            if not real:
-                continue
-            ok = reglas.acierta(registro.seleccion(f), *real)
-            if ok is not None:
-                cambios.append((f["_fila"], "ganada" if ok else "perdida"))
+            cp, jornada, _ = r
+            campos = {} if f.get("n_partido") else {"jornada": f.get("jornada") or jornada,
+                                                     "n_partido": cp["orden"] + 1}
+            if str(f.get("previos_j1", "")).strip() == "":
+                campos.update(self._previos(f, f.get("jornada") or jornada, cp["orden"], cache))
+            if f.get("resultado") not in ("ganada", "perdida") and f.get("seleccion_json"):
+                ok = reglas.acierta(registro.seleccion(f), *self._resultado_real(f, cache))
+                if ok is not None:
+                    campos["resultado"] = "ganada" if ok else "perdida"
+                    n_wm += 1
+            if campos:
+                cambios.append((f["_fila"], campos))
         if cambios:
-            self.hoja.resultados_winamax(cambios)
-            self._log("resultado", "", f"{len(cambios)} cuotas de Winamax con resultado")
-        return n + len(cambios)
+            self.hoja.actualizar_winamax(cambios)
+            if n_wm:
+                self._log("resultado", "", f"{n_wm} cuotas de Winamax con resultado")
+        return n + n_wm

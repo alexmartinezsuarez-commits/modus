@@ -23,6 +23,8 @@ COLUMNAS_ALERTAS = [
     # Lo que de verdad apostaste si cambiaste el importe a mano (vacio = el
     # recomendado). Al final para no descolocar las filas antiguas.
     "importe_real",
+    # Numero de partido de la jornada (1, 2, ... 15)
+    "n_partido",
 ]
 COLUMNAS_LOG = ["fecha", "hora", "tipo", "partido", "detalle"]
 
@@ -46,6 +48,10 @@ COLUMNAS_WINAMAX = [
     "vol_j2", "titulo", "salida", "mercado", "seleccion", "cuota", "p_modelo",
     "cuota_justa", "edge", "verde", "importe", "fuente", "resultado",
     "seleccion_json",
+    "jornada", "n_partido",
+    # Partidos que cada jugador llevaba esta semana antes de este: solo se
+    # guardan (y cuentan en las estadisticas) los partidos fiables
+    "previos_j1", "previos_j2",
 ]
 
 ESTADO_PENDIENTE = "pendiente"
@@ -224,6 +230,10 @@ def _importe_con_volatilidad(f):
     return reglas.bajar_escalon(imp) if req["rebaja"] else imp
 
 
+def _vacio():
+    return {"n": 0, "liq": 0, "ganadas": 0, "apostado": 0.0, "beneficio": 0.0}
+
+
 def _acumular(g, f, imp):
     g["n"] += 1
     if f.get("resultado") in ("ganada", "perdida"):
@@ -242,40 +252,80 @@ def _cerrar(g):
     return g
 
 
-def por_mercado(filas, con_volatilidad=False):
+def por_mercado(filas, con_volatilidad=False, todas=None):
     """Seguimiento de cada mercado por separado.
 
-    Para cada mercado (y un TOTAL), dos bloques: 'todas' (todas las apuestas
-    con value, con su importe recomendado) y 'reales' (solo las marcadas
-    'apostada', con lo que de verdad apostaste).
+    Para cada mercado (y un TOTAL), dos bloques: 'todas' (por defecto, las
+    apuestas de `filas`; o las de `todas`, p. ej. mejores_por_partido, con
+    su importe recomendado) y 'reales' (las de `filas` marcadas 'apostada',
+    con lo que de verdad apostaste).
     con_volatilidad=True aplica la regla de volatilidad del vigia: quita las
     que esa regla habria descartado y baja el importe con volatilidad alta.
-    Devuelve (lista de dicts por mercado, n de apuestas excluidas).
+    Devuelve (lista de dicts por mercado, n de 'todas' excluidas).
     """
-    vacio = lambda: {"n": 0, "liq": 0, "ganadas": 0, "apostado": 0.0, "beneficio": 0.0}  # noqa: E731
     grupos, excluidas = {}, 0
-    for f in filas:
-        if f.get("tipo_aviso") != AVISO_APUESTA:
-            continue
-        imp = num(f.get("importe"))
-        if con_volatilidad:
-            imp = _importe_con_volatilidad(f)
-            if imp is None:
-                excluidas += 1
+    apuestas = [f for f in filas if f.get("tipo_aviso") == AVISO_APUESTA]
+    if todas is None:
+        todas = apuestas
+    for bloque, lista in (("todas", todas),
+                          ("reales", [f for f in apuestas if f.get("estado") == ESTADO_APOSTADA])):
+        for f in lista:
+            if f.get("tipo_aviso") != AVISO_APUESTA:
                 continue
-        for clave in (f.get("mercado") or "?", "TOTAL"):
-            g = grupos.setdefault(clave, {"todas": vacio(), "reales": vacio()})
-            _acumular(g["todas"], f, imp)
-            if f.get("estado") == ESTADO_APOSTADA:
-                # Sin volatilidad, lo que de verdad apostaste; con volatilidad
-                # es una simulacion de la regla y va con el importe simulado
-                _acumular(g["reales"], f, imp if con_volatilidad else importe_apostado(f))
+            imp = num(f.get("importe")) if bloque == "todas" else importe_apostado(f)
+            if con_volatilidad:
+                # simulacion de la regla: con el importe que daria la regla
+                imp = _importe_con_volatilidad(f)
+                if imp is None:
+                    excluidas += bloque == "todas"
+                    continue
+            for clave in (f.get("mercado") or "?", "TOTAL"):
+                g = grupos.setdefault(clave, {"todas": _vacio(), "reales": _vacio()})
+                _acumular(g[bloque], f, imp)
     salida = []
     for mercado in sorted(grupos, key=lambda m: (m == "TOTAL", m)):
         g = grupos[mercado]
         salida.append({"mercado": mercado, "todas": _cerrar(g["todas"]),
                        "reales": _cerrar(g["reales"])})
     return salida, excluidas
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PARTIDOS FIABLES Y "SI LAS HUBIERAS HECHO TODAS"
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Un partido es fiable si los dos jugadores llevan al menos estos partidos
+# esta semana antes de el (de cualquier dia): con menos, el modelo casi no
+# tiene datos suyos.
+MIN_PREVIOS = 3
+
+
+def fiable(fila):
+    """True si los dos jugadores llevaban MIN_PREVIOS partidos o mas."""
+    previos = [str(fila.get(k, "")).strip() for k in ("previos_j1", "previos_j2")]
+    return all(p != "" and num(p) >= MIN_PREVIOS for p in previos)
+
+
+def mejores_por_partido(filas_winamax):
+    """'Si las hubieras hecho todas': de cada partido fiable leido con el
+    boton, la mejor apuesta (la de mas edge entre las que tu regla manda
+    apostar, importe > 0) de la ultima lectura, con el importe que indicaba
+    el modelo. Devuelve filas con la forma de las de 'alertas'."""
+    partidos = {}
+    for f in filas_winamax:
+        if not fiable(f) or not f.get("seleccion_json"):
+            continue
+        clave = (f.get("fecha"), f.get("match_id") or f"{f.get('j1')}|{f.get('j2')}")
+        partidos.setdefault(clave, []).append(f)
+    mejores = []
+    for fs in partidos.values():
+        ultima = max(num(f.get("lectura")) for f in fs)
+        candidatas = [f for f in fs if num(f.get("lectura")) == ultima and num(f.get("importe")) > 0]
+        if candidatas:
+            m = max(candidatas, key=lambda f: num(f.get("edge")))
+            mejores.append(dict(m, tipo_aviso=AVISO_APUESTA, estado="",
+                                partido=f"{m.get('j1')} vs {m.get('j2')}"))
+    return sorted(mejores, key=lambda f: (str(f.get("fecha")), str(f.get("hora"))))
 
 
 def por_mercado_y_volatilidad(filas):
@@ -322,8 +372,10 @@ def estadisticas_winamax(filas):
                  (menor = mejor) y quien acierta mas
       tramos     por tramo de edge: apuestas de 1 EUR a todas, aciertos, ROI
       mercados   por mercado, solo con edge >= 20 % (tu regla): n, ROI
+
+    Solo cuentan los partidos fiables (fiable(): 3 partidos previos o mas).
     """
-    filas = _ultimas_lecturas(filas)
+    filas = _ultimas_lecturas([f for f in filas if fiable(f)])
     resumen = {"lecturas": len({f.get("lectura") for f in filas}),
                "cuotas": len(filas),
                "liquidadas": sum(1 for f in filas if f.get("resultado") in ("ganada", "perdida"))}
@@ -358,6 +410,7 @@ def estadisticas_winamax(filas):
             g["n"] += 1
             g["modelo"] += (num(f["p_modelo"]) - y) ** 2
             g["winamax"] += (q - y) ** 2
+
     precision = []
     for m in sorted(prec, key=lambda k: (k == "TOTAL", k)):
         g = prec[m]
@@ -393,5 +446,6 @@ def estadisticas_winamax(filas):
                 "beneficio": g["beneficio"], "roi": g["beneficio"] / g["n"] if g["n"] else None}
 
     return {"resumen": resumen, "margen": margen, "precision": precision,
+
             "tramos": [cerrar(t[2], tramos[t[2]]) for t in TRAMOS_EDGE],
             "mercados": [cerrar(m, g) for m, g in sorted(mercados.items())]}
