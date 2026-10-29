@@ -30,7 +30,8 @@ from vigia.registro import (HOJA_ALERTAS, COLUMNAS_ALERTAS, HOJA_WINAMAX,
                             filas_a_dicts, gastado_del_dia, num,
                             resumen_apuestas, beneficio_fila, importe_apostado)
 from vigia.registro import (beneficio_real, por_mercado, por_mercado_y_volatilidad,
-                            mejores_por_partido, tope_del_dia, MIN_PREVIOS)
+                            simulacion_todas, tope_del_dia, MIN_PREVIOS,
+                            MIN_PREVIOS_CON_HISTORICO)
 from vigia.reglas import TOPE_DIARIO
 
 
@@ -347,10 +348,17 @@ def liquidar_desde_app(filas):
     """Apunta el resultado de las apuestas (y de las cuotas de Winamax
     guardadas) cuyos partidos ya han terminado, leyendo las hojas de las
     jornadas. Lo mismo que hace el vigia. (n, error)"""
+    from datetime import date, timedelta
     wm, _ = cargar_winamax()
-    if not _pendientes(filas) and not any(
-            f.get("seleccion_json") and f.get("resultado") not in ("ganada", "perdida")
-            for f in (wm or [])):
+    hace_6 = (date.today() - timedelta(days=6)).isoformat()
+    falta_algo = any(
+        f.get("seleccion_json") and (
+            f.get("resultado") not in ("ganada", "perdida")
+            # cuotas guardadas antes de la regla de fiabilidad: se rellenan
+            # sus partidos previos mientras sean de esta semana
+            or (str(f.get("previos_j1", "")).strip() == "" and str(f.get("fecha", "")) >= hace_6))
+        for f in (wm or []))
+    if not _pendientes(filas) and not falta_algo:
         return 0, ""
     from vigia.nucleo import DatosSheet, Vigia
     ws, err = _hoja_alertas()
@@ -363,10 +371,46 @@ def liquidar_desde_app(filas):
         hoja.volcar()
     except Exception as e:
         return 0, str(e)
-    if n:
-        cargar_alertas.clear()
-        cargar_winamax.clear()
+    # Tambien si solo se han rellenado jornada / partidos previos
+    cargar_alertas.clear()
+    cargar_winamax.clear()
     return n, ""
+
+
+def rellenar_semanas_winamax():
+    """Cuotas guardadas antes de contar el historico: les pone las semanas
+    de historico que tenia cada jugador (pestana Historico, semanas
+    anteriores a la de la fila). Devuelve cuantas filas ha completado."""
+    from datetime import datetime
+    from data_loading import _filas_historico
+    from modelo.historico import _buscar, resumen_historico, sabado_de_la_semana
+    from vigia.hoja import _celdas
+    wm, _ = cargar_winamax()
+    faltan = [f for f in wm or [] if f.get("seleccion_json")
+              and str(f.get("semanas_j1", "")).strip() == ""]
+    filas_h = _filas_historico()
+    if not faltan or not filas_h:
+        return 0
+    por_semana, cambios = {}, []
+    for f in faltan:
+        try:
+            sab = sabado_de_la_semana(datetime.fromisoformat(str(f.get("fecha"))))
+        except ValueError:
+            continue
+        if sab not in por_semana:
+            h = resumen_historico(filas_h, antes_de=sab)
+            por_semana[sab] = (h, {v["nombre_original"]: v for v in h.values()})
+        h, por_nombre = por_semana[sab]
+        cambios.append((f["_fila"], {
+            f"semanas_j{n}": (_buscar(f.get(f"j{n}", ""), h, por_nombre) or {}).get("semanas", 0)
+            for n in (1, 2)}))
+    ws, _ = _pestana(HOJA_WINAMAX, COLUMNAS_WINAMAX)
+    if ws is None or not cambios:
+        return 0
+    _asegurar_cabecera(ws, COLUMNAS_WINAMAX)
+    ws.batch_update(_celdas(COLUMNAS_WINAMAX, cambios), value_input_option="RAW")
+    cargar_winamax.clear()
+    return len(cambios)
 
 
 def _liquidar_al_abrir(filas):
@@ -375,11 +419,15 @@ def _liquidar_al_abrir(filas):
         return False
     st.session_state["_liq_t"] = time.time()
     n, err = liquidar_desde_app(filas)
+    try:
+        rellenar_semanas_winamax()
+    except Exception as e:
+        st.caption(f"⚠️ No se pudieron completar las semanas de histórico: {e}")
     if err:
         st.caption(f"⚠️ No se pudieron apuntar los resultados: {err}")
     elif n:
         st.toast(f"✅ {n} resultados nuevos apuntados")
-    return n > 0
+    return True
 
 
 def _tarjeta(f):
@@ -444,8 +492,9 @@ def render_alertas():
     st.subheader("Histórico")
     anteriores = [f for f in filas if f.get("fecha") != hoy]
     wm, _ = cargar_winamax()
-    todas = mejores_por_partido(wm or [])
+    todas, detalle = simulacion_todas(wm or [])
     _bloque_resumen(filas, todas)
+    _detalle_todas(detalle)
     pendientes = [f for f in anteriores if f.get("tipo_aviso") == AVISO_APUESTA
                   and f.get("estado") == ESTADO_PENDIENTE]
     if pendientes:
@@ -497,10 +546,37 @@ def _bloque_resumen(filas, mejores):
                      help=f"{r['ganadas']} de {r['liquidadas']} liquidadas")
             b.metric("Apostado", _eur(r["invertido"]),
                      help=f"{r['pendientes']} sin resultado todavía")
-    st.caption(f"🧪 «Si las hubieras hecho todas»: de cada partido que leíste con el "
-               f"botón «Modus value» y en el que los dos jugadores llevaban {MIN_PREVIOS} "
-               f"partidos o más esa semana, la mejor apuesta (la de más edge entre las "
-               f"que tu regla manda apostar), con el importe que indicaba el modelo.")
+    st.caption(f"🧪 «Si las hubieras hecho todas»: una apuesta por cada partido que "
+               f"leíste con el botón «Modus value» (con cada jugador con {MIN_PREVIOS} "
+               f"partidos esa semana, o {MIN_PREVIOS_CON_HISTORICO} y su histórico) en el que alguna "
+               f"cuota pasaba tu filtro; si "
+               f"pasaban varias, la de más edge, con el importe que indicaba el modelo.")
+
+
+def _detalle_todas(detalle):
+    """Que partidos cuentan en 'Si las hubieras hecho todas' y por que no
+    los demas."""
+    if not detalle:
+        return
+    cuentan = sum(1 for d in detalle if d["cuenta"])
+    with st.expander(f"🔎 Qué partidos cuenta «Si las hubieras hecho todas» "
+                     f"({cuentan} de {len(detalle)} leídos con el botón)"):
+        tabla = []
+        for d in reversed(detalle):
+            a = d["apuesta"] or {}
+            tabla.append({
+                "Fecha": d["fecha"], "Partido": d["partido"],
+                "Cuenta": "✅" if d["cuenta"] else "—",
+                "Apuesta": a.get("seleccion", "") if d["cuenta"] else d["motivo"],
+                "Cuota": a.get("cuota", ""), "Edge": (f"{num(a.get('edge'))*100:.1f} %"
+                                                      if d["cuenta"] else ""),
+                "Importe": _eur(num(a.get("importe"))) if d["cuenta"] else "",
+                "Resultado": a.get("resultado") or ("pendiente" if d["cuenta"] else ""),
+            })
+        st.dataframe(pd.DataFrame(tabla), use_container_width=True, hide_index=True)
+        st.caption("Solo cuentan los partidos que leíste con el botón «Modus value»: de "
+                   "los demás no hay cuotas de Winamax guardadas. «Apostado» y el "
+                   "beneficio solo suman los que ya tienen resultado.")
 
 
 def _evolucion(filas, mejores):

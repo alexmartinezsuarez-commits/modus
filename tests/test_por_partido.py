@@ -41,6 +41,11 @@ def test_fiable():
     assert not fiable({"previos_j1": 2, "previos_j2": 7})
     assert not fiable({"previos_j1": "", "previos_j2": 7})      # sin dato: no cuenta
     assert not fiable({})
+    # o 2 partidos y tener historico, jugador a jugador
+    assert fiable({"previos_j1": 2, "semanas_j1": 1, "previos_j2": 4})
+    assert fiable({"previos_j1": 2, "semanas_j1": 3, "previos_j2": 2, "semanas_j2": 1})
+    assert not fiable({"previos_j1": 2, "semanas_j1": 0, "previos_j2": 4})   # sin historico
+    assert not fiable({"previos_j1": 1, "semanas_j1": 9, "previos_j2": 4})   # 1 partido no basta
 
 
 def _wm(match, lectura, salida, edge, importe, resultado, cuota=2.0, previos=(3, 3), **extra):
@@ -95,3 +100,22 @@ def test_el_vigia_rellena_jornada_numero_y_previos_de_filas_ya_guardadas():
     nueva, vieja = hoja.filas_winamax()
     assert (nueva["n_partido"], nueva["previos_j1"], nueva["previos_j2"]) == (2, 2, 2)
     assert "previos_j1" not in vieja
+
+
+def test_cuenta_la_ultima_lectura_que_pasaba_el_filtro_y_explica_el_resto():
+    from vigia.registro import simulacion_todas
+    filas = [
+        _wm("4", 500, "A", 0.30, 10, "ganada"),         # pasaba el filtro...
+        _wm("4", 600, "A", 0.05, 0, "ganada"),          # ...y en la ultima ya no
+        _wm("5", 700, "A", 0.10, 0, "perdida"),         # nunca paso
+        _wm("6", 800, "A", 0.40, 15, "", previos=(1, 4)),
+        _wm("7", 900, "A", 0.40, 15, "", previos=("", "")),
+    ]
+    mejores, detalle = simulacion_todas(filas)
+    assert [(m["match_id"], m["lectura"]) for m in mejores] == [("4", 500)]
+    motivos = {d["partido"] + d["fecha"] + str(i): d["motivo"] for i, d in enumerate(detalle)}
+    assert sum(d["cuenta"] for d in detalle) == 1 and len(detalle) == 4
+    textos = " | ".join(motivos.values())
+    assert "ninguna cuota llegaba" in textos
+    assert "A: 1 partidos esta semana y 0 semanas de histórico" in textos
+    assert "A: ? partidos esta semana" in textos and "B: ? partidos" in textos
