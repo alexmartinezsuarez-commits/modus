@@ -4,13 +4,14 @@ on:
   # Igual que auto-registrar: lo lanza cron-job.org (llamada a la API,
   # "workflow_dispatch") cada pocos minutos. Sin "schedule" propio (GitHub
   # desactiva los programados de repos publicos tras 60 dias sin commits).
-  # Cada pasada: dentro de la ventana de jornada avisa por ntfy del partido
-  # que toca y apunta resultados; fuera, solo apunta resultados. Puede
-  # convivir con el vigia del portatil: los dos miran vigia_log antes de
-  # avisar, asi que no se repiten avisos.
+  # Dentro de la ventana de jornada se queda revisando CADA MINUTO (con
+  # OddsPapi: cuotas reales de Winamax) hasta el final de la ventana o
+  # 5 h 40 min (GitHub corta a las 6 h); entonces arranca la siguiente
+  # llamada, que espera en la cola. Fuera de la ventana solo apunta
+  # resultados y sale.
   workflow_dispatch:
 
-# Una pasada cada vez (si se solapan, la nueva espera a la anterior)
+# Uno cada vez: la siguiente llamada espera en la cola a que acabe este
 concurrency:
   group: vigia
   cancel-in-progress: false
@@ -18,7 +19,7 @@ concurrency:
 jobs:
   vigia:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 355
     steps:
       - name: Checkout codigo
         uses: actions/checkout@v4
@@ -33,9 +34,10 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements-vigia.txt
 
-      - name: Una pasada del vigia
+      - name: Vigia (cada minuto durante la ventana)
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           NTFY_TEMA: ${{ secrets.NTFY_TEMA }}
           SHEET_ID_DATOS: ${{ secrets.SHEET_ID_DATOS }}
-        run: python -m vigia --una-vez
+          ODDSPAPI_KEY: ${{ secrets.ODDSPAPI_KEY }}
+        run: python -m vigia --max-minutos 340
