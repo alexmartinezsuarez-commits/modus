@@ -40,7 +40,9 @@ API_PARTIDOS_CADA_MIN = 180  # la lista de partidos (sus id) no cambia: cada 3 h
 API_PARTIDOS_REINTENTO_MIN = 15   # si falta un partido en la lista, otra como mucho cada 15 min
 API_PAUSA_SI_FALLA_MIN = 30  # sin peticiones o clave mala: pausa y se reintenta a los 30 min
 API_LISTA_SIN_CUOTAS_MIN = 5    # si Winamax aun no tiene cuotas, la lista se mira cada 5 min
-API_ANTES_MIN = 10           # no se gasta nada en un partido hasta 10 min antes de su hora
+API_ANTES_MIN = 10           # no se gasta nada en un partido hasta 10 min antes de su hora...
+# ...o hasta que el partido anterior del cartel este en juego o terminado (en Modus
+# cada partido empieza al acabar el anterior: asi no se escapan los que se adelantan)
 
 
 def ahora_madrid():
@@ -195,6 +197,7 @@ class Vigia:
         self._lista, self._lista_t = None, None   # partidos de OddsPapi y cuando
         self._api_parada = None     # hasta cuando no se usa OddsPapi (fallo definitivo)
         self._avisos_api = set()    # fallos de OddsPapi ya avisados al movil (fecha, motivo)
+        self._siguientes = set()    # partidos cuyo anterior del cartel ya esta en juego o terminado
         self.notif = notificador
         self.datos = datos
         self.aj = ajustes
@@ -346,6 +349,7 @@ class Vigia:
         """Una vuelta con OddsPapi. Devuelve cuantos partidos quedan sin empezar."""
         from vigia.frescura import partido_anterior
         listos, pendientes = [], set()
+        self._siguientes = set()
         for jornada, lista in self.datos.calendario.items():
             sin_empezar = [p["orden"] for p in lista if p["estado"] == "pendiente"]
             for p in lista:
@@ -364,6 +368,11 @@ class Vigia:
                     self._espera(clave, "faltan más de dos partidos para el suyo")
                 else:
                     listos.append((jornada, p, clave))
+                    anteriores = [q for q in lista if q["orden"] < p["orden"]]
+                    if (sin_empezar.index(p["orden"]) == 0 and anteriores
+                            and max(anteriores, key=lambda q: q["orden"])["estado"]
+                            in ("en_juego", "terminado")):
+                        self._siguientes.add(clave)
         # Los que empezaron sin llegar a avisar: por que (para ver retrasos)
         for clave in [c for c in self._esperas if c not in pendientes]:
             motivo = self._esperas.pop(clave)
@@ -392,8 +401,9 @@ class Vigia:
             # hasOdds de la lista (con bookmakers=winamax): si Winamax aun no
             # tiene cuotas, se mira la lista (1 peticion para todos) en vez
             # de gastar una lectura por partido
-            sin_cuotas = any(f is not None and f.get("hasOdds") is False and _pronto(f, ahora)
-                             for f in encontrados)
+            sin_cuotas = any(f is not None and f.get("hasOdds") is False
+                             and (x[2] in self._siguientes or _pronto(f, ahora))
+                             for f, x in zip(encontrados, listos))
             if (edad is None or edad >= API_PARTIDOS_CADA_MIN
                     or (falta and edad >= API_PARTIDOS_REINTENTO_MIN)
                     or (sin_cuotas and edad >= API_LISTA_SIN_CUOTAS_MIN)):
@@ -502,7 +512,7 @@ class Vigia:
             # hay cuotas en directo (pedirlas da 403)
             self._cerrados.add(clave)
             return self._espera(clave, "OddsPapi lo da ya empezado")
-        if not _pronto(f, self.reloj()):
+        if clave not in self._siguientes and not _pronto(f, self.reloj()):
             m = minutos_para_empezar(f, self.reloj())
             return self._espera(clave, f"faltan {m:.0f} min; sus cuotas se miran desde "
                                        f"{API_ANTES_MIN} min antes")
