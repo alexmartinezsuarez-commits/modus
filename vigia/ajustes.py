@@ -45,6 +45,9 @@ class Ajustes:
     # Sin clave, el vigia avisa con cuotas minimas, como antes.
     oddspapi_key: str = ""
     oddspapi_casa: str = "winamax.es"
+    # Si OddsPapi falla (sin peticiones, clave, plan): False = sin avisos
+    # (te llega uno con el motivo); True = avisos con cuotas minimas
+    avisos_sin_api: bool = False
 
 
 def cargar_ajustes():
@@ -66,4 +69,5 @@ def cargar_ajustes():
         sheet_id_datos=e("SHEET_ID_DATOS", ""),
         oddspapi_key=e("ODDSPAPI_KEY", "").strip(),
         oddspapi_casa=e("ODDSPAPI_CASA", "winamax.es"),
+        avisos_sin_api=e("AVISOS_SIN_API", "0").strip().lower() in ("1", "si", "sí", "true"),
     )
