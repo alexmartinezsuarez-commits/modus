@@ -40,7 +40,7 @@ API_PARTIDOS_CADA_MIN = 180  # la lista de partidos (sus id) no cambia: cada 3 h
 API_PARTIDOS_REINTENTO_MIN = 15   # si falta un partido en la lista, otra como mucho cada 15 min
 API_PAUSA_SI_FALLA_MIN = 30  # sin peticiones o clave mala: pausa y se reintenta a los 30 min
 API_LISTA_SIN_CUOTAS_MIN = 5    # si Winamax aun no tiene cuotas, la lista se mira cada 5 min
-API_ANTES_MIN = 40           # no se gasta nada en un partido hasta 40 min antes de su hora
+API_ANTES_MIN = 10           # no se gasta nada en un partido hasta 10 min antes de su hora
 
 
 def ahora_madrid():
