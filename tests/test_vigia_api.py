@@ -298,9 +298,35 @@ def test_sin_cuotas_de_winamax_en_la_lista_no_gasta_lecturas():
         v.ciclo()
         RELOJ.mas(3)
     assert "id1903399476162502" not in api.pedidas
-    assert api.pedidas.count("partidos") == 1   # la lista, como mucho cada 10 min
+    assert api.pedidas.count("partidos") == 2   # la lista, como mucho cada 5 min
     for f in lista:
         f["hasOdds"] = True                     # Winamax ya las publica
     v.ciclo()                                   # minuto 12: lista nueva y lectura
-    assert api.pedidas.count("partidos") == 2
+    assert api.pedidas.count("partidos") == 3
     assert api.pedidas.count("id1903399476162502") == 1
+
+
+def test_no_gasta_nada_hasta_40_minutos_antes():
+    """El 30/10 el vigia empezo a pedir las cuotas de los dos primeros del
+    Grupo B tres horas antes y gasto sus 6 lecturas sin que Winamax las
+    tuviera. Ahora espera a 40 min de la hora del partido."""
+    lista = copy.deepcopy(PARTIDOS)
+    for f in lista:
+        if f["fixtureId"] == "id1903399476162502":
+            f["startTime"] = "2026-10-30T19:00:00.000Z"     # 20:00 en Madrid
+            f["hasOdds"] = False
+
+    class Pronto(Api):
+        def partidos(self, ahora):
+            self.pedidas.append("partidos")
+            return copy.deepcopy(lista)
+
+    v, datos, hoja, notif, api = _montar()          # 17:10 en Madrid
+    v.api = api = Pronto(ODDS)
+    datos.calendario[J][3]["estado"] = "terminado"
+    datos.contados["David Davies"] = 2
+    for _ in range(20):                             # hasta las 18:10
+        v.ciclo()
+        RELOJ.mas(3)
+    assert api.pedidas == ["partidos"]              # solo la lista inicial
+    assert "faltan" in v._esperas["David Davies vs Benito van de Pas (Grupo C Viernes, 5)"]
