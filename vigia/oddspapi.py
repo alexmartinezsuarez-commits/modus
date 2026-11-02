@@ -40,31 +40,77 @@ class ErrorOddsPapi(Exception):
         self.definitivo = definitivo
 
 
-def _get(ruta, clave, **params):
+class PartidoEnJuego(ErrorOddsPapi):
+    """El partido ya ha empezado: con el plan gratuito OddsPapi no da cuotas
+    en directo y responde 403 ("No bookmakers with live access found"). No
+    es un fallo de la clave: ese partido se da por cerrado y ya esta."""
+
+
+def _cuerpo(r):
+    try:
+        j = r.json()
+    except ValueError:
+        return {}
+    if isinstance(j, dict) and isinstance(j.get("error"), dict):
+        return j["error"]
+    return j if isinstance(j, dict) else {}
+
+
+def _detalle(r, clave=""):
+    """'CODIGO: mensaje' de una respuesta de error de OddsPapi (sin la clave)."""
+    e = _cuerpo(r)
+    codigo = str(e.get("code") or e.get("errorCode") or "")
+    msg = str(e.get("message") or e.get("details") or e.get("error") or "")
+    texto = f"{codigo}: {msg}" if codigo and msg else (codigo or msg or (r.text or ""))
+    texto = " ".join(texto.split())[:200]
+    return texto.replace(clave, "***") if clave else texto
+
+
+def _get(ruta, clave, dormir=None, **params):
+    """GET a OddsPapi. Errores (documentacion de OddsPapi, «Errors»):
+    401 clave mala; 403 el plan no cubre la peticion (o el partido ya esta
+    en juego); 429 demasiado seguidas (se espera retryMs y se repite una
+    vez) o sin peticiones en el mes."""
+    import time
     import requests
     params["apiKey"] = clave
-    try:
-        r = requests.get(f"{BASE}/{ruta}", params=params, timeout=20)
-    except requests.RequestException as ex:
-        raise ErrorOddsPapi(f"no se puede conectar ({type(ex).__name__})")
-    if r.status_code in (401, 403):
-        raise ErrorOddsPapi("la clave ODDSPAPI_KEY no es válida", definitivo=True)
-    if r.status_code == 429:
-        raise ErrorOddsPapi("has gastado las peticiones de tu plan (o demasiadas seguidas)",
-                            definitivo=True)
-    if r.status_code != 200:
-        raise ErrorOddsPapi(f"error HTTP {r.status_code}")
-    try:
-        return r.json()
-    except ValueError:
-        raise ErrorOddsPapi("respuesta que no es JSON")
+    for intento in range(2):
+        try:
+            r = requests.get(f"{BASE}/{ruta}", params=params, timeout=20)
+        except requests.RequestException as ex:
+            raise ErrorOddsPapi(f"no se puede conectar ({type(ex).__name__})")
+        if r.status_code == 200:
+            try:
+                return r.json()
+            except ValueError:
+                raise ErrorOddsPapi("respuesta que no es JSON")
+        det = _detalle(r, clave)
+        if r.status_code == 429 and "REQUEST_LIMIT" not in det.upper() and intento == 0:
+            try:
+                ms = int(_cuerpo(r).get("retryMs") or 0)
+            except (TypeError, ValueError):
+                ms = 0
+            (dormir or time.sleep)(min(max(ms, 500), 5000) / 1000)
+            continue
+        if r.status_code == 401:
+            raise ErrorOddsPapi(f"OddsPapi rechaza la clave (401 {det})", definitivo=True)
+        if r.status_code == 403 and "live" in det.lower():
+            raise PartidoEnJuego(f"el partido ya está en juego (403 {det})")
+        if r.status_code == 403:
+            raise ErrorOddsPapi(f"tu plan de OddsPapi no cubre esta petición (403 {det})",
+                                definitivo=True)
+        if r.status_code == 429:
+            raise ErrorOddsPapi(f"sin peticiones de OddsPapi este mes (429 {det})",
+                                definitivo=True)
+        raise ErrorOddsPapi(f"error HTTP {r.status_code} ({det})")
 
 
-def partidos(clave, ahora, get=_get):
+def partidos(clave, ahora, get=_get, casa=CASA):
     """Partidos de la Modus de ayer a pasado manana (fechas UTC: las
-    sesiones de noche acaban pasada la medianoche)."""
+    sesiones de noche acaban pasada la medianoche). Con bookmakers=casa,
+    hasOdds dice si Winamax ya tiene cuotas de cada partido."""
     d = ahora.date()
-    lista = get("fixtures", clave, tournamentId=TORNEO_MODUS,
+    lista = get("fixtures", clave, tournamentId=TORNEO_MODUS, bookmakers=casa,
                 **{"from": (d - timedelta(days=1)).isoformat(),
                    "to": (d + timedelta(days=2)).isoformat()})
     if not isinstance(lista, list):
@@ -252,7 +298,7 @@ class Cliente:
             self._ultima[ruta] = time.monotonic()
 
     def partidos(self, ahora):
-        return partidos(self.clave, ahora, get=self._contar)
+        return partidos(self.clave, ahora, get=self._contar, casa=self.casa)
 
     def cuotas(self, fixture_id):
         return cuotas(self.clave, fixture_id, self.casa, get=self._contar)

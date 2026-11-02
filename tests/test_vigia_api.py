@@ -87,7 +87,7 @@ def _montar(odds=ODDS):
     cal[3]["estado"] = "en_juego"            # Davies aun jugando su anterior
     hoja, notif, api = HojaMemoria(), Notif(), Api(odds)
     v = Vigia(hoja, notif, datos, AJ, reloj=RELOJ, api=api)
-    RELOJ.t = datetime(2026, 10, 30, 17, 10, tzinfo=M)
+    RELOJ.t = datetime(2026, 10, 30, 17, 21, tzinfo=M)   # 9 min antes de Davies-van de Pas (17:30)
     return v, datos, hoja, notif, api
 
 
@@ -214,13 +214,13 @@ def test_aviso_claro_con_tope_volatilidad_y_poco_fiable():
     assert nombre_corto("Self") == "Self"
 
 
-def test_sin_peticiones_en_el_plan_avisa_con_cuotas_minimas_y_reintenta_luego():
+def test_sin_peticiones_avisa_una_vez_del_fallo_y_no_manda_avisos_viejos():
     from vigia.oddspapi import ErrorOddsPapi
 
     class Agotada(Api):
         def partidos(self, ahora):
             self.pedidas.append("partidos")
-            raise ErrorOddsPapi("has gastado las peticiones de tu plan", definitivo=True)
+            raise ErrorOddsPapi("sin peticiones de OddsPapi este mes (429 X)", definitivo=True)
 
     v, datos, hoja, notif, api = _montar()
     v.api = api = Agotada(ODDS)
@@ -228,9 +228,105 @@ def test_sin_peticiones_en_el_plan_avisa_con_cuotas_minimas_y_reintenta_luego():
     datos.contados["David Davies"] = 2
     v.ciclo()
     assert api.pedidas == ["partidos"]
-    assert len(notif.enviados) == 1                                  # aviso de antes
-    assert notif.enviados[0]["texto"].startswith("🎯 Siguiente: Davies vs Pas · Gana")
-    assert any("cuotas mínimas" in d["detalle"] for d in hoja.logs if d["tipo"] == "error")
+    assert len(notif.enviados) == 1
+    assert notif.enviados[0]["texto"].startswith("⚠️ Vigía: OddsPapi falla: sin peticiones")
+    assert any("Sin avisos" in d["detalle"] for d in hoja.logs if d["tipo"] == "error")
     RELOJ.mas(10)
     v.ciclo()
     assert api.pedidas == ["partidos"] and len(notif.enviados) == 1   # sin repetir ni pedir
+    RELOJ.mas(25)
+    v.ciclo()                                   # a los 30 min reintenta; mismo fallo, sin repetir aviso
+    assert api.pedidas == ["partidos"] * 2 and len(notif.enviados) == 1
+
+
+def test_con_avisos_sin_api_vuelve_a_las_cuotas_minimas():
+    from vigia.oddspapi import ErrorOddsPapi
+
+    class Agotada(Api):
+        def partidos(self, ahora):
+            raise ErrorOddsPapi("sin peticiones de OddsPapi este mes (429 X)", definitivo=True)
+
+    v, datos, hoja, notif, api = _montar()
+    v.aj = SimpleNamespace(**vars(AJ), avisos_sin_api=True)
+    v.api = Agotada(ODDS)
+    datos.calendario[J][3]["estado"] = "terminado"
+    datos.contados["David Davies"] = 2
+    v.ciclo()
+    textos = [n["texto"] for n in notif.enviados]
+    assert any(x.startswith("⚠️ Vigía: OddsPapi falla") for x in textos)
+    assert any(x.startswith("🎯 Siguiente: Davies vs Pas · Gana") for x in textos)
+
+
+def test_en_juego_no_es_fallo_de_la_clave():
+    """403 'live access' al pedir las cuotas: el partido se cierra, sin pausa
+    de OddsPapi ni avisos de error."""
+    from vigia.oddspapi import PartidoEnJuego
+
+    class EnJuego(Api):
+        def cuotas(self, fixture_id):
+            self.pedidas.append(fixture_id)
+            raise PartidoEnJuego("el partido ya está en juego (403 X)")
+
+    v, datos, hoja, notif, api = _montar()
+    v.api = api = EnJuego(ODDS)
+    datos.calendario[J][3]["estado"] = "terminado"
+    datos.contados["David Davies"] = 2
+    v.ciclo()
+    RELOJ.mas(3)
+    v.ciclo()
+    assert api.pedidas.count("id1903399476162502") == 1
+    assert v._api_parada is None and notif.enviados == []
+    assert not any(d["tipo"] == "error" for d in hoja.logs)
+
+
+def test_sin_cuotas_de_winamax_en_la_lista_no_gasta_lecturas():
+    lista = copy.deepcopy(PARTIDOS)
+    for f in lista:
+        if f["fixtureId"] == "id1903399476162502":
+            f["hasOdds"] = False
+
+    class SinCuotas(Api):
+        def partidos(self, ahora):
+            self.pedidas.append("partidos")
+            return copy.deepcopy(lista)         # como la API: una lista nueva cada vez
+
+    v, datos, hoja, notif, api = _montar()
+    v.api = api = SinCuotas(ODDS)
+    datos.calendario[J][3]["estado"] = "terminado"
+    datos.contados["David Davies"] = 2
+    for _ in range(4):                          # 12 minutos
+        v.ciclo()
+        RELOJ.mas(3)
+    assert "id1903399476162502" not in api.pedidas
+    assert api.pedidas.count("partidos") == 2   # la lista, como mucho cada 5 min
+    for f in lista:
+        f["hasOdds"] = True                     # Winamax ya las publica
+    v.ciclo()                                   # minuto 12: lista nueva y lectura
+    assert api.pedidas.count("partidos") == 3
+    assert api.pedidas.count("id1903399476162502") == 1
+
+
+def test_no_gasta_nada_hasta_10_minutos_antes():
+    """El 30/10 el vigia empezo a pedir las cuotas de los dos primeros del
+    Grupo B tres horas antes y gasto sus 6 lecturas sin que Winamax las
+    tuviera. Ahora espera a 10 min de la hora del partido."""
+    lista = copy.deepcopy(PARTIDOS)
+    for f in lista:
+        if f["fixtureId"] == "id1903399476162502":
+            f["startTime"] = "2026-10-30T19:00:00.000Z"     # 20:00 en Madrid
+            f["hasOdds"] = False
+
+    class Pronto(Api):
+        def partidos(self, ahora):
+            self.pedidas.append("partidos")
+            return copy.deepcopy(lista)
+
+    v, datos, hoja, notif, api = _montar()          # 17:21 en Madrid
+    v.api = api = Pronto(ODDS)
+    datos.calendario[J][3]["estado"] = "terminado"
+    datos.contados["David Davies"] = 2
+    for _ in range(20):                             # hasta las 18:21
+        v.ciclo()
+        RELOJ.mas(3)
+    assert api.pedidas == ["partidos"]              # solo la lista inicial
+    assert "faltan" in v._esperas["David Davies vs Benito van de Pas (Grupo C Viernes, 5)"]
