@@ -87,7 +87,7 @@ def _montar(odds=ODDS):
     cal[3]["estado"] = "en_juego"            # Davies aun jugando su anterior
     hoja, notif, api = HojaMemoria(), Notif(), Api(odds)
     v = Vigia(hoja, notif, datos, AJ, reloj=RELOJ, api=api)
-    RELOJ.t = datetime(2026, 10, 30, 17, 10, tzinfo=M)
+    RELOJ.t = datetime(2026, 10, 30, 17, 21, tzinfo=M)   # 9 min antes de Davies-van de Pas (17:30)
     return v, datos, hoja, notif, api
 
 
@@ -306,10 +306,10 @@ def test_sin_cuotas_de_winamax_en_la_lista_no_gasta_lecturas():
     assert api.pedidas.count("id1903399476162502") == 1
 
 
-def test_no_gasta_nada_hasta_40_minutos_antes():
+def test_no_gasta_nada_hasta_10_minutos_antes():
     """El 30/10 el vigia empezo a pedir las cuotas de los dos primeros del
     Grupo B tres horas antes y gasto sus 6 lecturas sin que Winamax las
-    tuviera. Ahora espera a 40 min de la hora del partido."""
+    tuviera. Ahora espera a 10 min de la hora del partido."""
     lista = copy.deepcopy(PARTIDOS)
     for f in lista:
         if f["fixtureId"] == "id1903399476162502":
@@ -321,11 +321,11 @@ def test_no_gasta_nada_hasta_40_minutos_antes():
             self.pedidas.append("partidos")
             return copy.deepcopy(lista)
 
-    v, datos, hoja, notif, api = _montar()          # 17:10 en Madrid
+    v, datos, hoja, notif, api = _montar()          # 17:21 en Madrid
     v.api = api = Pronto(ODDS)
     datos.calendario[J][3]["estado"] = "terminado"
     datos.contados["David Davies"] = 2
-    for _ in range(20):                             # hasta las 18:10
+    for _ in range(20):                             # hasta las 18:21
         v.ciclo()
         RELOJ.mas(3)
     assert api.pedidas == ["partidos"]              # solo la lista inicial
