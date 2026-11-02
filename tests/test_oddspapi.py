@@ -105,8 +105,62 @@ def test_partidos_pide_la_modus_de_ayer_a_pasado_manana():
         pedido.update(params, ruta=ruta)
         return PARTIDOS
     oddspapi.partidos("k", datetime(2026, 10, 30, 23, 0, tzinfo=timezone.utc), get=get)
-    assert pedido == {"ruta": "fixtures", "tournamentId": 33994,
+    assert pedido == {"ruta": "fixtures", "tournamentId": 33994, "bookmakers": "winamax.es",
                       "from": "2026-10-29", "to": "2026-11-01"}
+
+
+class _Resp:
+    def __init__(self, status, cuerpo):
+        self.status_code, self._c = status, cuerpo
+        self.text = str(cuerpo)
+
+    def json(self):
+        return self._c
+
+
+def _con_respuestas(monkeypatch, respuestas):
+    import requests
+    pedidas = []
+
+    def get(url, params=None, timeout=None):
+        pedidas.append(url)
+        return respuestas.pop(0)
+    monkeypatch.setattr(requests, "get", get)
+    return pedidas
+
+
+def test_errores_de_oddspapi_con_su_motivo(monkeypatch):
+    """403 de partido en juego no es fallo de la clave; los demas dicen el
+    codigo y el mensaje de OddsPapi (y nunca la clave)."""
+    vivo = {"error": {"code": "RESTRICTED_ACCESS",
+                      "message": "No bookmakers with live access found"}}
+    _con_respuestas(monkeypatch, [_Resp(403, vivo)])
+    with pytest.raises(oddspapi.PartidoEnJuego) as e:
+        oddspapi._get("odds", "secreta", fixtureId="x")
+    assert not e.value.definitivo
+    _con_respuestas(monkeypatch, [_Resp(403, {"code": "RESTRICTED_ACCESS",
+                                              "message": "Restricted bookmaker(s)"})])
+    with pytest.raises(oddspapi.ErrorOddsPapi, match="no cubre.*Restricted bookmaker") as e:
+        oddspapi._get("odds", "secreta", fixtureId="x")
+    assert e.value.definitivo
+    _con_respuestas(monkeypatch, [_Resp(401, {"code": "INVALID_API_KEY",
+                                              "message": "bad key secreta"})])
+    with pytest.raises(oddspapi.ErrorOddsPapi, match="401 INVALID_API_KEY") as e:
+        oddspapi._get("odds", "secreta", fixtureId="x")
+    assert e.value.definitivo and "secreta" not in str(e.value)
+    _con_respuestas(monkeypatch, [_Resp(429, {"code": "REQUEST_LIMIT_EXCEEDED",
+                                              "message": "quota"})])
+    with pytest.raises(oddspapi.ErrorOddsPapi, match="sin peticiones") as e:
+        oddspapi._get("odds", "secreta", fixtureId="x")
+    assert e.value.definitivo
+
+
+def test_demasiado_seguidas_espera_y_repite_una_vez(monkeypatch):
+    esperas = []
+    pedidas = _con_respuestas(monkeypatch, [
+        _Resp(429, {"code": "RATE_LIMITED", "retryMs": 700}), _Resp(200, {"ok": 1})])
+    assert oddspapi._get("odds", "k", dormir=esperas.append, fixtureId="x") == {"ok": 1}
+    assert len(pedidas) == 2 and esperas == [0.7]
 
 
 def test_juntar_con_la_lectura_del_boton():
