@@ -38,7 +38,8 @@ API_CADA_MIN = 3             # minutos entre lecturas del mismo partido
 API_MAX_POR_PARTIDO = 6      # lecturas como mucho de cada partido
 API_PARTIDOS_CADA_MIN = 180  # la lista de partidos (sus id) no cambia: cada 3 h
 API_PARTIDOS_REINTENTO_MIN = 15   # si falta un partido en la lista, otra como mucho cada 15 min
-API_PAUSA_SI_FALLA_MIN = 30  # sin peticiones o clave mala: cuotas minimas y se reintenta a los 30 min
+API_PAUSA_SI_FALLA_MIN = 30  # sin peticiones o clave mala: pausa y se reintenta a los 30 min
+API_LISTA_SIN_CUOTAS_MIN = 10   # si Winamax aun no tiene cuotas, la lista se mira cada 10 min
 
 
 def ahora_madrid():
@@ -176,6 +177,7 @@ class Vigia:
         self._lecturas = {}         # partido -> (lecturas pedidas, hora de la ultima)
         self._lista, self._lista_t = None, None   # partidos de OddsPapi y cuando
         self._api_parada = None     # hasta cuando no se usa OddsPapi (fallo definitivo)
+        self._avisos_api = set()    # fallos de OddsPapi ya avisados al movil (fecha, motivo)
         self.notif = notificador
         self.datos = datos
         self.aj = ajustes
@@ -356,7 +358,9 @@ class Vigia:
         if self.datos.edad() > 50:
             self.datos.refrescar(ahora, forzar=True)
         if self._api_parada and ahora < self._api_parada:
-            return self._sin_api(listos, fecha, len(pendientes))
+            if getattr(self.aj, "avisos_sin_api", False):
+                return self._sin_api(listos, fecha, len(pendientes))
+            return len(pendientes)
         listos = [x for x in listos if self._toca_leer(x[2], ahora)]
         if not listos:
             return len(pendientes)
@@ -365,10 +369,16 @@ class Vigia:
             # La lista de partidos (sus id) se pide poco: cada 3 h, o antes si
             # falta alguno de los listos (como mucho cada 15 min)
             edad = (ahora - self._lista_t).total_seconds() / 60 if self._lista_t else None
-            falta = self._lista is not None and any(
-                not buscar_partido(self._lista, p["j1"], p["j2"]) for _, p, _ in listos)
+            encontrados = [buscar_partido(self._lista, p["j1"], p["j2"])
+                           for _, p, _ in listos] if self._lista is not None else []
+            falta = any(f is None for f in encontrados)
+            # hasOdds de la lista (con bookmakers=winamax): si Winamax aun no
+            # tiene cuotas, se mira la lista (1 peticion para todos) en vez
+            # de gastar una lectura por partido
+            sin_cuotas = any(f is not None and f.get("hasOdds") is False for f in encontrados)
             if (edad is None or edad >= API_PARTIDOS_CADA_MIN
-                    or (falta and edad >= API_PARTIDOS_REINTENTO_MIN)):
+                    or (falta and edad >= API_PARTIDOS_REINTENTO_MIN)
+                    or (sin_cuotas and edad >= API_LISTA_SIN_CUOTAS_MIN)):
                 self._lista, self._lista_t = self.api.partidos(ahora), ahora
             partidos = self._lista
         except ErrorOddsPapi as e:
@@ -391,12 +401,27 @@ class Vigia:
         return len(pendientes)
 
     def _parar_api(self, error, ahora, listos, fecha, pendientes):
-        """Sin peticiones en el plan o clave mala: no se usa OddsPapi durante
-        API_PAUSA_SI_FALLA_MIN minutos y se avisa con cuotas minimas."""
+        """Sin peticiones en el plan, clave mala o plan que no cubre la
+        peticion: no se usa OddsPapi durante API_PAUSA_SI_FALLA_MIN minutos.
+        Te llega UN aviso al movil con el motivo exacto (uno por dia y
+        motivo). Solo con AVISOS_SIN_API=1 se avisa con cuotas minimas."""
         self._api_parada = ahora + timedelta(minutes=API_PAUSA_SI_FALLA_MIN)
-        self._log("error", "", f"OddsPapi: {error}. Avisos con cuotas mínimas; "
+        con_minimas = getattr(self.aj, "avisos_sin_api", False)
+        que = "avisos con cuotas mínimas" if con_minimas else "sin avisos"
+        self._log("error", "", f"OddsPapi: {error}. {que.capitalize()}; "
                                f"se reintenta a las {self._api_parada:%H:%M}")
-        return self._sin_api(listos, fecha, pendientes)
+        motivo = (fecha, str(error).split("(")[0].strip())
+        if motivo not in self._avisos_api:
+            self._avisos_api.add(motivo)
+            texto = (f"⚠️ Vigía: OddsPapi falla: {error}. {que.capitalize()} hasta las "
+                     f"{self._api_parada:%H:%M}; luego lo reintenta.")
+            try:
+                self.notif.enviar(texto[:199])
+            except Exception:
+                log.exception("No se pudo avisar del fallo de OddsPapi")
+        if con_minimas:
+            return self._sin_api(listos, fecha, pendientes)
+        return pendientes
 
     def _sin_api(self, listos, fecha, pendientes):
         """Avisos de antes (cuotas minimas) para los partidos listos."""
@@ -454,9 +479,20 @@ class Vigia:
         f = oddspapi.buscar_partido(partidos, n1, n2)
         if f is None:
             return self._espera(clave, "OddsPapi no tiene el partido")
+        if f.get("statusId") not in (None, 0):
+            # OddsPapi ya lo da en juego o terminado: con el plan gratuito no
+            # hay cuotas en directo (pedirlas da 403)
+            self._cerrados.add(clave)
+            return self._espera(clave, "OddsPapi lo da ya empezado")
+        if f.get("hasOdds") is False:
+            return self._espera(clave, "Winamax aún no tiene cuotas (según OddsPapi)")
         n, _ = self._lecturas.get(clave, (0, None))
         self._lecturas[clave] = (n + 1, self.reloj())
-        odds = self.api.cuotas(f["fixtureId"])
+        try:
+            odds = self.api.cuotas(f["fixtureId"])
+        except oddspapi.PartidoEnJuego:
+            self._cerrados.add(clave)
+            return self._espera(clave, "ya está en juego (OddsPapi no da cuotas en directo)")
         if odds.get("statusId", 0) != 0:
             self._cerrados.add(clave)
             return
