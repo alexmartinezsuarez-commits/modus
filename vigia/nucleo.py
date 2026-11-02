@@ -39,11 +39,28 @@ API_MAX_POR_PARTIDO = 6      # lecturas como mucho de cada partido
 API_PARTIDOS_CADA_MIN = 180  # la lista de partidos (sus id) no cambia: cada 3 h
 API_PARTIDOS_REINTENTO_MIN = 15   # si falta un partido en la lista, otra como mucho cada 15 min
 API_PAUSA_SI_FALLA_MIN = 30  # sin peticiones o clave mala: pausa y se reintenta a los 30 min
-API_LISTA_SIN_CUOTAS_MIN = 10   # si Winamax aun no tiene cuotas, la lista se mira cada 10 min
+API_LISTA_SIN_CUOTAS_MIN = 5    # si Winamax aun no tiene cuotas, la lista se mira cada 5 min
+API_ANTES_MIN = 40           # no se gasta nada en un partido hasta 40 min antes de su hora
 
 
 def ahora_madrid():
     return datetime.now(MADRID)
+
+
+def minutos_para_empezar(fixture, ahora):
+    """Minutos hasta la hora de inicio del partido segun OddsPapi (puede
+    ser negativo: en Modus los partidos empiezan cuando acaba el anterior),
+    o None si no la da."""
+    try:
+        inicio = datetime.fromisoformat(str(fixture.get("startTime")).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return (inicio - ahora).total_seconds() / 60
+
+
+def _pronto(fixture, ahora):
+    m = minutos_para_empezar(fixture, ahora)
+    return m is None or m <= API_ANTES_MIN
 
 
 def apellido(n):
@@ -375,7 +392,8 @@ class Vigia:
             # hasOdds de la lista (con bookmakers=winamax): si Winamax aun no
             # tiene cuotas, se mira la lista (1 peticion para todos) en vez
             # de gastar una lectura por partido
-            sin_cuotas = any(f is not None and f.get("hasOdds") is False for f in encontrados)
+            sin_cuotas = any(f is not None and f.get("hasOdds") is False and _pronto(f, ahora)
+                             for f in encontrados)
             if (edad is None or edad >= API_PARTIDOS_CADA_MIN
                     or (falta and edad >= API_PARTIDOS_REINTENTO_MIN)
                     or (sin_cuotas and edad >= API_LISTA_SIN_CUOTAS_MIN)):
@@ -484,6 +502,10 @@ class Vigia:
             # hay cuotas en directo (pedirlas da 403)
             self._cerrados.add(clave)
             return self._espera(clave, "OddsPapi lo da ya empezado")
+        if not _pronto(f, self.reloj()):
+            m = minutos_para_empezar(f, self.reloj())
+            return self._espera(clave, f"faltan {m:.0f} min; sus cuotas se miran desde "
+                                       f"{API_ANTES_MIN} min antes")
         if f.get("hasOdds") is False:
             return self._espera(clave, "Winamax aún no tiene cuotas (según OddsPapi)")
         n, _ = self._lecturas.get(clave, (0, None))
