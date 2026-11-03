@@ -193,6 +193,19 @@ def test_estado_de_los_partidos_por_la_api_y_csv_si_falla(monkeypatch):
     assert len(datos.calendario["Grupo C Jueves"]) == 2
 
 
+def test_marca_en_juego_de_la_columna_f():
+    """La web de Modus no da datos hasta el final: el Apps Script marca en la
+    columna F el partido en directo y con eso ya cuenta como en juego."""
+    import modelo.datos as md
+    filas = [[""]] * 6 + [
+        ["Andy Baetens", "4", "1", "90", "40", ""], ["Self", "2", "0", "85", "30", ""],
+        ["Ross Smith", "", "", "", "", "EN JUEGO"], ["Callan Rydz", "", "", "", "", ""],
+        ["Luke Woodhouse", "", "", "", ""], ["Cameron Menzies", "", "", "", ""],
+        ["Dave Chisnall", "", "", "", "", "algo"], ["Jim Williams", "", "", "", "", ""]]
+    estados = [p["estado"] for p in md.partidos_de_jornada(filas)]
+    assert estados == ["terminado", "en_juego", "pendiente", "pendiente"]
+
+
 def test_dos_vigias_a_la_vez_no_repiten_aviso():
     """El del portatil y el de GitHub comparten vigia_log: si uno ya avisó
     (despues de que el otro arrancara), el otro no vuelve a avisar."""
