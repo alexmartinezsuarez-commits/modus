@@ -40,6 +40,14 @@ class ErrorOddsPapi(Exception):
         self.definitivo = definitivo
 
 
+class SinCupo(ErrorOddsPapi):
+    """429 REQUEST_LIMIT_EXCEEDED: gastadas las peticiones del plan. No
+    vuelven hasta que OddsPapi renueva el cupo (cada mes, el dia del alta)."""
+
+    def __init__(self, mensaje):
+        super().__init__(mensaje, definitivo=True)
+
+
 class PartidoEnJuego(ErrorOddsPapi):
     """El partido ya ha empezado: con el plan gratuito OddsPapi no da cuotas
     en directo y responde 403 ("No bookmakers with live access found"). No
@@ -100,9 +108,43 @@ def _get(ruta, clave, dormir=None, **params):
             raise ErrorOddsPapi(f"tu plan de OddsPapi no cubre esta petición (403 {det})",
                                 definitivo=True)
         if r.status_code == 429:
-            raise ErrorOddsPapi(f"sin peticiones de OddsPapi este mes (429 {det})",
-                                definitivo=True)
+            raise SinCupo(f"sin peticiones de OddsPapi (429 {det})")
         raise ErrorOddsPapi(f"error HTTP {r.status_code} ({det})")
+
+
+def proxima_renovacion(alta, ahora):
+    """Fecha estimada en que se renueva el cupo: OddsPapi no la da, pero el
+    plan es mensual desde el alta, asi que se toma el mismo dia del mes del
+    alta (o el ultimo dia si ese mes es mas corto), la primera tras 'ahora'."""
+    import calendar
+    if ahora.tzinfo is None:
+        alta = alta.replace(tzinfo=None)
+    elif alta.tzinfo is None:
+        alta = alta.replace(tzinfo=ahora.tzinfo)
+    y, m = ahora.year, ahora.month
+    for _ in range(14):
+        f = alta.replace(year=y, month=m, day=min(alta.day, calendar.monthrange(y, m)[1]))
+        if f > ahora and f > alta:
+            return f
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return None
+
+
+def cupo(clave, ahora, get=_get):
+    """(usadas, limite, renovacion estimada) de la suscripcion activa, por
+    /account, que no gasta peticiones."""
+    c = get("account", clave)
+    if not isinstance(c, dict):
+        raise ErrorOddsPapi("cuenta con un formato desconocido")
+    subs = [x for x in c.get("subscriptions") or [] if isinstance(x, dict)]
+    sub = next((x for x in subs if x.get("subscription_id") == c.get("current_subscription_id")),
+               next((x for x in subs if x.get("is_active")), {}))
+    alta = sub.get("valid_from") or sub.get("created_at") or c.get("created_at")
+    renueva = None
+    if alta:
+        renueva = proxima_renovacion(
+            datetime.fromisoformat(str(alta).replace("Z", "+00:00")), ahora)
+    return sub.get("request_count"), sub.get("request_limit"), renueva
 
 
 def partidos(clave, ahora, get=_get, casa=CASA):
@@ -302,3 +344,7 @@ class Cliente:
 
     def cuotas(self, fixture_id):
         return cuotas(self.clave, fixture_id, self.casa, get=self._contar)
+
+    def cupo(self, ahora):
+        """No se cuenta: consultar la cuenta no gasta peticiones."""
+        return cupo(self.clave, ahora, get=self._get)
