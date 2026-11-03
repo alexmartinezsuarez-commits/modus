@@ -150,7 +150,7 @@ def test_errores_de_oddspapi_con_su_motivo(monkeypatch):
     assert e.value.definitivo and "secreta" not in str(e.value)
     _con_respuestas(monkeypatch, [_Resp(429, {"code": "REQUEST_LIMIT_EXCEEDED",
                                               "message": "quota"})])
-    with pytest.raises(oddspapi.ErrorOddsPapi, match="sin peticiones") as e:
+    with pytest.raises(oddspapi.SinCupo, match="sin peticiones") as e:
         oddspapi._get("odds", "secreta", fixtureId="x")
     assert e.value.definitivo
 
@@ -199,3 +199,34 @@ def test_cliente_cuenta_peticiones_y_espera_entre_llamadas_al_mismo_endpoint():
     c.cuotas("a")
     c.cuotas("b")
     assert c.peticiones == 3 and len(esperas) == 1 and 0 < esperas[0] <= 1.1
+
+
+def test_renovacion_del_cupo_el_dia_del_alta():
+    from datetime import datetime, timezone
+    alta = datetime(2026, 10, 30, 16, 28, tzinfo=timezone.utc)
+    ahora = datetime(2026, 11, 3, 13, 43, tzinfo=timezone.utc)
+    assert oddspapi.proxima_renovacion(alta, ahora) == datetime(2026, 11, 30, 16, 28, tzinfo=timezone.utc)
+    # alta un 31: en febrero se renueva el ultimo dia; justo tras el alta, el mes siguiente
+    alta31 = datetime(2026, 1, 31, 10, 0, tzinfo=timezone.utc)
+    assert oddspapi.proxima_renovacion(alta31, datetime(2026, 2, 5, tzinfo=timezone.utc)).day == 28
+    assert oddspapi.proxima_renovacion(alta31, datetime(2026, 1, 31, 12, 0, tzinfo=timezone.utc)).month == 2
+
+
+def test_cupo_lee_la_cuenta():
+    from datetime import datetime, timezone
+    cuenta = {"current_subscription_id": "b", "created_at": "2026-01-01T00:00:00+00:00",
+              "subscriptions": [
+                  {"subscription_id": "a", "is_active": False, "request_count": 1,
+                   "request_limit": 9, "valid_from": "2026-01-01T00:00:00+00:00"},
+                  {"subscription_id": "b", "is_active": True, "request_count": 250,
+                   "request_limit": 250, "valid_from": "2026-10-30T16:28:44.437301+00:00"}]}
+    pedidas = []
+
+    def get(ruta, clave, **params):
+        pedidas.append(ruta)
+        return cuenta
+
+    usadas, limite, renueva = oddspapi.cupo("k", datetime(2026, 11, 3, tzinfo=timezone.utc), get=get)
+    assert pedidas == ["account"] and (usadas, limite) == (250, 250)
+    assert (renueva.month, renueva.day) == (11, 30)
+
