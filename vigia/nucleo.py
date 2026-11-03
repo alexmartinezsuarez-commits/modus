@@ -31,6 +31,8 @@ from vigia.horario import dia_jornada, fecha_jornada, inicio_jornada, toca_avisa
 from vigia.nombres import emparejar, mismo_jugador
 
 log = logging.getLogger(__name__)
+
+MESES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 MADRID = ZoneInfo("Europe/Madrid")
 
 # Peticiones a OddsPapi (plan de 5.000 al mes)
@@ -441,8 +443,12 @@ class Vigia:
         motivo = (fecha, str(error).split("(")[0].strip())
         if motivo not in self._avisos_api:
             self._avisos_api.add(motivo)
-            texto = (f"⚠️ Vigía: OddsPapi falla: {error}. {que.capitalize()} hasta las "
-                     f"{self._api_parada:%H:%M}; luego lo reintenta.")
+            from vigia.oddspapi import SinCupo
+            if isinstance(error, SinCupo):
+                texto = self._texto_sin_cupo(ahora, con_minimas)
+            else:
+                texto = (f"⚠️ Vigía: OddsPapi falla: {error}. {que.capitalize()} hasta las "
+                         f"{self._api_parada:%H:%M}; luego lo reintenta.")
             try:
                 self.notif.enviar(texto[:199])
             except Exception:
@@ -450,6 +456,22 @@ class Vigia:
         if con_minimas:
             return self._sin_api(listos, fecha, pendientes)
         return pendientes
+
+    def _texto_sin_cupo(self, ahora, con_minimas):
+        """Aviso de cupo agotado: cuantas se han gastado y cuando vuelven
+        (fecha estimada; /account no gasta peticiones)."""
+        usadas = limite = renueva = None
+        try:
+            usadas, limite, renueva = self.api.cupo(ahora)
+        except Exception as e:
+            log.warning("No se pudo leer la cuenta de OddsPapi: %s", e)
+        gasto = f" (gastadas {usadas} de {limite})" if usadas is not None and limite else ""
+        cuando = (f"hasta que se renueve el cupo, hacia el {renueva.day} "
+                  f"{MESES[renueva.month - 1]}" if renueva
+                  else "hasta que se renueve el cupo del plan")
+        mientras = ("Mientras, avisos con cuotas mínimas" if con_minimas
+                    else "Sin avisos de cuotas de Winamax")
+        return f"⚠️ Vigía: OddsPapi sin peticiones{gasto}. {mientras} {cuando}."
 
     def _sin_api(self, listos, fecha, pendientes):
         """Avisos de antes (cuotas minimas) para los partidos listos."""
