@@ -592,6 +592,13 @@ def cargar_forma_reciente(jornada_hoy):
     return combinar_forma_reciente(resumen, cargar_jugadores(jornada_hoy))
 
 
+MARCA_EN_JUEGO = "EN JUEGO"   # columna F de las pestanas de jornada (Apps Script)
+
+
+def _marca_en_juego(fila):
+    return len(fila) > 5 and str(fila[5]).strip().upper() == MARCA_EN_JUEGO
+
+
 def partidos_de_jornada(lineas):
     """Partidos de una pestana de jornada en orden de juego, a partir de
     las filas del CSV (descargar_lineas). Cada partido son dos filas
@@ -600,6 +607,10 @@ def partidos_de_jornada(lineas):
     Devuelve [{orden, j1, j2, legs1, legs2, t180_1, t180_2, estado}], con
     estado 'pendiente' (sin datos), 'en_juego' o 'terminado' (alguien
     llega a 4 legs). j1 es el que aparece primero en el cartel.
+
+    Como la web de Modus no da datos hasta el final, el Apps Script marca
+    en la columna F (MARCA_EN_JUEGO) el partido que la web muestra en
+    directo: sin datos pero con esa marca, el partido esta 'en_juego'.
     """
     filas = lineas[FILA_INICIO_PARTIDOS - 1:]
 
@@ -629,7 +640,8 @@ def partidos_de_jornada(lineas):
         legs2 = _num(fila2[1] if len(fila2) > 1 else "")
         if legs1 >= 4 or legs2 >= 4:
             estado = "terminado"
-        elif any(_celda_dato(c) for c in celdas1) or any(_celda_dato(c) for c in celdas2):
+        elif (any(_celda_dato(c) for c in celdas1) or any(_celda_dato(c) for c in celdas2)
+              or _marca_en_juego(fila1) or _marca_en_juego(fila2)):
             estado = "en_juego"
         else:
             estado = "pendiente"
