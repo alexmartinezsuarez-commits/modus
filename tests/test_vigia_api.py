@@ -309,7 +309,7 @@ def test_sin_cuotas_de_winamax_en_la_lista_no_gasta_lecturas():
 def test_no_gasta_nada_hasta_10_minutos_antes():
     """El 30/10 el vigia empezo a pedir las cuotas de los dos primeros del
     Grupo B tres horas antes y gasto sus 6 lecturas sin que Winamax las
-    tuviera. Ahora espera a 10 min de la hora del partido."""
+    tuviera. El primer partido de la jornada espera a 10 min de su hora."""
     lista = copy.deepcopy(PARTIDOS)
     for f in lista:
         if f["fixtureId"] == "id1903399476162502":
@@ -323,10 +323,31 @@ def test_no_gasta_nada_hasta_10_minutos_antes():
 
     v, datos, hoja, notif, api = _montar()          # 17:21 en Madrid
     v.api = api = Pronto(ODDS)
-    datos.calendario[J][3]["estado"] = "terminado"
-    datos.contados["David Davies"] = 2
+    datos.calendario[J] = [_p(0, "David Davies", "Benito van de Pas")]   # primero de la jornada
     for _ in range(20):                             # hasta las 18:21
         v.ciclo()
         RELOJ.mas(3)
     assert api.pedidas == ["partidos"]              # solo la lista inicial
-    assert "faltan" in v._esperas["David Davies vs Benito van de Pas (Grupo C Viernes, 5)"]
+    assert "faltan" in v._esperas["David Davies vs Benito van de Pas (Grupo C Viernes, 1)"]
+
+
+def test_si_el_anterior_esta_en_juego_no_espera_a_su_hora():
+    """En Modus cada partido empieza al acabar el anterior: si el anterior
+    del cartel ya esta en juego, se miran sus cuotas aunque OddsPapi diga
+    que falta mas de 10 min (el partido se ha adelantado)."""
+    lista = copy.deepcopy(PARTIDOS)
+    for f in lista:
+        if f["fixtureId"] == "id1903399476162502":
+            f["startTime"] = "2026-10-30T19:00:00.000Z"     # 20:00 en Madrid: se adelanta
+
+    class Adelantado(Api):
+        def partidos(self, ahora):
+            self.pedidas.append("partidos")
+            return copy.deepcopy(lista)
+
+    v, datos, hoja, notif, api = _montar()          # 17:21 en Madrid
+    v.api = api = Adelantado(ODDS)
+    datos.calendario[J][3]["estado"] = "terminado"  # el anterior del cartel ya ha acabado
+    datos.contados["David Davies"] = 2
+    v.ciclo()
+    assert api.pedidas.count("id1903399476162502") == 1
