@@ -239,6 +239,39 @@ def test_sin_peticiones_avisa_una_vez_del_fallo_y_no_manda_avisos_viejos():
     assert api.pedidas == ["partidos"] * 2 and len(notif.enviados) == 1
 
 
+def test_sin_cupo_dice_cuantas_ha_gastado_y_cuando_vuelven():
+    from vigia.oddspapi import SinCupo
+
+    class SinPeticiones(Api):
+        def partidos(self, ahora):
+            self.pedidas.append("partidos")
+            raise SinCupo("sin peticiones de OddsPapi (429 REQUEST_LIMIT_EXCEEDED)")
+
+        def cupo(self, ahora):
+            return 250, 250, datetime(2026, 11, 30, 17, 28, tzinfo=M)
+
+    v, datos, hoja, notif, api = _montar()
+    v.api = api = SinPeticiones(ODDS)
+    datos.calendario[J][3]["estado"] = "terminado"
+    datos.contados["David Davies"] = 2
+    v.ciclo()
+    assert [n["texto"] for n in notif.enviados] == [
+        "⚠️ Vigía: OddsPapi sin peticiones (gastadas 250 de 250). Sin avisos de cuotas "
+        "de Winamax hasta que se renueve el cupo, hacia el 30 nov."]
+
+    class SinCuenta(SinPeticiones):
+        def cupo(self, ahora):
+            raise RuntimeError("caida")
+
+    v, datos, hoja, notif, api = _montar()
+    v.api = SinCuenta(ODDS)
+    datos.calendario[J][3]["estado"] = "terminado"
+    datos.contados["David Davies"] = 2
+    v.ciclo()
+    assert notif.enviados[0]["texto"] == ("⚠️ Vigía: OddsPapi sin peticiones. Sin avisos de "
+                                          "cuotas de Winamax hasta que se renueve el cupo del plan.")
+
+
 def test_con_avisos_sin_api_vuelve_a_las_cuotas_minimas():
     from vigia.oddspapi import ErrorOddsPapi
 
