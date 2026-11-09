@@ -15,7 +15,7 @@ import urllib.request
 
 import pandas as pd
 
-from config import URLS, CORTES
+from config import URLS, CORTES, partido_terminado
 from modelo.util import safe_float, _buscar_stat
 
 log = logging.getLogger(__name__)
@@ -606,7 +606,7 @@ def partidos_de_jornada(lineas):
 
     Devuelve [{orden, j1, j2, legs1, legs2, t180_1, t180_2, estado}], con
     estado 'pendiente' (sin datos), 'en_juego' o 'terminado' (alguien
-    llega a 4 legs). j1 es el que aparece primero en el cartel.
+    gana el partido, a 3 o a 4 legs). j1 es el que aparece primero en el cartel.
 
     Como la web de Modus no da datos hasta el final, el Apps Script marca
     en la columna F (MARCA_EN_JUEGO) el partido que la web muestra en
@@ -638,7 +638,7 @@ def partidos_de_jornada(lineas):
         celdas2 = fila2[1:5] if len(fila2) >= 5 else fila2[1:]
         legs1 = _num(fila1[1] if len(fila1) > 1 else "")
         legs2 = _num(fila2[1] if len(fila2) > 1 else "")
-        if legs1 >= 4 or legs2 >= 4:
+        if partido_terminado(legs1, legs2):
             estado = "terminado"
         elif (any(_celda_dato(c) for c in celdas1) or any(_celda_dato(c) for c in celdas2)
               or _marca_en_juego(fila1) or _marca_en_juego(fila2)):
