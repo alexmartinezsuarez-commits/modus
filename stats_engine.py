@@ -12,7 +12,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from config import URLS, CORTES
+from config import URLS, CORTES, partido_terminado
 from helpers import safe_float
 from data_loading import cargar_todo
 
@@ -182,8 +182,8 @@ def obtener_ultimos_partidos(jugador_nombre, n=3):
             if legs_jug < 0 or legs_riv < 0:
                 i -= 2
                 continue
-            # Al menos uno debe haber llegado a 4 legs para que el partido cuente
-            if legs_jug < 4 and legs_riv < 4:
+            # Solo cuentan los partidos terminados (a 3 o a 4 legs)
+            if not partido_terminado(legs_jug, legs_riv):
                 i -= 2
                 continue
             
