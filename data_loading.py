@@ -14,7 +14,7 @@ import requests
 import re
 from datetime import datetime, timedelta
 
-from config import URLS, CORTES
+from config import URLS, CORTES, partido_terminado
 from helpers import safe_float, _buscar_stat
 # El parseo de las pestanas vive en modelo/datos.py (sin Streamlit) para que
 # el vigia lea los datos igual que la app. Aqui se envuelve con la cache.
@@ -509,13 +509,10 @@ def cargar_historial_semana(nombre_jugador: str) -> list:
                 if not datos1 and not datos2:
                     continue  # partido no jugado aun
 
-            # Determinar ganador (quien llego a 4)
-            if legs1 >= 4:
-                gano_j1 = True
-            elif legs2 >= 4:
-                gano_j1 = False
-            else:
+            # Determinar ganador (quien gano: a 3 o a 4 legs)
+            if not partido_terminado(legs1, legs2):
                 continue  # partido en curso o datos incompletos
+            gano_j1 = legs1 > legs2
 
             victoria = (es_j1 and gano_j1) or (es_j2 and not gano_j1)
             resultados.append(victoria)
@@ -613,7 +610,7 @@ def obtener_proximos_partidos_csv(limite=5) -> dict:
         legs1 = _legs(fila1[1] if len(fila1) > 1 else "")
         legs2 = _legs(fila2[1] if len(fila2) > 1 else "")
 
-        terminado = (legs1 >= 4 or legs2 >= 4)
+        terminado = partido_terminado(legs1, legs2)
         algun_dato = (any(_celda_dato(c) for c in celdas1) or
                       any(_celda_dato(c) for c in celdas2))
 
@@ -730,12 +727,9 @@ def cargar_historial_jornada(nombre_jugador: str, jornada: str) -> list:
 
         legs1 = _legs(fila1)
         legs2 = _legs(fila2)
-        if legs1 >= 4:
-            gano_j1 = True
-        elif legs2 >= 4:
-            gano_j1 = False
-        else:
+        if not partido_terminado(legs1, legs2):
             continue  # en curso / no jugado
+        gano_j1 = legs1 > legs2
 
         victoria = (es_j1 and gano_j1) or (es_j2 and not gano_j1)
         resultados.append(victoria)
