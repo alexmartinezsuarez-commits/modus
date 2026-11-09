@@ -19,6 +19,22 @@ URLS = {
     "Value Bets": "https://docs.google.com/spreadsheets/d/e/2PACX-1vRpzkL3TKUdIptc202-w-A0ifJtiFIIP9rI0q0zQzn_I4VKX8qUi_-r1XXfPkwefN03rIQzYUNyg9xP/pub?gid=2019911134&single=true&output=csv"
 }
 
+# Partido terminado. Normalmente se juega al primero a 4 legs, pero alguna
+# semana la Modus juega al primero a 3. La web solo publica el marcador cuando
+# el partido acaba, asi que un marcador en el que alguien tiene 3 o mas legs
+# y no hay empate es un partido terminado en los dos formatos.
+LEGS_MIN_GANAR = 3
+
+
+def partido_terminado(legs1, legs2):
+    """True si el marcador es el de un partido acabado (a 3 o a 4 legs)."""
+    try:
+        l1, l2 = int(legs1), int(legs2)
+    except (TypeError, ValueError):
+        return False
+    return max(l1, l2) >= LEGS_MIN_GANAR and l1 != l2
+
+
 CORTES = {
     "Resumen Semanal": {"filas": (5, 20), "cols": (1, 10), "der_nombres": 5, "der_cols": (1, 10)},
     "Grupo A Lunes":      {"izq_filas": (5, 36), "izq_cols": (0, 5), "der_nombres": 5,  "der_cols": (6, 12)},
