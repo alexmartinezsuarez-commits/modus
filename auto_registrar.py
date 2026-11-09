@@ -9,7 +9,7 @@ REGLAS DE FUNCIONAMIENTO:
      Lunes y jueves NO: son inicio de grupo, datos poco fiables.
   2. Solo si hay una jornada activa por hora (el cron de GitHub ya solo
      corre en esas franjas).
-  3. Partido terminado: alguien llega a 4 legs.
+  3. Partido terminado: alguien gana (a 4 legs, o a 3 las semanas que se juega asi).
   4. Partido en curso: hay algun dato pero nadie llega a 4 -> NO se registra.
   5. Registra los partidos "no empezados" cuyos dos jugadores ya han
      terminado todos sus partidos anteriores de la jornada.
@@ -37,6 +37,8 @@ import json
 import traceback
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+from config import partido_terminado
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -178,7 +180,7 @@ def clasificar_partidos(filas_partidos):
         legs_j1 = _legs_de_celda(fila_j1[1] if len(fila_j1) > 1 else "")
         legs_j2 = _legs_de_celda(fila_j2[1] if len(fila_j2) > 1 else "")
 
-        terminado = (legs_j1 >= 4 or legs_j2 >= 4)
+        terminado = partido_terminado(legs_j1, legs_j2)
         algun_dato = (any(_celda_tiene_dato(c) for c in celdas_j1) or
                        any(_celda_tiene_dato(c) for c in celdas_j2))
 
