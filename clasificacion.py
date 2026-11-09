@@ -11,7 +11,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from config import URLS, CORTES, GRUPOS_DIAS, COLORES_CLASIFICACION
+from config import URLS, CORTES, GRUPOS_DIAS, COLORES_CLASIFICACION, partido_terminado
 from data_loading import cargar_todo
 
 def detectar_grupo(jornada):
@@ -77,8 +77,8 @@ def calcular_clasificacion_grupo(grupo):
 
                 if legs1 < 0 or legs2 < 0:
                     continue
-                # Solo cuentan partidos terminados (alguien llegó a 4 legs)
-                if legs1 < 4 and legs2 < 4:
+                # Solo cuentan partidos terminados (a 3 o a 4 legs)
+                if not partido_terminado(legs1, legs2):
                     continue
 
                 # Inicializar entrada si no existe (.title() para nombre legible)
@@ -429,7 +429,7 @@ def calcular_clasificacion_final(jugadores_del_grupo):
             legs2 = _parse_legs(fila2.iloc[1]) if len(fila2) > 1 else -1
             if legs1 < 0 or legs2 < 0:
                 continue
-            if legs1 < 4 and legs2 < 4:
+            if not partido_terminado(legs1, legs2):
                 continue
 
             k1, k2 = nombre1.lower(), nombre2.lower()
@@ -551,9 +551,9 @@ def _buscar_ganador_partido_final(nombre_a, nombre_b):
             continue
         l1 = _legs(f1.iloc[1]) if len(f1) > 1 else -1
         l2 = _legs(f2.iloc[1]) if len(f2) > 1 else -1
-        if l1 >= 4 and l1 > l2:
+        if partido_terminado(l1, l2) and l1 > l2:
             return str(f1.iloc[0]).strip()
-        if l2 >= 4 and l2 > l1:
+        if partido_terminado(l1, l2) and l2 > l1:
             return str(f2.iloc[0]).strip()
         return None  # encontrado pero sin terminar
     return None
