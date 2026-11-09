@@ -29,7 +29,7 @@ from stats_engine import (
     prob_victoria, prob_180s, quien_hace_mas_180s,
     handicaps_legs, legs_totales,
 )
-from config import SHEET_ID_PREDICCIONES, MODELO_VERSION
+from config import SHEET_ID_PREDICCIONES, MODELO_VERSION, partido_terminado
 from helpers import safe_float
 
 # Las librerias de Google son opcionales: si no estan instaladas, el modulo
@@ -685,8 +685,9 @@ def limpiar_predicciones(df):
         res = df["Resultado real"].astype(str).str.strip()
         partes = res.str.extract(r"^(\d+)\s*-\s*(\d+)$")
         con_marcador = partes[0].notna()
-        terminado = (partes[0].astype(float).fillna(0).clip(lower=0).combine(
-            partes[1].astype(float).fillna(0), max) >= 4)
+        terminado = pd.Series([partido_terminado(a, b) for a, b in zip(
+            partes[0].astype(float).fillna(0), partes[1].astype(float).fillna(0))],
+            index=partes.index)
         df = df[~(con_marcador & ~terminado)].copy()
     cols = ["Jugador 1", "Jugador 2", "Mercado", "Linea", "Fecha registro"]
     if all(c in df.columns for c in cols) and not df.empty:
@@ -1234,7 +1235,7 @@ def _extraer_partidos_jugados(jornada):
         # es un partido en curso: el Sheet ya trae el marcador parcial y,
         # antes, se verificaba con ese 2-1 y el resultado quedaba fijado
         # para siempre. Se salta el par y se verificara cuando acabe.
-        if max(legs1, legs2) < 4:
+        if not partido_terminado(legs1, legs2):
             i += 2
             continue
         partidos.append({
@@ -1394,7 +1395,7 @@ def comprobar_partidos_anteriores(jornada, nombre_j1, nombre_j2):
         #  - SIN EMPEZAR: ninguna columna tiene datos.
         #  - EN CURSO: tiene datos pero nadie llego a 4 legs.
         if (legs1 is not None and legs2 is not None and
-                (legs1 >= 4 or legs2 >= 4)):
+                partido_terminado(legs1, legs2)):
             estado = "terminado"
         elif (legs1 is None and legs2 is None and
               not otros1 and not otros2):
