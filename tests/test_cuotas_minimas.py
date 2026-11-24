@@ -44,7 +44,8 @@ def test_tabla_de_un_partido():
     assert tipos == {"ganador", "handicap", "total_legs", "resultado",
                      "180_jugador", "180_total", "mas_180", "hcap_180"}
     for f in filas:
-        assert f["aviso"] == reglas.cuota_minima(f["p"], reglas.EDGE_MIN)
+        # 20 %, y 30 % en quien hace mas 180s y su handicap
+        assert f["aviso"] == reglas.cuota_minima(f["p"], reglas.edge_exigido(f["mercado"]))
         if f["mercado"] == "resultado":
             assert f["verde"] is None
     partes = cuotas.resumen_aviso(filas, "Andy Baetens", "Cameron Menzies")

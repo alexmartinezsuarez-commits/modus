@@ -483,14 +483,16 @@ def render_panel_winamax(j1, j2, j1_sel, j2_sel):
     tabla = pd.DataFrame([{
         "Selección": f["texto"], "Mercado": f["nombre_mercado"],
         "Cuota": _num(f["cuota"]), "Modelo": f"{f['p']*100:.1f} %",
-        "Cuota mínima": _num(reglas.cuota_minima(f["p"], reglas.EDGE_MIN)),
+        "Cuota mínima": _num(reglas.cuota_minima(f["p"], f["ev"].get("edge_exigido", reglas.EDGE_MIN))),
         "Edge": f"{f['ev']['edge']*100:+.1f} %",
         "": "🟢" if f["ev"]["verde"] else "",
         "Importe": _eur(f["ev"]["importe"]) if f["ev"]["importe"] else "",
     } for f in filas])
     with st.expander(f"📋 Todas las cuotas leídas ({len(filas)}) y su value"):
         st.dataframe(tabla, use_container_width=True, hide_index=True)
-        st.caption(f"Cuota mínima = la que da un {reglas.EDGE_MIN*100:.0f} % de edge.")
+        st.caption(f"Cuota mínima = la que da un {reglas.EDGE_MIN*100:.0f} % de edge "
+                   f"({(reglas.EDGE_MIN + reglas.EDGE_EXTRA_MERCADO['mas_180'])*100:.0f} % "
+                   "en quién hace más 180s y su hándicap).")
         if w["sin_asignar"]:
             st.markdown(f"**Sin asignar ({len(w['sin_asignar'])})**: mercados que el modelo no cubre.")
             st.dataframe(pd.DataFrame(w["sin_asignar"], columns=["Mercado", "Salida", "Cuota"]),
@@ -595,15 +597,16 @@ def render_apuestas_valor(j1, j2, j1_sel, j2_sel):
                 f"<span>En este partido: {n_partido}</span></div>", unsafe_allow_html=True)
 
     if not apostables:
-        st.info(f"Ninguna cuota llega al {reglas.EDGE_MIN*100:.0f} % de edge: no hay "
-                "apuesta en este partido.")
+        st.info(f"Ninguna cuota llega al {reglas.EDGE_MIN*100:.0f} % de edge "
+                f"({(reglas.EDGE_MIN + reglas.EDGE_EXTRA_MERCADO['mas_180'])*100:.0f} % en "
+                "quién hace más 180s): no hay apuesta en este partido.")
     for i, f in enumerate(apostables):
         _tarjeta(f, i, alertas, fecha, j1, j2, j1_sel, j2_sel, queda)
     _apuntar_no_recomendada(filas, apostables, alertas, fecha, j1, j2, j1_sel, j2_sel, queda)
     casi = [f for f in filas if f["ev"]["verde"] and not f["ev"]["importe"]]
     if casi:
-        st.caption(f"🟢 También con value, pero sin llegar al {reglas.EDGE_MIN*100:.0f} % "
-                   "de edge (no se apuestan): "
+        st.caption("🟢 También con value, pero sin llegar al edge exigido "
+                   "(no se apuestan): "
                    + " · ".join(f"{f['texto']} @{_num(f['cuota'])} "
                                 f"({f['ev']['edge']*100:+.1f} %)" for f in casi))
     v1 = nivel_volatilidad(j1.get("volatilidad")) or "sin dato"

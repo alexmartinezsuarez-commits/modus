@@ -9,6 +9,8 @@ vigia/reglas.py - Reglas de apuesta (funciones puras, sin red).
     (Esto lo aplica el vigia; para apuntar en la app la volatilidad no
     cuenta.)
   - Edge = p_modelo * cuota - 1. Aviso si edge >= el minimo exigido.
+    Quien hace mas 180s (y su handicap) exige 10 puntos mas
+    (EDGE_EXTRA_MERCADO): 30 %, o 30 % + lo de la volatilidad alta.
   - Margen = p_modelo - 1/cuota. 🟢 si llega al margen del mercado (el
     mismo de la app: config.MARGENES_VALUE). Resultado exacto nunca 🟢.
   - Importe: 1/4 de Kelly sobre la banca (200 EUR + beneficio real):
@@ -40,6 +42,10 @@ VOL_MAXIMA = 18.0
 UNIDAD = 5.0      # importe minimo y escalon del tope
 CUOTA_MAX_SUBIR = 4.0
 TOPE_DIARIO = 50.0   # tope base por jornada (crece con el beneficio real)
+# Mercados que exigen mas edge que el resto: puntos que se suman al minimo
+# (tambien al de volatilidad alta). Quien hace mas 180s y su handicap: hasta
+# el 24/11, con edge >= 20 % en «Más 180s» solo salieron 2 de 10.
+EDGE_EXTRA_MERCADO = {"mas_180": 0.10}
 
 # Tipo de seleccion (modelo.motor.probabilidad) -> mercado para el margen
 MERCADO_DE_TIPO = {
@@ -52,6 +58,12 @@ MERCADO_DE_TIPO = {
     "mas_180": "mas_180",
     "hcap_180": "mas_180",
 }
+
+
+def edge_exigido(mercado, edge_min=EDGE_MIN):
+    """Edge minimo de una seleccion: el del partido (20 %, o mas con
+    volatilidad alta) mas el extra de su mercado (EDGE_EXTRA_MERCADO)."""
+    return round(edge_min + EDGE_EXTRA_MERCADO.get(mercado, 0.0), 6)
 
 
 def requisito_volatilidad(vol1, vol2):
@@ -107,23 +119,25 @@ def redondear_importe(euros):
 def evaluar(mercado, p, cuota, edge_min=EDGE_MIN, rebaja=False, banca=BANCA_INICIAL):
     """Evalua una seleccion. mercado: 'ganador', 'handicap', 'total_legs',
     'resultado', '180s' o 'mas_180'. edge_min y rebaja salen de
-    requisito_volatilidad; banca, de registro.banca_actual. Devuelve dict
-    con edge, margen, verde, kelly (euros de 1/4 de Kelly sin redondear) e
-    importe (antes del tope; 0 si no llega al edge exigido). 'revisar'
-    queda siempre en False: la regla REVISAR se quito."""
+    requisito_volatilidad; banca, de registro.banca_actual. Al edge_min se
+    le suma el extra del mercado (edge_exigido). Devuelve dict con edge,
+    margen, verde, kelly (euros de 1/4 de Kelly sin redondear),
+    edge_exigido e importe (antes del tope; 0 si no llega al edge
+    exigido). 'revisar' queda siempre en False: la regla REVISAR se quito."""
     edge = calcular_yield(p, cuota)
     margen = p - 1.0 / cuota
     verde = mercado != "resultado" and es_value(edge, cuota, mercado=mercado)
     k = euros_kelly(p, cuota, banca)
+    exigido = edge_exigido(mercado, edge_min)
     importe = 0.0
-    if edge >= edge_min - 1e-9:
+    if edge >= exigido - 1e-9:
         importe = redondear_importe(k)
         if not (verde and cuota <= CUOTA_MAX_SUBIR):
             importe = min(importe, UNIDAD)
         if rebaja:
             importe = bajar_escalon(importe)
     return {"edge": edge, "margen": margen, "verde": verde,
-            "revisar": False, "kelly": k,
+            "revisar": False, "kelly": k, "edge_exigido": exigido,
             "importe": importe}
 
 
@@ -227,24 +241,26 @@ def cuota_para_euros(p, euros, banca=BANCA_INICIAL):
 def cuotas_minimas(mercado, p, edge_min=EDGE_MIN, rebaja=False, banca=BANCA_INICIAL):
     """Todas las cuotas de referencia de una seleccion.
 
-    aviso    la que llega al edge exigido (5 EUR)
+    aviso    la que llega al edge exigido (5 EUR; con el extra del mercado)
     eur_10   la que da 10 EUR con 1/4 de Kelly (si ademas es 🟢 y cuota
              <= 4; con volatilidad alta hace falta llegar a 15 -> 10)
     eur_15   la que da 15 EUR; None con volatilidad alta
     verde    la que la hace 🟢 (None en resultado exacto)
     Las de 10 y 15 EUR son None si pasan de 4,00 (no se apuestan mas de 5).
     """
+    exigido = edge_exigido(mercado, edge_min)
+
     def para(euros):
         # se redondea al multiplo de 5 mas cercano: 10 EUR desde 7,5; 15 desde 12,5
         c = cuota_para_euros(p, euros - UNIDAD / 2, banca)
         if c is None:
             return None
-        c = max(c, cuota_minima(p, edge_min) or 0)
+        c = max(c, cuota_minima(p, exigido) or 0)
         return c if c <= CUOTA_MAX_SUBIR else None
 
     return {
         "justa": round(1.0 / p, 2) if p > 0 else None,
-        "aviso": cuota_minima(p, edge_min),
+        "aviso": cuota_minima(p, exigido),
         "eur_10": para(15.0) if rebaja else para(10.0),
         "eur_15": None if rebaja else para(15.0),
         "verde": cuota_minima_verde(mercado, p),

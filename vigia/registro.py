@@ -258,6 +258,18 @@ def nivel_partido(f):
     return "alta" if "alto" in niveles else "baja/media"
 
 
+def _mercado_regla(f):
+    """Mercado de la regla (reglas.MERCADO_DE_TIPO) de una fila, por su
+    seleccion_json; None si no se sabe."""
+    import json
+    from vigia import reglas
+    try:
+        tipo = json.loads(f.get("seleccion_json") or "{}").get("tipo")
+    except (TypeError, ValueError):
+        return None
+    return reglas.MERCADO_DE_TIPO.get(tipo)
+
+
 def _importe_con_volatilidad(f):
     """Importe que habria tenido la apuesta con la regla de volatilidad del
     vigia, o None si esa regla la habria descartado (o no se puede saber)."""
@@ -266,7 +278,10 @@ def _importe_con_volatilidad(f):
     if v1 is None or v2 is None:
         return None
     req = reglas.requisito_volatilidad(v1, v2)
-    if not req["ok"] or num(f.get("edge")) < req["edge_min"] - 1e-9:
+    if not req["ok"]:
+        return None
+    exigido = reglas.edge_exigido(_mercado_regla(f), req["edge_min"])
+    if num(f.get("edge")) < exigido - 1e-9:
         return None
     imp = num(f.get("importe"))
     return reglas.bajar_escalon(imp) if req["rebaja"] else imp

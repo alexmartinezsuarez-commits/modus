@@ -243,6 +243,7 @@ mínimas.
 |---|---|
 | Volatilidad | la del jugador más irregular de los dos. Hasta 12 (baja o media): edge mínimo 20 %. Por encima de 12 (alta): +2 puntos de edge por cada punto (13 → 22 %, 15 → 26 %, 17 → 30 %) y el importe baja un escalón (15 → 10 €, 10 → 5 €). Más de 18 o sin dato → se descarta y se anota en `vigia_log` (en los **avisos del vigía**; para **apuntar en la app** la volatilidad no cuenta: siempre 20 % e importe normal, solo se muestra como información) |
 | Value | edge = p × cuota − 1 ≥ el mínimo exigido (20 %, o más con volatilidad alta) |
+| Más 180s | quién hace más 180s y su hándicap exigen **10 puntos más** de edge (30 %; con volatilidad alta, 30 % + lo de la volatilidad). Se cambia en `EDGE_EXTRA_MERCADO` de `vigia/reglas.py` |
 | 🟢 | p − 1/cuota ≥ margen del mercado (`MARGEN_POR_MERCADO` de `config.py`: ganador 6, total de legs 8, hándicaps y 180s 5). Resultado exacto nunca 🟢 |
 | Importe | ¼ de Kelly sobre la banca (200 € + tu beneficio real): banca × ¼ × edge ÷ (cuota − 1), al múltiplo de 5 € más cercano, entre 5 y 15 €. Con el mismo edge, más a las cuotas bajas (más probables). Más de 5 € solo si 🟢 y cuota ≤ 4,00 |
 | Por partido | sin límite: puedes apostar a varias selecciones del mismo partido si lo consideras |

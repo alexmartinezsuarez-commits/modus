@@ -119,3 +119,29 @@ def test_hcap_180():
     assert probabilidad(calc, {"tipo": "hcap_180", "jugador": 2, "linea": -0.5}) == pj2
     assert reglas.acierta({"tipo": "hcap_180", "jugador": 1, "linea": 0.5}, 4, 0, 2, 2) is True
     assert reglas.acierta({"tipo": "hcap_180", "jugador": 2, "linea": -0.5}, 4, 0, 2, 2) is False
+
+
+# Quien hace mas 180s (y su handicap) exige 10 puntos mas de edge: 30 %
+@pytest.mark.parametrize("mercado,p,cuota,esperado", [
+    ("mas_180", 0.46, 2.80, 0),      # edge 28,8 %: vale en otro mercado, aqui no
+    ("ganador", 0.46, 2.80, 10.0),   # el mismo edge en el ganador si avisa
+    ("mas_180", 0.46, 2.95, 10.0),   # edge 35,7 %: pasa del 30 %
+])
+def test_mas_180_exige_mas_edge(mercado, p, cuota, esperado):
+    assert reglas.importe(mercado, p, cuota) == esperado
+
+
+def test_edge_exigido_por_mercado():
+    assert reglas.edge_exigido("ganador") == 0.20
+    assert reglas.edge_exigido("mas_180") == 0.30
+    # El extra se suma tambien al de volatilidad alta (17,9 -> 31,8 % + 10)
+    req = reglas.requisito_volatilidad(17.9, 5)
+    assert reglas.edge_exigido("mas_180", req["edge_min"]) == pytest.approx(0.418)
+    ev = reglas.evaluar("mas_180", 0.46, 2.95, req["edge_min"], req["rebaja"])
+    assert ev["edge_exigido"] == pytest.approx(0.418) and ev["importe"] == 0
+
+
+def test_cuota_minima_de_mas_180_con_su_edge():
+    # p = 0,46: avisar con 1,30/0,46 = 2,826 -> 2,83 (en el ganador 1,20/0,46 -> 2,61)
+    assert reglas.cuotas_minimas("mas_180", 0.46)["aviso"] == 2.83
+    assert reglas.cuotas_minimas("ganador", 0.46)["aviso"] == 2.61

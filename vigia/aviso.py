@@ -9,7 +9,8 @@ vigia/aviso.py - Texto del aviso al movil con las cuotas reales de Winamax
              cuota 1,90 · aguanta hasta 1,84 · edge +21 %
 
 'aguanta hasta' = la cuota mas baja con la que sigue habiendo value
-(el edge exigido): si en Winamax ya esta por debajo, no la hagas.
+(el edge exigido, con el extra de su mercado): si en Winamax ya esta por
+debajo, no la hagas.
 """
 
 from vigia import reglas
@@ -58,7 +59,7 @@ def componer(j1, j2, apuestas, edge_min, hora, queda=None, vol=None, rebaja=Fals
         importes = repartir_tope(importes, queda)
     lineas = []
     for a, imp in zip(apuestas[:MAX_APUESTAS], importes):
-        minima = reglas.cuota_minima(a["p"], edge_min)
+        minima = reglas.cuota_minima(a["p"], a["ev"].get("edge_exigido", edge_min))
         lineas.append(f"✅ {a['texto']} → {_eur(imp) if imp > 0 else '0 € (tope)'}")
         lineas.append(f"cuota {_num(a['cuota'])} · aguanta hasta {_num(minima)} · "
                       f"edge {a['ev']['edge'] * 100:+.0f} %" + (" 🟢" if a["ev"]["verde"] else ""))
